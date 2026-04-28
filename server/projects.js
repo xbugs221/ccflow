@@ -876,6 +876,9 @@ function buildProjectChatRecord(sessionId, title, modelState = {}, uiState = {},
   if (typeof modelState.reasoningEffort === 'string' && modelState.reasoningEffort.trim()) {
     record.reasoningEffort = modelState.reasoningEffort.trim();
   }
+  if (typeof modelState.thinkingMode === 'string' && modelState.thinkingMode.trim()) {
+    record.thinkingMode = modelState.thinkingMode.trim();
+  }
   if (uiState && typeof uiState === 'object' && !Array.isArray(uiState) && Object.keys(uiState).length > 0) {
     record.ui = { ...uiState };
   }
@@ -1935,11 +1938,23 @@ function getSessionModelStateMap(config) {
   if (config?.schemaVersion === PROJECT_CONFIG_SCHEMA_VERSION) {
     const modelById = {};
     Object.values(config.chat || {}).forEach((record) => {
-      if (record?.sessionId) modelById[record.sessionId] = { model: record.model, reasoningEffort: record.reasoningEffort };
+      if (record?.sessionId) {
+        modelById[record.sessionId] = {
+          model: record.model,
+          reasoningEffort: record.reasoningEffort,
+          thinkingMode: record.thinkingMode,
+        };
+      }
     });
     Object.values(config.workflows || {}).forEach((workflow) => {
       Object.values(workflow?.chat || {}).forEach((record) => {
-        if (record?.sessionId) modelById[record.sessionId] = { model: record.model, reasoningEffort: record.reasoningEffort };
+        if (record?.sessionId) {
+          modelById[record.sessionId] = {
+            model: record.model,
+            reasoningEffort: record.reasoningEffort,
+            thinkingMode: record.thinkingMode,
+          };
+        }
       });
     });
     const rawMap = config?.[SESSION_MODEL_STATE_BY_ID_KEY];
@@ -1969,6 +1984,9 @@ function normalizeSessionModelState(rawState) {
   if (typeof rawState.reasoningEffort === 'string' && rawState.reasoningEffort.trim()) {
     state.reasoningEffort = rawState.reasoningEffort.trim();
   }
+  if (typeof rawState.thinkingMode === 'string' && rawState.thinkingMode.trim()) {
+    state.thinkingMode = rawState.thinkingMode.trim();
+  }
   if (typeof rawState.updatedAt === 'string' && rawState.updatedAt.trim()) {
     state.updatedAt = rawState.updatedAt.trim();
   }
@@ -1988,6 +2006,7 @@ function applySessionModelState(session, modelStateById) {
     ...session,
     model: state.model || session.model,
     reasoningEffort: state.reasoningEffort || session.reasoningEffort,
+    thinkingMode: state.thinkingMode || session.thinkingMode,
   };
 }
 
@@ -2024,6 +2043,9 @@ async function updateSessionModelState(projectPath = '', sessionId = '', patch =
   }
   if (typeof patch.reasoningEffort === 'string' && patch.reasoningEffort.trim()) {
     next.reasoningEffort = patch.reasoningEffort.trim();
+  }
+  if (typeof patch.thinkingMode === 'string' && patch.thinkingMode.trim()) {
+    next.thinkingMode = patch.thinkingMode.trim();
   }
   next.updatedAt = new Date().toISOString();
 

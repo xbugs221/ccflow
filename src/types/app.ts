@@ -100,6 +100,7 @@ export interface ProjectSession {
   name?: string;
   model?: string;
   reasoningEffort?: string;
+  thinkingMode?: string;
   createdAt?: string;
   created_at?: string;
   updated_at?: string;

@@ -86,6 +86,23 @@ test('Scenario: 单条普通会话聚合所有展示状态', async () => {
   });
 });
 
+test('Scenario: Claude 兼容思考深度随会话状态写入项目配置', async () => {
+  await withIsolatedProject(async ({ projectPath }) => {
+    const project = await addProjectManually(projectPath, 'Conf V2 Claude Thinking Demo');
+    const draft = await createManualSessionDraft(project.name, projectPath, 'claude', 'Kimi 会话1');
+    await updateSessionModelState(projectPath, draft.id, {
+      model: 'kimi-k2',
+      thinkingMode: 'high',
+    });
+
+    const persisted = await readProjectConf(projectPath);
+    assert.equal(persisted.chat['1'].provider, 'claude');
+    assert.equal(persisted.chat['1'].model, 'kimi-k2');
+    assert.equal(persisted.chat['1'].thinkingMode, 'high');
+  });
+});
+
+
 test('Scenario: 终端会话已占用编号后新建 WebUI 草稿', async () => {
   await withIsolatedProject(async ({ projectPath }) => {
     const project = await addProjectManually(projectPath, 'Conf V2 Numbering Demo');

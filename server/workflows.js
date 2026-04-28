@@ -131,6 +131,15 @@ const STAGE_TEMPLATES = [
 
 const PROJECT_CONFIG_SCHEMA_VERSION = 2;
 const WORKFLOW_ARTIFACT_ROOT = '.ccflow';
+const MANUAL_SESSION_DRAFTS_KEY = 'manualSessionDrafts';
+const SESSION_SUMMARY_BY_ID_KEY = 'sessionSummaryById';
+const LEGACY_SESSION_SUMMARY_OVERRIDE_BY_ID_KEY = 'sessionSummaryOverrideById';
+const LEGACY_CODEX_SESSION_SUMMARY_BY_ID_KEY = 'codexSessionSummaryById';
+const SESSION_WORKFLOW_METADATA_BY_ID_KEY = 'sessionWorkflowMetadataById';
+const SESSION_UI_STATE_BY_PATH_KEY = 'sessionUiStateByPath';
+const SESSION_MODEL_STATE_BY_ID_KEY = 'sessionModelStateById';
+const SESSION_ROUTE_INDEX_KEY = 'sessionRouteIndex';
+const LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY = 'sessionRouteIndexByPath';
 const REVIEW_PASS_DECISIONS = new Set(['clean', 'pass', 'passed', 'approved', 'accept', 'accepted', 'ok', 'success']);
 const REVIEW_REPAIR_DECISIONS = new Set(['needs_repair', 'blocked', 'reject', 'rejected', 'fail', 'failed', 'changes_requested']);
 const SUBSTAGE_FILE_DEFINITIONS = {
@@ -441,6 +450,131 @@ async function writeProjectConfig(projectPath, config) {
     }
   }
   await fs.writeFile(configPath, nextConfigData, 'utf8');
+}
+
+/**
+ * Remove one key from an object map and delete the map when it becomes empty.
+ */
+function deleteConfigMapEntry(config, key, entryKey) {
+  const map = config?.[key];
+  if (!map || typeof map !== 'object' || Array.isArray(map) || !Object.prototype.hasOwnProperty.call(map, entryKey)) {
+    return false;
+  }
+
+  delete map[entryKey];
+  if (Object.keys(map).length === 0) {
+    delete config[key];
+  }
+  return true;
+}
+
+/**
+ * Remove UI state rows stored either by session id or by scoped route/session key.
+ */
+function deleteSessionUiStateEntries(config, sessionIds) {
+  const map = config?.[SESSION_UI_STATE_BY_PATH_KEY];
+  if (!map || typeof map !== 'object' || Array.isArray(map)) {
+    return false;
+  }
+
+  let changed = false;
+  Object.keys(map).forEach((key) => {
+    const sessionId = String(key).split(':').pop();
+    if (sessionIds.has(sessionId) || sessionIds.has(key)) {
+      delete map[key];
+      changed = true;
+    }
+  });
+  if (Object.keys(map).length === 0) {
+    delete config[SESSION_UI_STATE_BY_PATH_KEY];
+  }
+  return changed;
+}
+
+/**
+ * Remove deleted workflow sessions from route buckets so config normalization
+ * cannot rebuild the workflow from stale route ownership records.
+ */
+function deleteSessionRouteEntries(config, sessionIds) {
+  let changed = false;
+  [SESSION_ROUTE_INDEX_KEY, LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY].forEach((key) => {
+    const routeIndex = config?.[key];
+    if (!routeIndex || typeof routeIndex !== 'object' || Array.isArray(routeIndex)) {
+      return;
+    }
+
+    if (Object.values(routeIndex).some((value) => typeof value !== 'object')) {
+      Object.entries(routeIndex).forEach(([routeIndexKey, sessionId]) => {
+        if (sessionIds.has(sessionId)) {
+          delete routeIndex[routeIndexKey];
+          changed = true;
+        }
+      });
+      if (Object.keys(routeIndex).length === 0) {
+        delete config[key];
+      }
+      return;
+    }
+
+    Object.entries(routeIndex).forEach(([bucketKey, bucket]) => {
+      if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) {
+        return;
+      }
+      Object.entries(bucket).forEach(([routeIndexKey, sessionId]) => {
+        if (sessionIds.has(sessionId)) {
+          delete bucket[routeIndexKey];
+          changed = true;
+        }
+      });
+      if (Object.keys(bucket).length === 0) {
+        delete routeIndex[bucketKey];
+      }
+    });
+    if (Object.keys(routeIndex).length === 0) {
+      delete config[key];
+    }
+  });
+  return changed;
+}
+
+/**
+ * Remove all reverse indexes that can otherwise recreate a deleted workflow.
+ */
+function cleanupDeletedWorkflowConfig(config, workflowId, childSessions = []) {
+  const sessionIds = new Set(
+    childSessions
+      .map((session) => session?.sessionId || session?.id)
+      .filter((sessionId) => typeof sessionId === 'string' && sessionId.trim()),
+  );
+
+  const workflowMetadataById = config?.[SESSION_WORKFLOW_METADATA_BY_ID_KEY];
+  if (workflowMetadataById && typeof workflowMetadataById === 'object' && !Array.isArray(workflowMetadataById)) {
+    Object.entries(workflowMetadataById).forEach(([sessionId, metadata]) => {
+      if (metadata?.workflowId === workflowId) {
+        sessionIds.add(sessionId);
+      }
+    });
+  }
+
+  const manualDrafts = config?.[MANUAL_SESSION_DRAFTS_KEY];
+  if (manualDrafts && typeof manualDrafts === 'object' && !Array.isArray(manualDrafts)) {
+    Object.entries(manualDrafts).forEach(([draftId, draft]) => {
+      if (draft?.workflowId === workflowId) {
+        sessionIds.add(draftId);
+      }
+    });
+  }
+
+  sessionIds.forEach((sessionId) => {
+    deleteConfigMapEntry(config, SESSION_SUMMARY_BY_ID_KEY, sessionId);
+    deleteConfigMapEntry(config, LEGACY_SESSION_SUMMARY_OVERRIDE_BY_ID_KEY, sessionId);
+    deleteConfigMapEntry(config, LEGACY_CODEX_SESSION_SUMMARY_BY_ID_KEY, sessionId);
+    deleteConfigMapEntry(config, SESSION_WORKFLOW_METADATA_BY_ID_KEY, sessionId);
+    deleteConfigMapEntry(config, SESSION_MODEL_STATE_BY_ID_KEY, sessionId);
+    deleteConfigMapEntry(config, MANUAL_SESSION_DRAFTS_KEY, sessionId);
+  });
+  deleteSessionUiStateEntries(config, sessionIds);
+  deleteSessionRouteEntries(config, sessionIds);
 }
 
 /**
@@ -916,7 +1050,7 @@ async function readWorkflowStore(projectPath) {
   };
 }
 
-async function writeWorkflowStore(projectPath, store) {
+async function writeWorkflowStore(projectPath, store, options = {}) {
   const config = await readProjectConfig(projectPath);
   const nextConfig = {
     ...config,
@@ -948,6 +1082,10 @@ async function writeWorkflowStore(projectPath, store) {
     nextConfig.workflows = nextWorkflows;
   } else {
     delete nextConfig.workflows;
+  }
+
+  if (options.deletedWorkflowId) {
+    cleanupDeletedWorkflowConfig(nextConfig, options.deletedWorkflowId, options.deletedWorkflowChildSessions);
   }
 
   await writeProjectConfig(projectPath, nextConfig);
@@ -2674,7 +2812,10 @@ export async function deleteWorkflow(project, workflowId) {
 
   entry.workflows = entry.workflows.filter((workflow) => workflow.id !== workflowId);
   store.workflows = entry.workflows;
-  await writeWorkflowStore(projectPath, store);
+  await writeWorkflowStore(projectPath, store, {
+    deletedWorkflowId: workflowId,
+    deletedWorkflowChildSessions: childSessions,
+  });
   return true;
 }
 

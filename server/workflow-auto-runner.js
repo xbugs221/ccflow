@@ -292,8 +292,8 @@ export async function resolveWorkflowAutoAction(project, workflow) {
       continue;
     }
 
-    if (reviewStatus === 'pending') {
-      const reviewSession = getLatestWorkflowReviewSession(workflow, passIndex);
+    const reviewSession = getLatestWorkflowReviewSession(workflow, passIndex);
+    if (reviewStatus === 'pending' || (reviewStatus === 'active' && !reviewSession)) {
       return {
         stage: `review_${passIndex}`,
         sessionId: reviewSession?.id,

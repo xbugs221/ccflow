@@ -45,6 +45,9 @@ type ChatSearchStatus = 'idle' | 'loading' | 'success-empty' | 'success-hit' | '
 const isTemporarySessionId = (sessionId?: string | null): boolean =>
   Boolean(sessionId && (sessionId.startsWith('new-session-') || /^c\d+$/.test(sessionId)));
 
+const isUnsavedSessionId = (sessionId?: string | null): boolean =>
+  Boolean(sessionId && sessionId.startsWith('new-session-'));
+
 /**
  * Build the project identity needed by session-scoped config APIs.
  */
@@ -444,13 +447,11 @@ function ChatInterface({
     ],
   );
 
-  const persistCodexSessionModelState = useCallback(
-    async (patch: { model?: string; reasoningEffort?: string }) => {
+  const persistSessionModelState = useCallback(
+    async (patch: { provider?: Provider; model?: string; reasoningEffort?: string; thinkingMode?: string }) => {
       if (
-        effectiveProvider !== 'codex'
-        || selectedSession?.__provider !== 'codex'
-        || !selectedSession?.id
-        || isTemporarySessionId(selectedSession.id)
+        !selectedSession?.id
+        || isUnsavedSessionId(selectedSession.id)
       ) {
         return;
       }
@@ -462,10 +463,11 @@ function ChatInterface({
 
       const response = await api.updateSessionModelState(projectName, selectedSession.id, {
         projectPath,
+        provider: selectedSession.__provider,
         ...patch,
       });
       if (!response.ok) {
-        throw new Error(`Failed to persist Codex session model state: ${response.status}`);
+        throw new Error(`Failed to persist session model state: ${response.status}`);
       }
     },
     [
@@ -478,7 +480,7 @@ function ChatInterface({
   const handleSetCodexReasoningEffort = useCallback(
     (nextEffort: string) => {
       setCodexReasoningEffort(nextEffort);
-      void persistCodexSessionModelState({
+      void persistSessionModelState({
         model: codexModel,
         reasoningEffort: nextEffort,
       }).catch((error) => {
@@ -487,17 +489,53 @@ function ChatInterface({
     },
     [
       codexModel,
-      persistCodexSessionModelState,
+      persistSessionModelState,
       setCodexReasoningEffort,
     ],
   );
 
+  const handleSetThinkingMode = useCallback(
+    (nextMode: string) => {
+      setThinkingMode(nextMode);
+      void persistSessionModelState({
+        model: claudeModel,
+        thinkingMode: nextMode,
+      }).catch((error) => {
+        console.error('Failed to persist Claude thinking mode:', error);
+      });
+    },
+    [
+      claudeModel,
+      persistSessionModelState,
+      setThinkingMode,
+    ],
+  );
+
+  useEffect(() => {
+    const sessionThinkingMode = typeof selectedSession?.thinkingMode === 'string'
+      ? selectedSession.thinkingMode.trim()
+      : '';
+    if (
+      selectedSession?.__provider !== 'claude'
+      || !sessionThinkingMode
+      || sessionThinkingMode === thinkingMode
+    ) {
+      return;
+    }
+
+    setThinkingMode(sessionThinkingMode);
+  }, [
+    selectedSession?.__provider,
+    selectedSession?.id,
+    selectedSession?.thinkingMode,
+    setThinkingMode,
+    thinkingMode,
+  ]);
+
   useEffect(() => {
     if (
-      effectiveProvider !== 'codex'
-      || selectedSession?.__provider !== 'codex'
-      || !selectedSession?.id
-      || isTemporarySessionId(selectedSession.id)
+      !selectedSession?.id
+      || isUnsavedSessionId(selectedSession.id)
     ) {
       return;
     }
@@ -508,9 +546,9 @@ function ChatInterface({
     }
 
     /**
-     * Pull the authoritative model controls for the active Codex session.
+     * Pull the authoritative model controls for the active provider session.
      */
-    const syncCodexSessionModelState = async () => {
+    const syncSessionModelState = async () => {
       try {
         const response = await api.sessionModelState(projectName, selectedSession.id, projectPath);
         if (!response.ok) {
@@ -521,19 +559,25 @@ function ChatInterface({
         const reasoningEffort = typeof payload?.state?.reasoningEffort === 'string'
           ? payload.state.reasoningEffort.trim()
           : '';
+        const syncedThinkingMode = typeof payload?.state?.thinkingMode === 'string'
+          ? payload.state.thinkingMode.trim()
+          : '';
 
-        if (model && model !== codexModel) {
+        if (selectedSession?.__provider === 'codex' && model && model !== codexModel) {
           setCodexModel(model);
         }
-        if (reasoningEffort && reasoningEffort !== codexReasoningEffort) {
+        if (selectedSession?.__provider === 'codex' && reasoningEffort && reasoningEffort !== codexReasoningEffort) {
           setCodexReasoningEffort(reasoningEffort);
         }
+        if (selectedSession?.__provider === 'claude' && syncedThinkingMode && syncedThinkingMode !== thinkingMode) {
+          setThinkingMode(syncedThinkingMode);
+        }
       } catch (error) {
-        console.error('Failed to sync Codex session model state:', error);
+        console.error('Failed to sync session model state:', error);
       }
     };
 
-    void syncCodexSessionModelState();
+    void syncSessionModelState();
   }, [
     codexModel,
     codexReasoningEffort,
@@ -542,6 +586,8 @@ function ChatInterface({
     selectedSession,
     setCodexModel,
     setCodexReasoningEffort,
+    setThinkingMode,
+    thinkingMode,
   ]);
 
   const handleCodexModelSwitchComplete = useCallback(() => {
@@ -851,17 +897,20 @@ function ChatInterface({
     onRawMessage: (message) => {
       if (
         message.type === 'session-model-state-updated'
-        && message.provider === 'codex'
         && message.sessionId === selectedSession?.id
       ) {
         const state = message.state && typeof message.state === 'object' ? message.state : {};
         const model = typeof state.model === 'string' ? state.model.trim() : '';
         const reasoningEffort = typeof state.reasoningEffort === 'string' ? state.reasoningEffort.trim() : '';
-        if (model && model !== codexModel) {
+        const syncedThinkingMode = typeof state.thinkingMode === 'string' ? state.thinkingMode.trim() : '';
+        if (message.provider === 'codex' && model && model !== codexModel) {
           setCodexModel(model);
         }
-        if (reasoningEffort && reasoningEffort !== codexReasoningEffort) {
+        if (message.provider === 'codex' && reasoningEffort && reasoningEffort !== codexReasoningEffort) {
           setCodexReasoningEffort(reasoningEffort);
+        }
+        if (message.provider === 'claude' && syncedThinkingMode && syncedThinkingMode !== thinkingMode) {
+          setThinkingMode(syncedThinkingMode);
         }
       }
 
@@ -1289,7 +1338,7 @@ function ChatInterface({
           onAbortSession={handleAbortSession}
           provider={effectiveProvider}
           thinkingMode={thinkingMode}
-          setThinkingMode={setThinkingMode}
+          setThinkingMode={handleSetThinkingMode}
           claudeModel={claudeModel}
           setClaudeModel={setClaudeModel}
           claudeModelOptions={claudeModelOptions}

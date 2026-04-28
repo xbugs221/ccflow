@@ -993,6 +993,50 @@ test('deleteWorkflow removes workflow child session records and JSONL files', as
         },
         2: { title: '保留工作流' },
       },
+      sessionWorkflowMetadataById: {
+        [claudeSessionId]: { workflowId: 'w1', provider: 'claude', stageKey: 'planning' },
+        [codexSessionId]: { workflowId: 'w1', provider: 'codex', stageKey: 'execution' },
+        'orphan-workflow-session': { workflowId: 'w1', provider: 'codex', stageKey: 'execution' },
+        'retained-session': { workflowId: 'w2', provider: 'codex', stageKey: 'planning' },
+      },
+      manualSessionDrafts: {
+        'workflow-draft-session': { workflowId: 'w1', provider: 'codex', routeIndex: 4, label: '删除草稿' },
+        'retained-draft-session': { workflowId: 'w2', provider: 'codex', routeIndex: 5, label: '保留草稿' },
+      },
+      sessionRouteIndex: {
+        [projectPath]: {
+          1: claudeSessionId,
+          2: codexSessionId,
+          3: 'orphan-workflow-session',
+          4: 'workflow-draft-session',
+          5: 'retained-session',
+        },
+      },
+      sessionRouteIndexByPath: {
+        1: 'orphan-workflow-session',
+        2: 'retained-session',
+      },
+      sessionSummaryById: {
+        [claudeSessionId]: '规划会话',
+        [codexSessionId]: '执行会话',
+        'orphan-workflow-session': '孤儿会话',
+        'workflow-draft-session': '删除草稿',
+        'retained-session': '保留会话',
+      },
+      sessionModelStateById: {
+        [claudeSessionId]: { model: 'claude-sonnet' },
+        [codexSessionId]: { model: 'gpt-5.5' },
+        'orphan-workflow-session': { model: 'gpt-5.5' },
+        'workflow-draft-session': { model: 'gpt-5.5' },
+        'retained-session': { model: 'gpt-5.5' },
+      },
+      sessionUiStateByPath: {
+        [`${projectPath}:1:${claudeSessionId}`]: { hasUnreadActivity: true },
+        [`${projectPath}:2:${codexSessionId}`]: { hasUnreadActivity: true },
+        [`${projectPath}:3:orphan-workflow-session`]: { hasUnreadActivity: true },
+        [`${projectPath}:4:workflow-draft-session`]: { hasUnreadActivity: true },
+        [`${projectPath}:5:retained-session`]: { hasUnreadActivity: true },
+      },
     }, null, 2)}\n`, 'utf8');
 
     const deleted = await deleteWorkflow({ fullPath: projectPath, path: projectPath }, 'w1');
@@ -1002,6 +1046,13 @@ test('deleteWorkflow removes workflow child session records and JSONL files', as
     await assert.rejects(fs.access(claudeSessionPath), { code: 'ENOENT' });
     await assert.rejects(fs.access(codexSessionPath), { code: 'ENOENT' });
     assert.deepEqual(Object.keys(config.workflows), ['2']);
+    assert.deepEqual(Object.keys(config.sessionWorkflowMetadataById), ['retained-session']);
+    assert.deepEqual(Object.keys(config.manualSessionDrafts), ['retained-draft-session']);
+    assert.deepEqual(Object.keys(config.sessionRouteIndex[projectPath]), ['5']);
+    assert.deepEqual(Object.keys(config.sessionRouteIndexByPath), ['2']);
+    assert.deepEqual(Object.keys(config.sessionSummaryById), ['retained-session']);
+    assert.deepEqual(Object.keys(config.sessionModelStateById), ['retained-session']);
+    assert.deepEqual(Object.keys(config.sessionUiStateByPath), [`${projectPath}:5:retained-session`]);
   });
 });
 

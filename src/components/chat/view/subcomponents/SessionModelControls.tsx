@@ -242,6 +242,7 @@ export default function SessionModelControls({
       <button
         ref={buttonRef}
         type="button"
+        data-testid="session-model-controls-trigger"
         onClick={() => setIsOpen((previous) => !previous)}
         className="h-8 sm:h-9 min-w-[5rem] px-2.5 sm:px-3 rounded-lg border border-border/60 bg-card hover:bg-accent/50 text-foreground transition-colors inline-flex items-center gap-2"
         title={t('sessionControls.buttonTitle', {
@@ -314,6 +315,7 @@ export default function SessionModelControls({
                     : t('sessionControls.thinkingMode')}
                 </span>
                 <select
+                  data-testid="session-model-controls-depth"
                   value={currentDepthValue}
                   onChange={(event) => {
                     if (provider === 'codex') {

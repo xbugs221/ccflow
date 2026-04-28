@@ -32,7 +32,52 @@ const STAGE_STATUSES = [
   ['archive', '归档'],
 ].map(([key, label]) => ({ key, label, status: 'completed' }));
 
+const STAGE_LABELS_BY_KEY = Object.fromEntries(
+  STAGE_STATUSES.map((stage) => [stage.key, stage.label]),
+);
+
 let homeIsolationQueue = Promise.resolve();
+
+/**
+ * PURPOSE: Build explicit workflow stage state for auto-runner decision tests.
+ */
+function buildStageStatuses(overrides = {}) {
+  return STAGE_STATUSES.map((stage) => ({
+    key: stage.key,
+    label: STAGE_LABELS_BY_KEY[stage.key] || stage.key,
+    status: overrides[stage.key] || 'pending',
+  }));
+}
+
+/**
+ * PURPOSE: Build a minimal workflow read model for backend auto-runner decisions.
+ */
+function buildAutoWorkflow(overrides = {}) {
+  return {
+    id: 'workflow-matrix',
+    stage: 'review_1',
+    adoptsExistingOpenSpec: true,
+    openspecChangeDetected: true,
+    openspecTaskProgress: {
+      totalTasks: 1,
+      completedTasks: 1,
+    },
+    stageStatuses: buildStageStatuses({
+      planning: 'completed',
+      execution: 'completed',
+      review_1: 'pending',
+      repair_1: 'pending',
+      review_2: 'pending',
+      repair_2: 'pending',
+      review_3: 'pending',
+      repair_3: 'pending',
+      archive: 'pending',
+      ...(overrides.statuses || {}),
+    }),
+    childSessions: overrides.childSessions || [],
+    ...overrides.workflow,
+  };
+}
 
 /**
  * PURPOSE: Run one test with isolated HOME/PATH so workflow config and the
@@ -129,6 +174,71 @@ async function writeEvidenceThroughReview3(projectPath, workflowId, review3Decis
   await writeWorkflowArtifact(projectPath, workflowId, 'repair-2-summary.md', '# repair 2\n', 4000);
   await writeWorkflowArtifact(projectPath, workflowId, 'review-3.json', JSON.stringify({ decision: review3Decision, findings: [{ title: 'fix 3' }] }), 5000);
 }
+
+test('auto runner decision matrix starts the next planned stage or waits on active work', async () => {
+  const project = { name: 'workflow-matrix-project', path: '/tmp/workflow-matrix' };
+  const cases = [
+    {
+      name: 'planning active without a child session',
+      workflow: buildAutoWorkflow({
+        statuses: { planning: 'active', execution: 'pending', review_1: 'pending' },
+        workflow: {
+          stage: 'planning',
+          adoptsExistingOpenSpec: false,
+          openspecChangeDetected: false,
+        },
+      }),
+      expectedStage: 'planning',
+    },
+    {
+      name: 'execution active before tasks complete',
+      workflow: buildAutoWorkflow({
+        statuses: { execution: 'active', review_1: 'pending' },
+        workflow: {
+          openspecTaskProgress: { totalTasks: 2, completedTasks: 1 },
+        },
+      }),
+      expectedStage: 'execution',
+    },
+    {
+      name: 'review pending after execution tasks complete',
+      workflow: buildAutoWorkflow(),
+      expectedStage: 'review_1',
+    },
+    {
+      name: 'review active without a review session recovers by launching review',
+      workflow: buildAutoWorkflow({
+        statuses: { review_1: 'active' },
+        childSessions: [
+          { id: 'execution-session', stageKey: 'execution', substageKey: 'node_execution', routeIndex: 1 },
+        ],
+      }),
+      expectedStage: 'review_1',
+    },
+    {
+      name: 'review active with a review session waits',
+      workflow: buildAutoWorkflow({
+        statuses: { review_1: 'active' },
+        childSessions: [
+          { id: 'review-session', stageKey: 'review_1', substageKey: 'review_1', routeIndex: 2 },
+        ],
+      }),
+      expectedStage: null,
+    },
+    {
+      name: 'archive completed stops',
+      workflow: buildAutoWorkflow({
+        statuses: { review_1: 'completed', archive: 'completed' },
+      }),
+      expectedStage: null,
+    },
+  ];
+
+  for (const item of cases) {
+    const action = await resolveWorkflowAutoAction(project, item.workflow);
+    assert.equal(action?.stage || null, item.expectedStage, item.name);
+  }
+});
 
 test('blocked review 3 keeps stale archive pending until repair 3 evidence exists', { concurrency: false }, async () => {
   await withWorkflowProject(async ({ project, projectPath, workflowId }) => {

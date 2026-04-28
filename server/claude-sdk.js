@@ -669,6 +669,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       isNewSession: !sessionId && !!command
     });
     console.log('claude-complete event sent');
+    return capturedSessionId;
 
   } catch (error) {
     console.error('SDK query error:', error);

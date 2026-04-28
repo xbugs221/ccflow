@@ -313,14 +313,14 @@ function broadcastChatEvent(payload, sourceUserId = null) {
 /**
  * Notify clients that a session's model controls changed.
  */
-function broadcastSessionModelStateUpdated({ sourceUserId = null, projectName = '', projectPath = '', sessionId = '', state = {} }) {
+function broadcastSessionModelStateUpdated({ sourceUserId = null, projectName = '', projectPath = '', sessionId = '', provider = 'codex', state = {} }) {
     if (!sessionId) {
         return;
     }
 
     broadcastChatEvent({
         type: 'session-model-state-updated',
-        provider: 'codex',
+        provider,
         projectName,
         projectPath,
         sessionId,
@@ -1099,12 +1099,14 @@ app.put('/api/projects/:projectName/sessions/:sessionId/model-state', authentica
         const state = await updateSessionModelState(projectPath, req.params.sessionId, {
             model: typeof req.body?.model === 'string' ? req.body.model : '',
             reasoningEffort: typeof req.body?.reasoningEffort === 'string' ? req.body.reasoningEffort : '',
+            thinkingMode: typeof req.body?.thinkingMode === 'string' ? req.body.thinkingMode : '',
         });
         broadcastSessionModelStateUpdated({
             sourceUserId: req.user?.id || null,
             projectName: req.params.projectName,
             projectPath,
             sessionId: req.params.sessionId,
+            provider: req.body?.provider === 'claude' ? 'claude' : 'codex',
             state,
         });
         res.json({ success: true, state });
@@ -1848,7 +1850,39 @@ function handleChatConnection(ws, request) {
                 console.log('🔄 Session:', resolvedOptions?.sessionId ? 'Resume' : 'New');
 
                 // Use Claude Agents SDK
-                await queryClaudeSDK(data.command, resolvedOptions, writer);
+                const sessionModelState = resolvedOptions?.sessionId
+                    ? await getSessionModelState(
+                        resolvedOptions?.projectPath || resolvedOptions?.cwd || '',
+                        resolvedOptions.sessionId,
+                    ).catch(() => ({}))
+                    : {};
+                const claudeOptions = {
+                    ...resolvedOptions,
+                    thinkingMode: sessionModelState.thinkingMode || resolvedOptions?.thinkingMode,
+                };
+                const resolvedSessionId = await queryClaudeSDK(data.command, claudeOptions, writer);
+                if (resolvedSessionId && (resolvedOptions?.model || claudeOptions.thinkingMode)) {
+                    try {
+                        const state = await updateSessionModelState(
+                            resolvedOptions?.projectPath || resolvedOptions?.cwd || '',
+                            resolvedSessionId,
+                            {
+                                model: resolvedOptions?.model,
+                                thinkingMode: claudeOptions.thinkingMode,
+                            },
+                        );
+                        broadcastSessionModelStateUpdated({
+                            sourceUserId: request?.user?.id || null,
+                            projectName: resolvedOptions?.projectName || '',
+                            projectPath: resolvedOptions?.projectPath || resolvedOptions?.cwd || '',
+                            sessionId: resolvedSessionId,
+                            provider: 'claude',
+                            state,
+                        });
+                    } catch (modelStateError) {
+                        console.warn('[Claude] Failed to persist session model state:', modelStateError.message);
+                    }
+                }
             } else if (data.type === 'codex-command') {
                 if (!acceptChatRequestId(data.clientRequestId || data.options?.clientRequestId)) {
                     console.warn('[DEBUG] Ignoring duplicate Codex request:', data.clientRequestId || data.options?.clientRequestId);
