@@ -57,6 +57,10 @@ import {
     updateSessionModelState,
     renameSession,
     createManualSessionDraft,
+    startManualSessionDraft,
+    bindManualSessionDraftProviderSession,
+    markManualSessionDraftCancelRequested,
+    getManualSessionDraftRuntime,
     finalizeManualSessionDraft,
     deleteSession,
     deleteProject,
@@ -126,6 +130,53 @@ import { scheduleWorkflowAutoRun, startWorkflowAutoRunner, stopWorkflowAutoRunne
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true });
 const TEXT_SAMPLE_BYTES = 8192;
+const CC_ROUTE_SESSION_PATTERN = /^c\d+$/;
+
+/**
+ * Return the first non-empty string from mixed websocket protocol fields.
+ */
+function pickString(...values) {
+    return values.find((value) => typeof value === 'string' && value.trim())?.trim() || '';
+}
+
+/**
+ * Detect WebUI route-only manual session ids that must not be used as provider resume ids.
+ */
+function isCcflowRouteSessionId(sessionId) {
+    return typeof sessionId === 'string' && CC_ROUTE_SESSION_PATTERN.test(sessionId.trim());
+}
+
+/**
+ * Extract the manual-session first-message contract from websocket payloads.
+ */
+function resolveCcflowSessionStartContext(data = {}, resolvedOptions = {}) {
+    const options = data && typeof data.options === 'object' && data.options !== null ? data.options : {};
+    const explicitCcflowSessionId = pickString(
+        data.ccflowSessionId,
+        data.ccflow_session_id,
+        options.ccflowSessionId,
+        options.ccflow_session_id,
+    );
+    const fallbackRouteSessionId = isCcflowRouteSessionId(resolvedOptions?.sessionId)
+        ? resolvedOptions.sessionId
+        : '';
+    const ccflowSessionId = isCcflowRouteSessionId(explicitCcflowSessionId)
+        ? explicitCcflowSessionId
+        : fallbackRouteSessionId;
+
+    return {
+        ccflowSessionId,
+        startRequestId: pickString(
+            data.startRequestId,
+            data.start_request_id,
+            data.clientRequestId,
+            options.startRequestId,
+            options.start_request_id,
+            options.clientRequestId,
+        ),
+        clientRef: pickString(data.clientRef, data.client_ref, options.clientRef, options.client_ref, data.command),
+    };
+}
 
 /**
  * Detect whether a byte buffer should stay on the text-safe editor path.
@@ -983,10 +1034,32 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
         const parsedAfterLine = afterLine != null ? parseInt(afterLine, 10) : null;
 
         let resolvedProvider = provider === 'codex' ? 'codex' : provider === 'claude' ? 'claude' : null;
+        let projectPath = null;
+
+        if (isCcflowRouteSessionId(sessionId)) {
+            projectPath = await extractProjectDirectory(projectName);
+            const runtimeContext = await getManualSessionDraftRuntime(
+                projectName,
+                projectPath,
+                sessionId,
+            );
+            if (runtimeContext) {
+                if (!runtimeContext.pendingProviderSessionId) {
+                    return res.json({ messages: [] });
+                }
+
+                const providerSessionId = runtimeContext.pendingProviderSessionId;
+                const indexedProvider = runtimeContext.provider === 'codex' ? 'codex' : 'claude';
+                const nativeResult = (resolvedProvider || indexedProvider) === 'codex'
+                    ? await getCodexSessionMessages(providerSessionId, parsedLimit, parsedOffset, parsedAfterLine)
+                    : await getSessionMessages(projectName, providerSessionId, parsedLimit, parsedOffset, parsedAfterLine);
+                return res.json(nativeResult);
+            }
+        }
 
         if (!resolvedProvider) {
             try {
-                const projectPath = await extractProjectDirectory(projectName);
+                projectPath = projectPath || await extractProjectDirectory(projectName);
                 const codexSessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true });
                 resolvedProvider = codexSessions.some((session) => session.id === sessionId) ? 'codex' : 'claude';
             } catch (providerDetectionError) {
@@ -1794,6 +1867,7 @@ class WebSocketWriter {
         this.ws = ws;
         this.sendFn = sendFn;
         this.sessionId = null;
+        this.sessionIndexContext = null;
         this.isWebSocketWriter = true;  // Marker for transport detection
     }
 
@@ -1816,6 +1890,59 @@ class WebSocketWriter {
     getSessionId() {
         return this.sessionId;
     }
+
+    setSessionIndexContext(context) {
+        /**
+         * Attach the ccflow route id used to mirror provider events into the index.
+         */
+        this.sessionIndexContext = context;
+    }
+
+    getSessionIndexContext() {
+        /**
+         * Return the active ccflow index context for fire-and-forget event writes.
+         */
+        return this.sessionIndexContext;
+    }
+}
+
+async function finalizeCcflowRouteSession({
+    projectName,
+    projectPath,
+    provider,
+    ccflowSessionId,
+    startRequestId,
+    providerSessionId,
+}) {
+    /**
+     * Promote a route-only manual session (cN) to the provider session id.
+     */
+    if (!ccflowSessionId || !providerSessionId) {
+        return;
+    }
+
+    await bindManualSessionDraftProviderSession(
+        projectName || '',
+        projectPath || '',
+        ccflowSessionId,
+        providerSessionId,
+        startRequestId,
+    );
+
+    let finalized = false;
+    try {
+        finalized = await finalizeManualSessionDraft(
+            projectName || '',
+            ccflowSessionId,
+            providerSessionId,
+            provider,
+            projectPath || '',
+        );
+    } catch (error) {
+        console.warn('[ManualSession] Failed to finalize manual session draft:', error.message);
+    }
+
+    return finalized;
 }
 
 // Handle chat WebSocket connections
@@ -1828,7 +1955,50 @@ function handleChatConnection(ws, request) {
 
     const sendToChatClients = (payload) => {
         const sourceUserId = chatClientUsers.get(ws) || null;
-        broadcastChatEvent(payload, sourceUserId);
+        const indexContext = writer.getSessionIndexContext();
+        const indexedPayload = indexContext?.ccflowSessionId
+            ? {
+                ...payload,
+                ccflowSessionId: indexContext.ccflowSessionId,
+                ccflow_session_id: indexContext.ccflowSessionId,
+            }
+            : payload;
+        if (indexContext?.ccflowSessionId && payload?.type === 'session-created' && payload?.sessionId) {
+            void (async () => {
+                await bindManualSessionDraftProviderSession(
+                    indexContext.projectName || '',
+                    indexContext.projectPath || '',
+                    indexContext.ccflowSessionId,
+                    payload.sessionId,
+                    indexContext.startRequestId || '',
+                );
+                const runtime = await getManualSessionDraftRuntime(
+                    indexContext.projectName || '',
+                    indexContext.projectPath || '',
+                    indexContext.ccflowSessionId,
+                );
+                const runtimeProvider = runtime?.provider || payload.provider || indexContext.provider || 'codex';
+                if (runtime?.cancelRequested) {
+                    if (runtimeProvider === 'codex') {
+                        abortCodexSession(payload.sessionId);
+                    } else {
+                        await abortClaudeSDKSession(payload.sessionId);
+                    }
+                    return;
+                }
+                await finalizeCcflowRouteSession({
+                    projectName: indexContext.projectName || '',
+                    projectPath: indexContext.projectPath || '',
+                    provider: runtimeProvider,
+                    ccflowSessionId: indexContext.ccflowSessionId,
+                    startRequestId: indexContext.startRequestId || '',
+                    providerSessionId: payload.sessionId,
+                });
+            })().catch((error) => {
+                console.warn('[ManualSession] Failed to store pending provider session:', error.message);
+            });
+        }
+        broadcastChatEvent(indexedPayload, sourceUserId);
     };
 
     // Wrap WebSocket with writer for consistent interface with SSEStreamWriter
@@ -1845,36 +2015,89 @@ function handleChatConnection(ws, request) {
                     return;
                 }
                 const resolvedOptions = await resolveChatProjectOptions(data.options, extractProjectDirectory);
+                const {
+                    ccflowSessionId,
+                    startRequestId,
+                    clientRef,
+                } = resolveCcflowSessionStartContext(data, resolvedOptions);
+                const claudeProviderOptions = ccflowSessionId
+                    ? { ...resolvedOptions, sessionId: undefined, resume: false }
+                    : resolvedOptions;
+                writer.setSessionIndexContext(ccflowSessionId ? {
+                    projectName: claudeProviderOptions?.projectName || data.options?.projectName || '',
+                    projectPath: claudeProviderOptions?.projectPath || claudeProviderOptions?.cwd || '',
+                    provider: 'claude',
+                    ccflowSessionId,
+                    startRequestId,
+                } : null);
+                if (ccflowSessionId) {
+                    const startResult = await startManualSessionDraft(
+                        claudeProviderOptions?.projectName || data.options?.projectName || '',
+                        claudeProviderOptions?.projectPath || claudeProviderOptions?.cwd || '',
+                        ccflowSessionId,
+                        'claude',
+                        startRequestId,
+                    );
+                    if (!startResult.started) {
+                        writer.send({
+                            type: 'session-start-rejected',
+                            sessionId: ccflowSessionId,
+                            ccflowSessionId,
+                            provider: 'claude',
+                            reason: startResult.reason,
+                            startRequestId: startResult.startRequestId,
+                        });
+                        return;
+                    }
+                    writer.send({
+                        type: 'message-accepted',
+                        sessionId: ccflowSessionId,
+                        ccflowSessionId,
+                        provider: 'claude',
+                        clientRequestId: startRequestId,
+                        startRequestId,
+                    });
+                }
                 console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
-                console.log('📁 Project:', resolvedOptions?.projectPath || resolvedOptions?.cwd || 'Unknown');
-                console.log('🔄 Session:', resolvedOptions?.sessionId ? 'Resume' : 'New');
+                console.log('📁 Project:', claudeProviderOptions?.projectPath || claudeProviderOptions?.cwd || 'Unknown');
+                console.log('🔄 Session:', claudeProviderOptions?.sessionId ? 'Resume' : 'New');
 
                 // Use Claude Agents SDK
-                const sessionModelState = resolvedOptions?.sessionId
+                const sessionModelState = claudeProviderOptions?.sessionId
                     ? await getSessionModelState(
-                        resolvedOptions?.projectPath || resolvedOptions?.cwd || '',
-                        resolvedOptions.sessionId,
+                        claudeProviderOptions?.projectPath || claudeProviderOptions?.cwd || '',
+                        claudeProviderOptions.sessionId,
                     ).catch(() => ({}))
                     : {};
                 const claudeOptions = {
-                    ...resolvedOptions,
-                    thinkingMode: sessionModelState.thinkingMode || resolvedOptions?.thinkingMode,
+                    ...claudeProviderOptions,
+                    thinkingMode: sessionModelState.thinkingMode || claudeProviderOptions?.thinkingMode,
                 };
                 const resolvedSessionId = await queryClaudeSDK(data.command, claudeOptions, writer);
-                if (resolvedSessionId && (resolvedOptions?.model || claudeOptions.thinkingMode)) {
+                if (ccflowSessionId && resolvedSessionId) {
+                    await finalizeCcflowRouteSession({
+                        projectName: claudeOptions?.projectName || data.options?.projectName || '',
+                        projectPath: claudeOptions?.projectPath || claudeOptions?.cwd || '',
+                        provider: 'claude',
+                        ccflowSessionId,
+                        startRequestId,
+                        providerSessionId: resolvedSessionId,
+                    });
+                }
+                if (resolvedSessionId && (claudeProviderOptions?.model || claudeOptions.thinkingMode)) {
                     try {
                         const state = await updateSessionModelState(
-                            resolvedOptions?.projectPath || resolvedOptions?.cwd || '',
+                            claudeProviderOptions?.projectPath || claudeProviderOptions?.cwd || '',
                             resolvedSessionId,
                             {
-                                model: resolvedOptions?.model,
+                                model: claudeProviderOptions?.model,
                                 thinkingMode: claudeOptions.thinkingMode,
                             },
                         );
                         broadcastSessionModelStateUpdated({
                             sourceUserId: request?.user?.id || null,
-                            projectName: resolvedOptions?.projectName || '',
-                            projectPath: resolvedOptions?.projectPath || resolvedOptions?.cwd || '',
+                            projectName: claudeProviderOptions?.projectName || '',
+                            projectPath: claudeProviderOptions?.projectPath || claudeProviderOptions?.cwd || '',
                             sessionId: resolvedSessionId,
                             provider: 'claude',
                             state,
@@ -1889,35 +2112,88 @@ function handleChatConnection(ws, request) {
                     return;
                 }
                 const resolvedOptions = await resolveChatProjectOptions(data.options, extractProjectDirectory);
+                const {
+                    ccflowSessionId,
+                    startRequestId,
+                    clientRef,
+                } = resolveCcflowSessionStartContext(data, resolvedOptions);
+                const codexProviderOptions = ccflowSessionId
+                    ? { ...resolvedOptions, sessionId: undefined, resume: false }
+                    : resolvedOptions;
+                writer.setSessionIndexContext(ccflowSessionId ? {
+                    projectName: codexProviderOptions?.projectName || data.options?.projectName || '',
+                    projectPath: codexProviderOptions?.projectPath || codexProviderOptions?.cwd || '',
+                    provider: 'codex',
+                    ccflowSessionId,
+                    startRequestId,
+                } : null);
+                if (ccflowSessionId) {
+                    const startResult = await startManualSessionDraft(
+                        codexProviderOptions?.projectName || data.options?.projectName || '',
+                        codexProviderOptions?.projectPath || codexProviderOptions?.cwd || '',
+                        ccflowSessionId,
+                        'codex',
+                        startRequestId,
+                    );
+                    if (!startResult.started) {
+                        writer.send({
+                            type: 'session-start-rejected',
+                            sessionId: ccflowSessionId,
+                            ccflowSessionId,
+                            provider: 'codex',
+                            reason: startResult.reason,
+                            startRequestId: startResult.startRequestId,
+                        });
+                        return;
+                    }
+                    writer.send({
+                        type: 'message-accepted',
+                        sessionId: ccflowSessionId,
+                        ccflowSessionId,
+                        provider: 'codex',
+                        clientRequestId: startRequestId,
+                        startRequestId,
+                    });
+                }
                 console.log('[DEBUG] Codex message:', data.command || '[Continue/Resume]');
-                console.log('📁 Project:', resolvedOptions?.projectPath || resolvedOptions?.cwd || 'Unknown');
-                console.log('🔄 Session:', resolvedOptions?.sessionId ? 'Resume' : 'New');
-                console.log('🤖 Model:', resolvedOptions?.model || 'default');
-                const sessionModelState = resolvedOptions?.sessionId
+                console.log('📁 Project:', codexProviderOptions?.projectPath || codexProviderOptions?.cwd || 'Unknown');
+                console.log('🔄 Session:', codexProviderOptions?.sessionId ? 'Resume' : 'New');
+                console.log('🤖 Model:', codexProviderOptions?.model || 'default');
+                const sessionModelState = codexProviderOptions?.sessionId
                     ? await getSessionModelState(
-                        resolvedOptions?.projectPath || resolvedOptions?.cwd || '',
-                        resolvedOptions.sessionId,
+                        codexProviderOptions?.projectPath || codexProviderOptions?.cwd || '',
+                        codexProviderOptions.sessionId,
                     ).catch(() => ({}))
                     : {};
                 const codexOptions = {
-                    ...resolvedOptions,
-                    reasoningEffort: sessionModelState.reasoningEffort || resolvedOptions?.reasoningEffort,
+                    ...codexProviderOptions,
+                    reasoningEffort: sessionModelState.reasoningEffort || codexProviderOptions?.reasoningEffort,
                 };
                 const resolvedSessionId = await queryCodex(data.command, codexOptions, writer);
-                if (resolvedSessionId && (resolvedOptions?.model || resolvedOptions?.reasoningEffort)) {
+                if (ccflowSessionId && resolvedSessionId) {
+                    await finalizeCcflowRouteSession({
+                        projectName: codexOptions?.projectName || data.options?.projectName || '',
+                        projectPath: codexOptions?.projectPath || codexOptions?.cwd || '',
+                        provider: 'codex',
+                        ccflowSessionId,
+                        startRequestId,
+                        providerSessionId: resolvedSessionId,
+                    });
+                }
+                if (resolvedSessionId && (codexProviderOptions?.model || codexProviderOptions?.reasoningEffort)) {
                     try {
                         const state = await updateSessionModelState(
-                            resolvedOptions?.projectPath || resolvedOptions?.cwd || '',
+                            codexProviderOptions?.projectPath || codexProviderOptions?.cwd || '',
                             resolvedSessionId,
                             {
-                                model: resolvedOptions?.model,
+                                model: codexProviderOptions?.model,
                                 reasoningEffort: codexOptions.reasoningEffort,
                             },
                         );
                         broadcastSessionModelStateUpdated({
                             sourceUserId: request?.user?.id || null,
-                            projectName: resolvedOptions?.projectName || '',
-                            projectPath: resolvedOptions?.projectPath || resolvedOptions?.cwd || '',
+                            projectName: codexProviderOptions?.projectName || '',
+                            projectPath: codexProviderOptions?.projectPath || codexProviderOptions?.cwd || '',
                             sessionId: resolvedSessionId,
                             state,
                         });
@@ -1928,18 +2204,44 @@ function handleChatConnection(ws, request) {
             } else if (data.type === 'abort-session') {
                 console.log('[DEBUG] Abort session request:', data.sessionId);
                 const provider = data.provider || 'claude';
+                const ccflowSessionId = isCcflowRouteSessionId(data.ccflowSessionId || data.sessionId)
+                    ? (data.ccflowSessionId || data.sessionId)
+                    : null;
+                let targetSessionId = data.sessionId;
                 let success;
 
-                if (provider === 'codex') {
-                    success = abortCodexSession(data.sessionId);
-                } else {
-                    // Use Claude Agents SDK
-                    success = await abortClaudeSDKSession(data.sessionId);
+                if (ccflowSessionId) {
+                    const runtime = await getManualSessionDraftRuntime(
+                        data.projectName || '',
+                        data.projectPath || '',
+                        ccflowSessionId,
+                    );
+                    await markManualSessionDraftCancelRequested(
+                        data.projectName || '',
+                        data.projectPath || '',
+                        ccflowSessionId,
+                        data.startRequestId || '',
+                    );
+                    targetSessionId = runtime?.pendingProviderSessionId || null;
+                    if (!targetSessionId) {
+                        success = true;
+                    }
+                }
+
+                if (targetSessionId) {
+                    if (provider === 'codex') {
+                        success = abortCodexSession(targetSessionId);
+                    } else {
+                        // Use Claude Agents SDK
+                        success = await abortClaudeSDKSession(targetSessionId);
+                    }
                 }
 
                 writer.send({
                     type: 'session-aborted',
                     sessionId: data.sessionId,
+                    actualSessionId: targetSessionId,
+                    ccflowSessionId,
                     provider,
                     success
                 });

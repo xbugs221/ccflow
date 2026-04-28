@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Share the five icon-only session actions used by sidebar rows and
+ * PURPOSE: Share the five icon-and-text session actions used by sidebar rows and
  * project overview cards so both surfaces expose the same behavior.
  */
 import { forwardRef, type CSSProperties } from 'react';
@@ -38,7 +38,7 @@ export type SessionActionIconMenuProps = {
 
 function getButtonLabel(label: string): string {
   /**
-   * Keep the accessible name and tooltip in sync while rendering icon-only UI.
+   * Keep the accessible name, tooltip, and visible menu text in sync.
    */
   return label;
 }
@@ -64,22 +64,23 @@ const SessionActionIconMenu = forwardRef<HTMLDivElement, SessionActionIconMenuPr
   return (
     <div
       ref={ref}
-      className={cn('fixed z-[80] flex flex-col items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-lg', className)}
+      className={cn('fixed z-[80] flex w-fit flex-col gap-1 rounded-md border border-border bg-popover p-1 shadow-lg', className)}
       style={style}
     >
       <button
         type="button"
-        className="flex h-9 w-9 items-center justify-center rounded-sm hover:bg-accent"
+        className="flex h-9 w-full items-center gap-2 rounded-sm px-2 text-sm hover:bg-accent"
         onClick={onRename}
         title={labels.rename}
         aria-label={labels.rename}
         data-testid={testIds?.rename}
       >
-        <Edit2 className="h-4 w-4" />
+        <Edit2 className="h-4 w-4 shrink-0" />
+        <span>{labels.rename}</span>
       </button>
       <button
         type="button"
-        className="flex h-9 w-9 items-center justify-center rounded-sm hover:bg-accent"
+        className="flex h-9 w-full items-center gap-2 rounded-sm px-2 text-sm hover:bg-accent"
         onClick={onToggleFavorite}
         title={favoriteLabel}
         aria-label={favoriteLabel}
@@ -87,16 +88,17 @@ const SessionActionIconMenu = forwardRef<HTMLDivElement, SessionActionIconMenuPr
       >
         <Star
           className={cn(
-            'h-4 w-4',
+            'h-4 w-4 shrink-0',
             isFavorite
               ? 'fill-current text-yellow-500 dark:text-yellow-400'
               : 'text-yellow-600/70 dark:text-yellow-500/70',
           )}
         />
+        <span>{favoriteLabel}</span>
       </button>
       <button
         type="button"
-        className="flex h-9 w-9 items-center justify-center rounded-sm hover:bg-accent"
+        className="flex h-9 w-full items-center gap-2 rounded-sm px-2 text-sm hover:bg-accent"
         onClick={onTogglePending}
         title={pendingLabel}
         aria-label={pendingLabel}
@@ -104,14 +106,15 @@ const SessionActionIconMenu = forwardRef<HTMLDivElement, SessionActionIconMenuPr
       >
         <Clock
           className={cn(
-            'h-4 w-4',
+            'h-4 w-4 shrink-0',
             isPending ? 'text-amber-600 dark:text-amber-300' : 'text-muted-foreground',
           )}
         />
+        <span>{pendingLabel}</span>
       </button>
       <button
         type="button"
-        className="flex h-9 w-9 items-center justify-center rounded-sm hover:bg-accent"
+        className="flex h-9 w-full items-center gap-2 rounded-sm px-2 text-sm hover:bg-accent"
         onClick={onToggleHidden}
         title={hiddenLabel}
         aria-label={hiddenLabel}
@@ -119,20 +122,22 @@ const SessionActionIconMenu = forwardRef<HTMLDivElement, SessionActionIconMenuPr
       >
         <EyeOff
           className={cn(
-            'h-4 w-4',
+            'h-4 w-4 shrink-0',
             isHidden ? 'text-muted-foreground' : '',
           )}
         />
+        <span>{hiddenLabel}</span>
       </button>
       <button
         type="button"
-        className="flex h-9 w-9 items-center justify-center rounded-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+        className="flex h-9 w-full items-center gap-2 rounded-sm px-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
         onClick={onDelete}
         title={labels.delete}
         aria-label={labels.delete}
         data-testid={testIds?.delete}
       >
-        <Trash2 className="h-4 w-4" />
+        <Trash2 className="h-4 w-4 shrink-0" />
+        <span>{labels.delete}</span>
       </button>
     </div>
   );

@@ -35,7 +35,7 @@ export interface ChatMessage {
   type: string;
   content?: string;
   timestamp: string | number | Date;
-  deliveryStatus?: 'pending' | 'sent' | 'failed';
+  deliveryStatus?: 'pending' | 'sent' | 'persisted' | 'failed';
   phase?: string;
   messageKey?: string;
   clientRequestId?: string;

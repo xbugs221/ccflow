@@ -141,7 +141,7 @@ export const api = {
     const queryString = params.toString();
 
     let url;
-    if (provider === 'codex') {
+    if (provider === 'codex' && !/^c\d+$/.test(String(sessionId || ''))) {
       url = `/api/codex/sessions/${sessionId}/messages${queryString ? `?${queryString}` : ''}`;
     } else {
       url = `${projectApiPath(projectName)}/sessions/${sessionId}/messages${queryString ? `?${queryString}` : ''}`;

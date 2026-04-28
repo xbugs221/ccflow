@@ -1,6 +1,6 @@
 import React, { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, X } from 'lucide-react';
+import { Check, CheckCheck, X } from 'lucide-react';
 import type { ChatMessage, Provider } from '../../types/types';
 import { Markdown } from './Markdown';
 import { formatUsageLimitText } from '../../utils/chatFormatting';
@@ -139,6 +139,9 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
               </button>
               {message.deliveryStatus === 'sent' && (
                 <Check className="w-3.5 h-3.5 text-emerald-300" strokeWidth={3} aria-label="Message sent" />
+              )}
+              {message.deliveryStatus === 'persisted' && (
+                <CheckCheck className="w-3.5 h-3.5 text-emerald-300" strokeWidth={3} aria-label="Message persisted" />
               )}
               {message.deliveryStatus === 'failed' && (
                 <X className="w-3.5 h-3.5 text-red-300" strokeWidth={3} aria-label="Message failed" />

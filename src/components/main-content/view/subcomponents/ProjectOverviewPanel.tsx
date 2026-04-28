@@ -12,12 +12,19 @@ import { Input } from '../../../ui/input';
 import type { ProjectSession, ProjectWorkflow, SessionProvider } from '../../../../types/app';
 import type { ProjectOverviewPanelProps } from '../../types/types';
 import { compareSessionsByCreationNumber, createSessionViewModel } from '../../../sidebar/utils/utils';
-import { useHostTimeContext } from '../../../../hooks/useHostTimeContext';
-import { formatTimestamp } from '../../../../utils/dateUtils';
+import { formatTimeAgo } from '../../../../utils/dateUtils';
 import { api } from '../../../../utils/api';
 import { buildProjectWorkflowRoute } from '../../../../utils/projectRoute';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import SessionActionIconMenu from '../../../session-actions/SessionActionIconMenu';
+import {
+  getSessionActivitySignature,
+  getSessionProjectName,
+  getViewedSessionKey,
+  hasUnreadSessionActivity,
+  readViewedSessionSignature,
+  writeViewedSessionSignature,
+} from './sessionActivityState.js';
 
 const ITEM_ACTION_LONG_PRESS_MS = 450;
 
@@ -161,7 +168,6 @@ export default function ProjectOverviewPanel({
   const navigate = useNavigate();
   const { t } = useTranslation(['sidebar', 'common']);
   const currentTime = new Date();
-  const hostTimeContext = useHostTimeContext();
   const [showHiddenItems, setShowHiddenItems] = useState(false);
   const workflowEntries = [...(project.workflows || [])]
     .sort((workflowA, workflowB) => {
@@ -205,6 +211,7 @@ export default function ProjectOverviewPanel({
   const [actionMenu, setActionMenu] = useState<OverviewActionMenuState>({ isOpen: false, x: 0, y: 0 });
   const [isSessionSelectionMode, setSessionSelectionMode] = useState(false);
   const [selectedSessionKeys, setSelectedSessionKeys] = useState<Set<string>>(() => new Set());
+  const [viewedSessionSignatures, setViewedSessionSignatures] = useState<Record<string, string | null>>({});
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
   const lastSelectedSessionKeyRef = useRef<string | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -242,6 +249,20 @@ export default function ProjectOverviewPanel({
       window.removeEventListener('scroll', handleScroll, true);
     };
   }, [actionMenu.isOpen]);
+
+  useEffect(() => {
+    /**
+     * Refresh local read receipts for visible session cards after project data changes.
+     */
+    const nextSignatures: Record<string, string | null> = {};
+    visibleSessions.forEach((session) => {
+      const sessionProjectName = getSessionProjectName(project.name, session);
+      const sessionKey = getViewedSessionKey(sessionProjectName, session);
+      nextSignatures[sessionKey] = readViewedSessionSignature(sessionKey)
+        || getSessionActivitySignature(session);
+    });
+    setViewedSessionSignatures(nextSignatures);
+  }, [project.name, sessions, showHiddenItems]);
 
   useEffect(() => {
     /**
@@ -402,6 +423,14 @@ export default function ProjectOverviewPanel({
         return;
       }
 
+      const sessionProjectName = getSessionProjectName(project.name, session);
+      const sessionKey = getViewedSessionKey(sessionProjectName, session);
+      const activitySignature = getSessionActivitySignature(session);
+      writeViewedSessionSignature(sessionKey, activitySignature);
+      setViewedSessionSignatures((current) => ({
+        ...current,
+        [sessionKey]: activitySignature,
+      }));
       onSelectSession(session);
     });
   };
@@ -511,7 +540,7 @@ export default function ProjectOverviewPanel({
     provider: SessionProvider,
   ) => {
     closeActionMenu();
-    if (!window.confirm(`确定删除会话“${sessionTitle}”吗？此操作无法撤销。`)) {
+    if (!window.confirm(`确定删除“${sessionTitle}”吗？此操作无法撤销。`)) {
       return;
     }
 
@@ -1032,7 +1061,7 @@ export default function ProjectOverviewPanel({
                           pending: !allSelectedSessionsPending,
                         })}
                       >
-                        {allSelectedSessionsPending ? '取消待处理' : '标记待处理'}
+                        {allSelectedSessionsPending ? '取消待处理' : '待办'}
                       </Button>
                       <Button
                         type="button"
@@ -1082,6 +1111,14 @@ export default function ProjectOverviewPanel({
                     const isSelected = selectedSession?.id === session.id;
                     const isBatchSelected = selectedSessionKeys.has(getSessionSelectionKey(session, project.name));
                     const sessionProjectName = session.__projectName || project.name;
+                    const activityProjectName = getSessionProjectName(project.name, session);
+                    const activitySessionKey = getViewedSessionKey(activityProjectName, session);
+                    const activitySignature = getSessionActivitySignature(session);
+                    const hasUnreadActivity = hasUnreadSessionActivity({
+                      isSelected,
+                      viewedSignature: viewedSessionSignatures[activitySessionKey] ?? null,
+                      activitySignature,
+                    });
                     const sessionActionState: OverviewActionMenuTarget = {
                       kind: 'session',
                       sessionId: session.id,
@@ -1141,14 +1178,17 @@ export default function ProjectOverviewPanel({
                             </div>
                             <div className="text-xs text-muted-foreground">
                               {sessionView.sessionTime
-                                ? formatTimestamp(sessionView.sessionTime, {
-                                  timeZone: hostTimeContext.timeZone,
-                                  includeTime: true,
-                              })
+                                ? formatTimeAgo(sessionView.sessionTime, currentTime, t)
                                 : '未知时间'}
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            {hasUnreadActivity && (
+                              <span
+                                className="inline-flex h-2.5 w-2.5 rounded-full bg-yellow-400 shadow-sm"
+                                title="有未读新消息"
+                              />
+                            )}
                             {(() => {
                               const routeNumber = getSessionRouteNumber(session);
                               return routeNumber ? (
@@ -1190,14 +1230,14 @@ export default function ProjectOverviewPanel({
             isPending={activeSessionActionItem.pending === true}
             isHidden={activeSessionActionItem.hidden === true}
             labels={{
-              rename: '重命名',
+              rename: '改名',
               favorite: '收藏',
               unfavorite: '取消收藏',
-              pending: '标记待处理',
+              pending: '待办',
               unpending: '取消待处理',
-              hide: '隐藏会话',
-              unhide: '取消隐藏会话',
-              delete: '删除会话',
+              hide: '隐藏',
+              unhide: '取消隐藏',
+              delete: '删除',
             }}
             testIds={{
               rename: 'project-overview-context-rename',
@@ -1254,7 +1294,7 @@ export default function ProjectOverviewPanel({
               onClick={() => void handleRenameWorkflow(activeWorkflowActionItem)}
             >
               <Edit3 className="h-4 w-4" />
-              重命名
+              改名
             </button>
             <button
               type="button"
@@ -1272,7 +1312,7 @@ export default function ProjectOverviewPanel({
               onClick={() => void handleToggleWorkflowPending(activeWorkflowActionItem)}
             >
               <Clock className="h-4 w-4" />
-              {activeWorkflowActionItem.pending === true ? '取消待处理' : '标记待处理'}
+              {activeWorkflowActionItem.pending === true ? '取消待处理' : '待办'}
             </button>
             <button
               type="button"

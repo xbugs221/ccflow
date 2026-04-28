@@ -128,8 +128,8 @@ export default function SidebarProjectWorkflows({
     setIsLoadingOpenSpecChanges(true);
     try {
       const response = await api.projectOpenSpecChanges(project.name);
-      const payload = response.ok ? await response.json() : [];
-      const changes = Array.isArray(payload) ? payload.filter((item) => typeof item === 'string') : [];
+      const payload = response.ok ? await response.json() : { changes: [] };
+      const changes = Array.isArray(payload?.changes) ? payload.changes : [];
       setAvailableOpenSpecChanges(changes);
       setSelectedOpenSpecChange((current) => (changes.includes(current) ? current : ''));
     } catch (error) {
@@ -527,8 +527,8 @@ export default function SidebarProjectWorkflows({
                     type="button"
                     className="flex h-9 w-9 items-center justify-center rounded-sm hover:bg-accent"
                     onClick={() => void handleRenameWorkflow(workflow)}
-                    title="重命名工作流"
-                    aria-label="重命名工作流"
+                    title="改名工作流"
+                    aria-label="改名工作流"
                   >
                     <Edit2 className="h-4 w-4" />
                   </button>

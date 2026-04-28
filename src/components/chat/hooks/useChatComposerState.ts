@@ -654,21 +654,18 @@ export function useChatComposerState({
         shouldCreateNewCodexSession || isTemporarySessionId(candidateSessionId)
           ? null
           : candidateSessionId;
+      const ccflowSessionId = !effectiveSessionId && isTemporarySessionId(candidateSessionId)
+        ? candidateSessionId
+        : null;
       const sessionToActivate = candidateSessionId || effectiveSessionId || `new-session-${Date.now()}`;
 
       if (!effectiveSessionId && (!selectedSession?.id || isTemporarySessionId(selectedSession.id))) {
-        if (typeof window !== 'undefined') {
-          // Reset stale pending IDs from previous interrupted runs before creating a new one.
-          sessionStorage.removeItem('pendingSessionId');
-        }
         pendingViewSessionRef.current = {
           sessionId: null,
           startedAt: Date.now(),
           clientRequestId,
           draftSessionId: selectedSession?.id || null,
         };
-        sessionStorage.setItem('pendingDraftSessionId', selectedSession?.id || '');
-        sessionStorage.setItem('pendingSessionClientRequestId', clientRequestId);
       }
       onSessionActive?.(sessionToActivate);
       if (effectiveSessionId && !isTemporarySessionId(effectiveSessionId)) {
@@ -715,12 +712,24 @@ export function useChatComposerState({
           clientRequestId,
           command: messageContent,
           sessionId: effectiveSessionId,
+          ccflowSessionId,
+          ccflow_session_id: ccflowSessionId,
+          startRequestId: clientRequestId,
+          start_request_id: clientRequestId,
+          clientRef: messageContent,
+          client_ref: messageContent,
           options: {
             cwd: resolvedProjectPath,
             projectPath: resolvedProjectPath,
             projectName: resolvedProjectName,
             sessionId: effectiveSessionId,
+            ccflowSessionId,
+            ccflow_session_id: ccflowSessionId,
             clientRequestId,
+            startRequestId: clientRequestId,
+            start_request_id: clientRequestId,
+            clientRef: messageContent,
+            client_ref: messageContent,
             resume: Boolean(effectiveSessionId),
             model: codexModel,
             reasoningEffort: codexReasoningEffort,
@@ -733,12 +742,24 @@ export function useChatComposerState({
           type: 'claude-command',
           clientRequestId,
           command: messageContent,
+          ccflowSessionId,
+          ccflow_session_id: ccflowSessionId,
+          startRequestId: clientRequestId,
+          start_request_id: clientRequestId,
+          clientRef: messageContent,
+          client_ref: messageContent,
           options: {
             projectPath: resolvedProjectPath,
             cwd: resolvedProjectPath,
             projectName: resolvedProjectName,
             sessionId: effectiveSessionId,
+            ccflowSessionId,
+            ccflow_session_id: ccflowSessionId,
             clientRequestId,
+            startRequestId: clientRequestId,
+            start_request_id: clientRequestId,
+            clientRef: messageContent,
+            client_ref: messageContent,
             resume: Boolean(effectiveSessionId),
             toolsSettings,
             permissionMode,
@@ -979,30 +1000,33 @@ export function useChatComposerState({
       return;
     }
 
-    const pendingSessionId =
-      typeof window !== 'undefined' ? sessionStorage.getItem('pendingSessionId') : null;
-
     const candidateSessionIds = [
       currentSessionId,
       pendingViewSessionRef.current?.sessionId || null,
-      pendingSessionId,
       selectedSession?.id || null,
     ];
 
-    const targetSessionId =
+    const concreteSessionId =
       candidateSessionIds.find((sessionId) => Boolean(sessionId) && !isTemporarySessionId(sessionId)) || null;
+    const draftSessionId =
+      pendingViewSessionRef.current?.draftSessionId || selectedSession?.id || currentSessionId || null;
+    const targetSessionId = concreteSessionId || (isTemporarySessionId(draftSessionId) ? draftSessionId : null);
 
     if (!targetSessionId) {
-      console.warn('Abort requested but no concrete session ID is available yet.');
+      console.warn('Abort requested but no session ID is available yet.');
       return;
     }
 
     sendMessage({
       type: 'abort-session',
       sessionId: targetSessionId,
+      ccflowSessionId: isTemporarySessionId(draftSessionId) ? draftSessionId : null,
+      startRequestId: pendingViewSessionRef.current?.clientRequestId || null,
+      projectName: getActiveSessionProjectName(selectedProject, selectedSession),
+      projectPath: getActiveSessionProjectPath(selectedProject, selectedSession),
       provider,
     });
-  }, [canAbortSession, currentSessionId, pendingViewSessionRef, provider, selectedSession?.id, sendMessage]);
+  }, [canAbortSession, currentSessionId, pendingViewSessionRef, provider, selectedProject, selectedSession, sendMessage]);
 
   const handleTranscript = useCallback((text: string) => {
     if (!text.trim()) {

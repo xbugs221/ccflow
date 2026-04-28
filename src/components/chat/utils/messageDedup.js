@@ -92,6 +92,17 @@ export function dedupeAdjacentChatMessages(messages) {
   for (const message of messages) {
     const previousMessage = dedupedMessages[dedupedMessages.length - 1];
     if (previousMessage && isAdjacentDuplicate(previousMessage, message)) {
+      if (
+        previousMessage.type === 'user' &&
+        previousMessage.deliveryStatus &&
+        previousMessage.deliveryStatus !== 'persisted' &&
+        !message.deliveryStatus
+      ) {
+        dedupedMessages[dedupedMessages.length - 1] = {
+          ...previousMessage,
+          deliveryStatus: 'persisted',
+        };
+      }
       continue;
     }
 

@@ -838,7 +838,12 @@ async function loadProjectConfig(projectPath = '') {
   const configPath = getProjectLocalConfigPath(projectPath);
   try {
     const configData = await fs.readFile(configPath, 'utf8');
-    return normalizeProjectConfigForRead(JSON.parse(configData), projectPath);
+    const normalizedConfig = normalizeProjectConfigForRead(JSON.parse(configData), projectPath);
+    const normalizedData = `${JSON.stringify(normalizedConfig, null, 2)}\n`;
+    if (configData !== normalizedData && configData !== normalizedData.trimEnd()) {
+      await fs.writeFile(configPath, normalizedData, 'utf8');
+    }
+    return normalizedConfig;
   } catch (error) {
     // Return empty config if file doesn't exist
     return {};
@@ -869,6 +874,15 @@ function buildProjectChatRecord(sessionId, title, modelState = {}, uiState = {},
   }
   if (typeof metadata.stageKey === 'string' && metadata.stageKey.trim()) {
     record.stageKey = metadata.stageKey.trim();
+  }
+  if (typeof metadata.startRequestId === 'string' && metadata.startRequestId.trim()) {
+    record.startRequestId = metadata.startRequestId.trim();
+  }
+  if (typeof metadata.pendingProviderSessionId === 'string' && metadata.pendingProviderSessionId.trim()) {
+    record.pendingProviderSessionId = metadata.pendingProviderSessionId.trim();
+  }
+  if (metadata.cancelRequested === true) {
+    record.cancelRequested = true;
   }
   if (typeof modelState.model === 'string' && modelState.model.trim()) {
     record.model = modelState.model.trim();
@@ -992,28 +1006,11 @@ function normalizeProjectConfigForSave(config, projectPath = '') {
     return workflows;
   }, {});
 
-  const routeIndexMap = (config[SESSION_ROUTE_INDEX_KEY] || config[LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY])
-    ? (config[SESSION_ROUTE_INDEX_KEY] || config[LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY])
-    : getSessionRouteIndexMap(config);
-  const {
-    bucketKey,
-    bucket: routeBucket,
-    legacyKeys,
-  } = readSessionRouteBucket(routeIndexMap, projectPath);
-  if (Object.keys(routeBucket).length > 0) {
-    normalized[SESSION_ROUTE_INDEX_KEY] = writeSessionRouteBucket(
-      routeIndexMap,
-      bucketKey,
-      routeBucket,
-      legacyKeys,
-    );
-  }
   delete normalized[LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY];
 
   const summaryById = getSessionSummaryOverrideMap(config);
-  const summaryByRouteIndex = serializeSessionSummaryByRouteIndex(summaryById, routeBucket);
-  if (Object.keys(summaryByRouteIndex).length > 0) {
-    normalized[SESSION_SUMMARY_BY_ID_KEY] = summaryByRouteIndex;
+  if (Object.keys(summaryById).length > 0) {
+    normalized[SESSION_SUMMARY_BY_ID_KEY] = summaryById;
   } else {
     delete normalized[SESSION_SUMMARY_BY_ID_KEY];
   }
@@ -1036,36 +1033,6 @@ function normalizeProjectConfigForSave(config, projectPath = '') {
     }
     return stateById;
   }, {});
-
-  Object.entries(routeBucket).forEach(([routeIndex, sessionId]) => {
-    const metadata = workflowMetadataById[sessionId];
-    if (metadata?.workflowId) {
-      const workflowIndex = getWorkflowConfigIndex(normalized, metadata.workflowId);
-      const workflow = {
-        ...(normalized.workflows[workflowIndex] || {}),
-        title: normalized.workflows[workflowIndex]?.title || `工作流${workflowIndex}`,
-        legacyWorkflowId: normalized.workflows[workflowIndex]?.legacyWorkflowId || metadata.workflowId,
-        chat: { ...(normalized.workflows[workflowIndex]?.chat || {}) },
-      };
-      if (Object.values(workflow.chat).some((record) => record?.sessionId === sessionId)) {
-        normalized.workflows[workflowIndex] = workflow;
-        return;
-      }
-      workflow.chat[String(getNextWorkflowChatRouteIndex(workflow))] = buildProjectChatRecord(
-        sessionId,
-        summaryById[sessionId],
-        modelStateById[sessionId],
-        uiStateBySessionId[sessionId],
-        metadata,
-      );
-      normalized.workflows[workflowIndex] = workflow;
-      return;
-    }
-    normalized.chat[routeIndex] = {
-      ...(normalized.chat[routeIndex] || {}),
-      ...buildProjectChatRecord(sessionId, summaryById[sessionId], modelStateById[sessionId], uiStateBySessionId[sessionId]),
-    };
-  });
 
   Object.entries(getManualSessionDraftMap(config)).forEach(([draftId, draft]) => {
     const routeIndex = isWorkflowOwnedDraft(draft)
@@ -1204,7 +1171,6 @@ function getSessionSummaryOverrideMap(config) {
     return summaryById;
   }
 
-  const routeIndexMap = getSessionRouteIndexMap(config);
   return [
     config[LEGACY_CODEX_SESSION_SUMMARY_BY_ID_KEY],
     config[LEGACY_SESSION_SUMMARY_OVERRIDE_BY_ID_KEY],
@@ -1215,7 +1181,7 @@ function getSessionSummaryOverrideMap(config) {
     }
     return {
       ...summaryById,
-      ...normalizeSessionSummaryMapForRead(rawMap, routeIndexMap),
+      ...normalizeSessionSummaryMapForRead(rawMap, config),
     };
   }, {});
 }
@@ -1243,27 +1209,15 @@ function isPositiveRouteIndexKey(key) {
 /**
  * Convert persisted summary overrides to the runtime session-id keyed shape.
  */
-function normalizeSessionSummaryMapForRead(rawMap, routeIndexMap) {
+function normalizeSessionSummaryMapForRead(rawMap, config) {
   return Object.entries(rawMap || {}).reduce((summaryById, [key, summary]) => {
     const sessionId = isPositiveRouteIndexKey(key)
-      ? findSessionIdByRouteIndex(routeIndexMap, Number(key))
+      ? findSessionIdByRouteIndex(config, Number(key))
       : key;
     if (sessionId) {
       summaryById[sessionId] = summary;
     }
     return summaryById;
-  }, {});
-}
-
-/**
- * Convert runtime summary overrides to the compact persisted route-index keyed shape.
- */
-function serializeSessionSummaryByRouteIndex(summaryById, routeBucket) {
-  return Object.entries(summaryById || {}).reduce((summaryByRouteIndex, [sessionId, summary]) => {
-    const routeIndex = findRouteIndexBySessionId(routeBucket, sessionId);
-    const key = Number.isInteger(routeIndex) && routeIndex > 0 ? String(routeIndex) : sessionId;
-    summaryByRouteIndex[key] = summary;
-    return summaryByRouteIndex;
   }, {});
 }
 
@@ -1368,7 +1322,15 @@ function getManualSessionDraftMap(config) {
     const drafts = {};
     Object.entries(config.chat || {}).forEach(([routeIndex, record]) => {
       if (parseManualSessionRouteIndex(record?.sessionId)) {
-        drafts[record.sessionId] = { id: record.sessionId, provider: record.provider || 'codex', label: record.title, routeIndex: Number(routeIndex) };
+        drafts[record.sessionId] = {
+          id: record.sessionId,
+          provider: record.provider || 'codex',
+          label: record.title,
+          routeIndex: Number(routeIndex),
+          startRequestId: record.startRequestId,
+          pendingProviderSessionId: record.pendingProviderSessionId,
+          cancelRequested: record.cancelRequested === true,
+        };
       }
     });
     Object.entries(config.workflows || {}).forEach(([workflowIndex, workflow]) => {
@@ -1381,6 +1343,9 @@ function getManualSessionDraftMap(config) {
             workflowId: workflow.legacyWorkflowId || `w${workflowIndex}`,
             routeIndex: Number(routeIndex),
             stageKey: record.stageKey,
+            startRequestId: record.startRequestId,
+            pendingProviderSessionId: record.pendingProviderSessionId,
+            cancelRequested: record.cancelRequested === true,
           };
         }
       });
@@ -1509,6 +1474,7 @@ function buildManualDraftSession(draft) {
     messageCount: 0,
     projectPath: draft.projectPath || '',
     status: 'draft',
+    providerSessionId: typeof draft?.pendingProviderSessionId === 'string' ? draft.pendingProviderSessionId : undefined,
     workflowId: typeof draft?.workflowId === 'string' ? draft.workflowId : undefined,
     stageKey: typeof draft?.stageKey === 'string' ? draft.stageKey : undefined,
     substageKey: typeof draft?.substageKey === 'string' ? draft.substageKey : undefined,
@@ -1672,108 +1638,15 @@ function buildProjectRoutePath(projectPath) {
 }
 
 /**
- * Read the persisted per-project session route index map.
+ * Resolve a real session id from the current chat route map.
  */
-function getSessionRouteIndexMap(config) {
-  if (!config || typeof config !== 'object') {
-    return {};
-  }
-  if (config.schemaVersion === PROJECT_CONFIG_SCHEMA_VERSION) {
-    return Object.entries(config.chat || {}).reduce((routeIndexMap, [routeIndex, record]) => {
-      if (record?.sessionId) routeIndexMap[routeIndex] = record.sessionId;
-      return routeIndexMap;
-    }, {});
-  }
-
-  const rawMap = config[SESSION_ROUTE_INDEX_KEY] || config[LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY];
-  if (!rawMap || typeof rawMap !== 'object' || Array.isArray(rawMap)) {
-    return {};
-  }
-
-  return rawMap;
-}
-
-/**
- * Resolve a real session id from either compact or legacy route-index maps.
- */
-function findSessionIdByRouteIndex(routeIndexMap, routeIndex) {
+function findSessionIdByRouteIndex(config, routeIndex) {
   if (!Number.isInteger(routeIndex) || routeIndex <= 0) {
     return null;
   }
 
-  for (const [key, value] of Object.entries(routeIndexMap || {})) {
-    if (isPositiveRouteIndexKey(key) && typeof value === 'string' && Number(key) === routeIndex) {
-      return value;
-    }
-    if (value && typeof value === 'object') {
-      const nestedSessionId = findSessionIdByRouteIndex(value, routeIndex);
-      if (nestedSessionId) {
-        return nestedSessionId;
-      }
-    }
-    if (Number(value) === routeIndex) {
-      return key;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Convert persisted route indexes to the compact route-index keyed shape.
- */
-function normalizeSessionRouteBucketForRead(rawBucket) {
-  return Object.entries(rawBucket || {}).reduce((bucket, [key, value]) => {
-    if (isPositiveRouteIndexKey(key) && typeof value === 'string') {
-      bucket[key] = value;
-      return bucket;
-    }
-
-    const routeIndex = Number(value);
-    if (Number.isInteger(routeIndex) && routeIndex > 0) {
-      bucket[String(routeIndex)] = key;
-    }
-    return bucket;
-  }, {});
-}
-
-/**
- * Convert route indexes to the compact route-index keyed shape.
- */
-function serializeSessionRouteBucketForSave(bucket) {
-  return Object.entries(bucket || {}).reduce((routeIndexByNumber, [key, value]) => {
-    if (isPositiveRouteIndexKey(key) && typeof value === 'string' && value) {
-      routeIndexByNumber[key] = value;
-      return routeIndexByNumber;
-    }
-
-    const routeIndex = Number(value);
-    if (Number.isInteger(routeIndex) && routeIndex > 0 && key) {
-      routeIndexByNumber[String(routeIndex)] = key;
-    }
-    return routeIndexByNumber;
-  }, {});
-}
-
-/**
- * Find the route number assigned to one real or draft session id.
- */
-function findRouteIndexBySessionId(routeBucket, sessionId) {
-  const match = Object.entries(routeBucket || {}).find(([, candidateSessionId]) => candidateSessionId === sessionId);
-  const routeIndex = Number(match?.[0]);
-  return Number.isInteger(routeIndex) && routeIndex > 0 ? routeIndex : null;
-}
-
-/**
- * Remove one session from a route-index keyed bucket.
- */
-function deleteSessionRouteEntry(routeBucket, sessionId) {
-  const routeIndex = findRouteIndexBySessionId(routeBucket, sessionId);
-  if (!routeIndex) {
-    return false;
-  }
-  delete routeBucket[String(routeIndex)];
-  return true;
+  const record = config?.chat?.[String(routeIndex)];
+  return typeof record?.sessionId === 'string' && record.sessionId ? record.sessionId : null;
 }
 
 /**
@@ -1789,103 +1662,42 @@ function getManualSessionRouteCounter(config, projectPath) {
     return counter;
   }
 
-  const bucketKey = buildSessionRouteBucketKey(projectPath);
+  const bucketKey = normalizeComparablePath(projectPath);
   const legacyMap = config[LEGACY_MANUAL_SESSION_ROUTE_COUNTER_BY_PATH_KEY];
   const legacyCounter = Number(bucketKey && legacyMap?.[bucketKey]);
   return Number.isInteger(legacyCounter) && legacyCounter > 0 ? legacyCounter : 0;
 }
 
 /**
- * Build the shared route-index bucket key for all manual sessions under one project path.
- */
-function buildSessionRouteBucketKey(projectPath) {
-  const normalizedPath = normalizeComparablePath(projectPath);
-  if (!normalizedPath) {
-    return null;
-  }
-  return normalizedPath;
-}
-
-/**
- * Read the current shared bucket together with legacy provider-scoped buckets.
- */
-function readSessionRouteBucket(routeIndexMap, projectPath) {
-  if (Object.values(routeIndexMap || {}).some((value) => typeof value !== 'object')) {
-    return {
-      bucketKey: '__local__',
-      bucket: normalizeSessionRouteBucketForRead(routeIndexMap),
-      legacyKeys: [],
-    };
-  }
-
-  const bucketKey = buildSessionRouteBucketKey(projectPath);
-  if (!bucketKey) {
-    return {
-      bucketKey: null,
-      bucket: {},
-      legacyKeys: [],
-    };
-  }
-
-  const nextBucket = {};
-  const legacyKeys = [];
-
-  Object.entries(routeIndexMap || {}).forEach(([key, value]) => {
-    if (!value || typeof value !== 'object') {
-      return;
-    }
-
-    if (key === bucketKey) {
-      Object.assign(nextBucket, normalizeSessionRouteBucketForRead(value));
-      return;
-    }
-
-    if (key.endsWith(`:${bucketKey}`)) {
-      legacyKeys.push(key);
-      Object.assign(nextBucket, normalizeSessionRouteBucketForRead(value));
-    }
-  });
-
-  return {
-    bucketKey,
-    bucket: nextBucket,
-    legacyKeys,
-  };
-}
-
-/**
- * Persist the normalized shared route-index bucket and drop legacy provider keys.
- */
-function writeSessionRouteBucket(routeIndexMap, bucketKey, bucket, legacyKeys = []) {
-  return bucketKey ? serializeSessionRouteBucketForSave(bucket) : routeIndexMap;
-}
-
-/**
  * Return the next standalone manual session number without recycling deleted ids.
  */
-function getMaxStandaloneSessionRouteIndex(config, projectPath, routeBucket = null) {
+function getMaxStandaloneSessionRouteIndex(config, projectPath) {
   const workflowOwnedRouteSessionIds = getWorkflowOwnedRouteSessionIds(config);
-  const bucket = routeBucket || readSessionRouteBucket(
-    getSessionRouteIndexMap(config),
-    projectPath,
-  ).bucket;
 
-  return Object.entries(bucket || {}).reduce((maxValue, [routeIndexKey, sessionId]) => {
-    if (workflowOwnedRouteSessionIds.has(sessionId)) {
+  const chatMax = Object.entries(config?.chat || {}).reduce((maxValue, [routeIndexKey, record]) => {
+    if (workflowOwnedRouteSessionIds.has(record?.sessionId)) {
       return maxValue;
     }
 
     const parsed = Number(routeIndexKey);
     return Number.isInteger(parsed) && parsed > maxValue ? parsed : maxValue;
   }, 0);
+
+  return Object.entries(getManualSessionDraftMap(config)).reduce((maxValue, [draftId, draft]) => {
+    if (isWorkflowOwnedDraft(draft)) {
+      return maxValue;
+    }
+    const parsed = parseManualSessionRouteIndex(draftId) || Number(draft?.routeIndex);
+    return Number.isInteger(parsed) && parsed > maxValue ? parsed : maxValue;
+  }, chatMax);
 }
 
 /**
  * Return the next standalone manual session number without recycling deleted ids.
  */
-function getNextManualSessionRouteIndex(config, projectPath, currentStandaloneCount = 0, routeBucket = null) {
+function getNextManualSessionRouteIndex(config, projectPath, currentStandaloneCount = 0) {
   const persistedCounter = getManualSessionRouteCounter(config, projectPath);
-  const maxStandaloneRouteIndex = getMaxStandaloneSessionRouteIndex(config, projectPath, routeBucket);
+  const maxStandaloneRouteIndex = getMaxStandaloneSessionRouteIndex(config, projectPath);
   const baselineCounter = Number.isInteger(persistedCounter) && persistedCounter > 0
     ? persistedCounter
     : Number(currentStandaloneCount || 0);
@@ -2073,31 +1885,6 @@ async function cleanupDeletedSessionConfig(sessionId, projectPath = '', provider
     changed = deleteConfigMapEntry(config, SESSION_MODEL_STATE_BY_ID_KEY, sessionId) || changed;
     changed = deleteProjectChatRecords(config, sessionId, provider) || changed;
 
-    const routeIndexMap = getSessionRouteIndexMap(config);
-    const {
-      bucketKey,
-      bucket: routeBucket,
-      legacyKeys,
-    } = readSessionRouteBucket(routeIndexMap, configPath || projectPath || '');
-    let routeIndexChanged = false;
-    if (deleteSessionRouteEntry(routeBucket, sessionId)) {
-      routeIndexChanged = true;
-    }
-    if (routeIndexChanged) {
-      if (Object.keys(routeBucket).length === 0) {
-        delete config[SESSION_ROUTE_INDEX_KEY];
-      } else {
-        config[SESSION_ROUTE_INDEX_KEY] = writeSessionRouteBucket(
-          routeIndexMap,
-          bucketKey,
-          routeBucket,
-          legacyKeys,
-        );
-      }
-      delete config[LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY];
-      changed = true;
-    }
-
     const uiStateMap = getSessionUiStateMap(config);
     Object.keys(uiStateMap).forEach((stateKey) => {
       const matchesProvider = !provider || stateKey.startsWith(`${provider}:`);
@@ -2120,40 +1907,23 @@ async function cleanupDeletedSessionConfig(sessionId, projectPath = '', provider
  * Attach stable, non-recycled route indices to one project's manual sessions.
  */
 function attachSessionRouteIndices(config, projectPath, provider, sessions = []) {
-  const routeIndexMap = {
-    ...getSessionRouteIndexMap(config),
-  };
-  const {
-    bucketKey,
-    bucket: existingBucket,
-    legacyKeys,
-  } = readSessionRouteBucket(routeIndexMap, projectPath);
-  if (!bucketKey) {
-    return { sessions, changed: false };
-  }
-
   const workflowOwnedRouteSessionIds = getWorkflowOwnedRouteSessionIds(config);
-  const bucket = {
-    ...existingBucket,
-  };
+  config.schemaVersion = PROJECT_CONFIG_SCHEMA_VERSION;
+  config.chat = config.chat && typeof config.chat === 'object' && !Array.isArray(config.chat) ? config.chat : {};
+
   const sessionIds = new Set(sessions.map((session) => session?.id).filter(Boolean));
-  const usedRouteIndices = new Set();
-  let maxRouteIndex = Object.entries(bucket).reduce((maxValue, [routeIndexKey, sessionId]) => {
-    if (workflowOwnedRouteSessionIds.has(sessionId)) {
+  const reservedRouteIndices = new Set();
+  let maxRouteIndex = Object.entries(config.chat).reduce((maxValue, [routeIndexKey, record]) => {
+    const parsed = Number(routeIndexKey);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
       return maxValue;
     }
-    const parsed = Number(routeIndexKey);
+    if (!sessionIds.has(record?.sessionId) && !workflowOwnedRouteSessionIds.has(record?.sessionId)) {
+      reservedRouteIndices.add(parsed);
+    }
     return Number.isInteger(parsed) && parsed > maxValue ? parsed : maxValue;
   }, 0);
-  Object.entries(bucket).forEach(([routeIndexKey, sessionId]) => {
-    if (workflowOwnedRouteSessionIds.has(sessionId)) {
-      return;
-    }
-    const parsed = Number(routeIndexKey);
-    if (!sessionIds.has(sessionId) && Number.isInteger(parsed) && parsed > 0) {
-      usedRouteIndices.add(parsed);
-    }
-  });
+  const usedRouteIndices = new Set();
   let changed = false;
 
   const indexedSessions = sessions.map((session) => {
@@ -2161,17 +1931,20 @@ function attachSessionRouteIndices(config, projectPath, provider, sessions = [])
       return session;
     }
 
-    let routeIndex = findRouteIndexBySessionId(bucket, session.id);
-    if (!Number.isInteger(routeIndex) || routeIndex <= 0 || usedRouteIndices.has(routeIndex)) {
+    const existingRouteEntry = Object.entries(config.chat).find(([, record]) => record?.sessionId === session.id);
+    let routeIndex = Number(existingRouteEntry?.[0]);
+    if (
+      !Number.isInteger(routeIndex)
+      || routeIndex <= 0
+      || reservedRouteIndices.has(routeIndex)
+      || usedRouteIndices.has(routeIndex)
+    ) {
       maxRouteIndex += 1;
       routeIndex = maxRouteIndex;
-      bucket[String(routeIndex)] = session.id;
       changed = true;
     }
     usedRouteIndices.add(routeIndex);
     if (session.id) {
-      config.schemaVersion = PROJECT_CONFIG_SCHEMA_VERSION;
-      config.chat = config.chat && typeof config.chat === 'object' && !Array.isArray(config.chat) ? config.chat : {};
       const nextRecord = {
         ...(config.chat[String(routeIndex)] || {}),
         sessionId: session.id,
@@ -2190,19 +1963,9 @@ function attachSessionRouteIndices(config, projectPath, provider, sessions = [])
     };
   });
 
-  if (changed || legacyKeys.length > 0) {
-    config[SESSION_ROUTE_INDEX_KEY] = writeSessionRouteBucket(
-      routeIndexMap,
-      bucketKey,
-      bucket,
-      legacyKeys,
-    );
-    delete config[LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY];
-  }
-
   return {
     sessions: indexedSessions,
-    changed: changed || legacyKeys.length > 0,
+    changed,
   };
 }
 
@@ -3833,6 +3596,9 @@ async function renameCodexSession(sessionId, newSummary, projectPath = '') {
  * keep them out of standalone manual-session collections.
  */
 async function createManualSessionDraft(projectName, projectPath, provider = 'claude', label, options = {}) {
+  /**
+   * Store the route draft in both project config and the durable ccflow index.
+   */
   const trimmedLabel = typeof label === 'string' ? label.trim() : '';
   if (!trimmedLabel) {
     throw new Error('Session label is required');
@@ -3863,14 +3629,6 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'cl
     currentStandaloneSessionCount = providerSessions.length + otherProviderDraftCount;
   }
 
-  const routeIndexMap = {
-    ...getSessionRouteIndexMap(config),
-  };
-  const {
-    bucketKey,
-    bucket: routeBucket,
-    legacyKeys,
-  } = readSessionRouteBucket(routeIndexMap, projectPath || '');
   const workflowIndex = workflowId ? getWorkflowConfigIndex(config, workflowId) : null;
   const workflowChat = workflowIndex ? config.workflows?.[workflowIndex]?.chat || {} : {};
   const nextWorkflowRouteIndex = workflowIndex
@@ -3882,7 +3640,7 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'cl
   const nextRouteIndex = workflowIndex
     ? nextWorkflowRouteIndex
     : Number.isInteger(currentStandaloneSessionCount)
-      ? getNextManualSessionRouteIndex(config, projectPath, currentStandaloneSessionCount, routeBucket)
+      ? getNextManualSessionRouteIndex(config, projectPath, currentStandaloneSessionCount)
       : undefined;
   const existingDraftIds = new Set(Object.values(getManualSessionDraftMap(config)).map((draft) => draft?.id).filter(Boolean));
   let draftRouteIndex = nextRouteIndex;
@@ -3910,13 +3668,8 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'cl
   };
 
   config[MANUAL_SESSION_DRAFTS_KEY] = manualDraftMap;
-  if (bucketKey && !workflowId) {
+  if (!workflowId) {
     writeManualSessionRouteCounter(config, projectPath, nextRouteIndex);
-    config[SESSION_ROUTE_INDEX_KEY] = writeSessionRouteBucket(routeIndexMap, bucketKey, {
-      ...routeBucket,
-      [String(nextRouteIndex)]: draftId,
-    }, legacyKeys);
-    delete config[LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY];
   }
   await saveProjectConfig(config, projectPath);
   return buildManualDraftSession({
@@ -3926,9 +3679,122 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'cl
 }
 
 /**
+ * PURPOSE: Claim a manual cN chat route for one first-message request.
+ */
+async function startManualSessionDraft(projectName, projectPath, draftSessionId, provider = 'claude', startRequestId = '') {
+  if (typeof draftSessionId !== 'string' || !draftSessionId.trim()) {
+    throw new Error('Draft session ID is required');
+  }
+  if (typeof startRequestId !== 'string' || !startRequestId.trim()) {
+    throw new Error('Start request ID is required');
+  }
+
+  const resolvedProjectPath = projectPath || await extractProjectDirectory(projectName);
+  const config = await loadProjectConfig(resolvedProjectPath);
+  const draftRecord = findProjectChatRecord(config, draftSessionId);
+  if (!draftRecord?.record || draftRecord.scope !== 'chat') {
+    return { started: false, reason: 'missing-draft' };
+  }
+  const existingStartRequestId = typeof draftRecord.record.startRequestId === 'string'
+    ? draftRecord.record.startRequestId.trim()
+    : '';
+  if (existingStartRequestId && existingStartRequestId !== startRequestId) {
+    return { started: false, reason: 'already-started', startRequestId: existingStartRequestId };
+  }
+
+  draftRecord.record.provider = provider;
+  draftRecord.record.startRequestId = startRequestId;
+  delete draftRecord.record.cancelRequested;
+  await saveProjectConfig(config, resolvedProjectPath);
+  clearProjectDirectoryCache();
+  return { started: true, record: draftRecord.record };
+}
+
+/**
+ * PURPOSE: Store the provider id for a manual cN route before final jsonl confirmation.
+ */
+async function bindManualSessionDraftProviderSession(projectName, projectPath, draftSessionId, providerSessionId, startRequestId = '') {
+  if (typeof draftSessionId !== 'string' || !draftSessionId.trim() || typeof providerSessionId !== 'string' || !providerSessionId.trim()) {
+    return false;
+  }
+
+  const resolvedProjectPath = projectPath || await extractProjectDirectory(projectName);
+  const config = await loadProjectConfig(resolvedProjectPath);
+  const draftRecord = findProjectChatRecord(config, draftSessionId);
+  if (!draftRecord?.record || draftRecord.scope !== 'chat') {
+    return false;
+  }
+  const existingStartRequestId = typeof draftRecord.record.startRequestId === 'string'
+    ? draftRecord.record.startRequestId.trim()
+    : '';
+  if (startRequestId && existingStartRequestId && existingStartRequestId !== startRequestId) {
+    throw new Error('Manual session start request mismatch');
+  }
+
+  draftRecord.record.pendingProviderSessionId = providerSessionId;
+  await saveProjectConfig(config, resolvedProjectPath);
+  clearProjectDirectoryCache();
+  return true;
+}
+
+/**
+ * PURPOSE: Mark a manual cN route as cancelled without binding the wrong provider run.
+ */
+async function markManualSessionDraftCancelRequested(projectName, projectPath, draftSessionId, startRequestId = '') {
+  if (typeof draftSessionId !== 'string' || !draftSessionId.trim()) {
+    return false;
+  }
+
+  const resolvedProjectPath = projectPath || await extractProjectDirectory(projectName);
+  const config = await loadProjectConfig(resolvedProjectPath);
+  const draftRecord = findProjectChatRecord(config, draftSessionId);
+  if (!draftRecord?.record || draftRecord.scope !== 'chat') {
+    return false;
+  }
+  const existingStartRequestId = typeof draftRecord.record.startRequestId === 'string'
+    ? draftRecord.record.startRequestId.trim()
+    : '';
+  if (startRequestId && existingStartRequestId && existingStartRequestId !== startRequestId) {
+    return false;
+  }
+
+  draftRecord.record.cancelRequested = true;
+  await saveProjectConfig(config, resolvedProjectPath);
+  clearProjectDirectoryCache();
+  return true;
+}
+
+/**
+ * PURPOSE: Resolve runtime provider state recorded on one manual cN chat route.
+ */
+async function getManualSessionDraftRuntime(projectName, projectPath, draftSessionId) {
+  if (typeof draftSessionId !== 'string' || !draftSessionId.trim()) {
+    return null;
+  }
+
+  const resolvedProjectPath = projectPath || await extractProjectDirectory(projectName);
+  const config = await loadProjectConfig(resolvedProjectPath);
+  const draftRecord = findProjectChatRecord(config, draftSessionId);
+  if (!draftRecord?.record || draftRecord.scope !== 'chat') {
+    return null;
+  }
+  const record = draftRecord.record;
+  return {
+    provider: record.provider || 'codex',
+    startRequestId: record.startRequestId || '',
+    pendingProviderSessionId: record.pendingProviderSessionId || '',
+    cancelRequested: record.cancelRequested === true,
+    routeIndex: Number(draftRecord.routeIndex),
+  };
+}
+
+/**
  * PURPOSE: Bind a stored manual draft label to the first real provider session id.
  */
 async function finalizeManualSessionDraft(projectName, draftSessionId, actualSessionId, provider = 'claude', projectPath = '') {
+  /**
+   * Bind a ccflow route id to the provider session once the first message starts.
+   */
   if (typeof draftSessionId !== 'string' || !draftSessionId.trim()) {
     throw new Error('Draft session ID is required');
   }
@@ -3966,6 +3832,9 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
       sessionId: actualSessionId,
       title: trimmedLabel || draftRecord.record.title,
     };
+    delete config.chat[draftRecord.routeIndex].startRequestId;
+    delete config.chat[draftRecord.routeIndex].pendingProviderSessionId;
+    delete config.chat[draftRecord.routeIndex].cancelRequested;
   } else if (draftRecord?.scope === 'workflow' && !workflowOwnedDraft) {
     config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex] = {
       ...draftRecord.record,
@@ -3974,6 +3843,9 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
       provider,
       stageKey: typeof draft.stageKey === 'string' ? draft.stageKey : draftRecord.record.stageKey,
     };
+    delete config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex].startRequestId;
+    delete config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex].pendingProviderSessionId;
+    delete config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex].cancelRequested;
   }
 
   if (workflowOwnedDraft) {
@@ -3999,42 +3871,6 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
         reviewPassIndex: Number.isInteger(draft.reviewPassIndex) ? draft.reviewPassIndex : undefined,
       },
     };
-  }
-
-  const routeIndexMap = {
-    ...getSessionRouteIndexMap(config),
-  };
-  const {
-    bucketKey,
-    bucket: routeBucket,
-    legacyKeys,
-  } = readSessionRouteBucket(routeIndexMap, draft.projectPath || resolvedProjectPath);
-  if (bucketKey && isWorkflowOwnedDraft(draft)) {
-    deleteSessionRouteEntry(routeBucket, draftSessionId);
-    config[SESSION_ROUTE_INDEX_KEY] = writeSessionRouteBucket(
-      routeIndexMap,
-      bucketKey,
-      routeBucket,
-      legacyKeys,
-    );
-    delete config[LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY];
-  } else if (bucketKey) {
-    const draftRouteIndex = Number(
-      findRouteIndexBySessionId(routeBucket, draftSessionId)
-      || parseManualSessionRouteIndex(draftSessionId)
-      || draft.routeIndex,
-    );
-    if (Number.isInteger(draftRouteIndex) && draftRouteIndex > 0) {
-      routeBucket[String(draftRouteIndex)] = actualSessionId;
-    }
-    deleteSessionRouteEntry(routeBucket, draftSessionId);
-    config[SESSION_ROUTE_INDEX_KEY] = writeSessionRouteBucket(
-      routeIndexMap,
-      bucketKey,
-      routeBucket,
-      legacyKeys,
-    );
-    delete config[LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY];
   }
 
   delete manualDraftMap[draftSessionId];
@@ -4393,16 +4229,23 @@ async function getCodexSessions(projectPath, options = {}) {
     const sessions = (sessionsByProject.get(normalizedProjectPath) || [])
       .map((session) => applySessionMetadataOverrides(session, summaryOverrideById, workflowMetadataById))
       .map((session) => applySessionModelState(session, modelStateById));
-    const manualDraftSessions = getManualDraftSessionsForProject(config, {
+    const manualDraftRecords = getManualDraftSessionsForProject(config, {
       projectName: null,
       projectPath,
       provider: 'codex',
     });
+    const boundProviderSessionIds = new Set();
+    manualDraftRecords
+      .map((session) => session.providerSessionId)
+      .filter((sessionId) => typeof sessionId === 'string' && sessionId)
+      .forEach((sessionId) => boundProviderSessionIds.add(sessionId));
     const standaloneSessions = excludeWorkflowChildSessions
       ? sessions.filter((session) => !isWorkflowOwnedSession(session, workflowMetadataById))
       : sessions;
+    const routeVisibleStandaloneSessions = standaloneSessions
+      .filter((session) => !boundProviderSessionIds.has(session.id));
     const sessionsWithDrafts = Array.from(
-      new Map([...standaloneSessions, ...manualDraftSessions].map((session) => [session?.id, session])).values(),
+      new Map([...routeVisibleStandaloneSessions, ...manualDraftRecords].map((session) => [session?.id, session])).values(),
     )
       .sort((sessionA, sessionB) => new Date(sessionB.lastActivity || 0) - new Date(sessionA.lastActivity || 0));
     const annotatedSessions = await annotateSessionCollectionVisibility(sessionsWithDrafts, projectPath);
@@ -5441,6 +5284,10 @@ export {
   renameSession,
   renameCodexSession,
   createManualSessionDraft,
+  startManualSessionDraft,
+  bindManualSessionDraftProviderSession,
+  markManualSessionDraftCancelRequested,
+  getManualSessionDraftRuntime,
   finalizeManualSessionDraft,
   deleteSession,
   isProjectEmpty,

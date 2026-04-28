@@ -514,6 +514,7 @@ export const convertSessionMessages = (rawMessages: any[]): ChatMessage[] => {
             timestamp: message.timestamp || new Date().toISOString(),
             messageKey: message.messageKey,
             clientRequestId: getClientRequestId(message),
+            deliveryStatus: 'persisted',
           });
         }
       }

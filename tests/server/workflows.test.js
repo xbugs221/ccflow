@@ -1003,19 +1003,6 @@ test('deleteWorkflow removes workflow child session records and JSONL files', as
         'workflow-draft-session': { workflowId: 'w1', provider: 'codex', routeIndex: 4, label: '删除草稿' },
         'retained-draft-session': { workflowId: 'w2', provider: 'codex', routeIndex: 5, label: '保留草稿' },
       },
-      sessionRouteIndex: {
-        [projectPath]: {
-          1: claudeSessionId,
-          2: codexSessionId,
-          3: 'orphan-workflow-session',
-          4: 'workflow-draft-session',
-          5: 'retained-session',
-        },
-      },
-      sessionRouteIndexByPath: {
-        1: 'orphan-workflow-session',
-        2: 'retained-session',
-      },
       sessionSummaryById: {
         [claudeSessionId]: '规划会话',
         [codexSessionId]: '执行会话',
@@ -1048,8 +1035,8 @@ test('deleteWorkflow removes workflow child session records and JSONL files', as
     assert.deepEqual(Object.keys(config.workflows), ['2']);
     assert.deepEqual(Object.keys(config.sessionWorkflowMetadataById), ['retained-session']);
     assert.deepEqual(Object.keys(config.manualSessionDrafts), ['retained-draft-session']);
-    assert.deepEqual(Object.keys(config.sessionRouteIndex[projectPath]), ['5']);
-    assert.deepEqual(Object.keys(config.sessionRouteIndexByPath), ['2']);
+    assert.equal('sessionRouteIndex' in config, false);
+    assert.equal('sessionRouteIndexByPath' in config, false);
     assert.deepEqual(Object.keys(config.sessionSummaryById), ['retained-session']);
     assert.deepEqual(Object.keys(config.sessionModelStateById), ['retained-session']);
     assert.deepEqual(Object.keys(config.sessionUiStateByPath), [`${projectPath}:5:retained-session`]);
@@ -1525,6 +1512,77 @@ test('buildWorkflowLauncherConfig treats rejected review results as repair work'
     assert.equal(launcher.workflowRepairPass, 1);
     assert.match(launcher.sessionSummary, /修复1：拒绝后修复/);
     assert.match(launcher.autoPrompt, /右键菜单缺失/);
+  });
+});
+
+test('buildWorkflowLauncherConfig advances stale completed review requests to repair', async () => {
+  await withTemporaryHome(async (homeDir) => {
+    const projectPath = path.join(homeDir, 'fixture-project');
+    const workflowDir = path.join(projectPath, '.ccflow', '1');
+    const workflowStorePath = getWorkflowStorePath(projectPath);
+    const aliasDir = path.join(homeDir, '.config', 'ccflow-alias');
+    const { buildWorkflowLauncherConfig } = await import(`../../server/workflows.js?home=${encodeURIComponent(`${homeDir}-stale-review-repair`)}`);
+
+    await fs.mkdir(projectPath, { recursive: true });
+    await fs.mkdir(workflowDir, { recursive: true });
+    await fs.mkdir(aliasDir, { recursive: true });
+    await fs.writeFile(path.join(aliasDir, 'apply.md'), 'APPLY TEMPLATE FROM HOME\n', 'utf8');
+    await fs.writeFile(
+      path.join(workflowDir, 'review-1.json'),
+      `${JSON.stringify({
+        summary: '初审发现阻断问题',
+        decision: 'needs_repair',
+        findings: [{ title: '初审修复项' }],
+      }, null, 2)}\n`,
+      'utf8',
+    );
+    await fs.mkdir(path.dirname(workflowStorePath), { recursive: true });
+    await fs.writeFile(
+      workflowStorePath,
+      `${JSON.stringify({
+        version: 1,
+        workflows: [
+          {
+            id: 'workflow-stale-review',
+            title: '陈旧阶段恢复',
+            objective: '验证继续按钮不会重复创建已完成初审',
+            openspecChangeName: '2030-stale-review',
+            stage: 'review_1',
+            runState: 'running',
+            stageStatuses: [
+              { key: 'planning', label: '规划', status: 'completed' },
+              { key: 'execution', label: '执行', status: 'completed' },
+              { key: 'review_1', label: '初审', status: 'completed' },
+              { key: 'repair_1', label: '初修', status: 'pending' },
+              { key: 'review_2', label: '再审', status: 'pending' },
+              { key: 'repair_2', label: '再修', status: 'pending' },
+              { key: 'review_3', label: '三审', status: 'pending' },
+              { key: 'repair_3', label: '三修', status: 'pending' },
+              { key: 'archive', label: '归档', status: 'pending' },
+            ],
+            artifacts: [],
+            childSessions: [
+              { id: 'review-1-session', title: '评审1：陈旧阶段恢复', stageKey: 'review_1', substageKey: 'review_1', reviewPassIndex: 1 },
+            ],
+          },
+        ],
+      }, null, 2)}\n`,
+      'utf8',
+    );
+
+    const launcher = await buildWorkflowLauncherConfig(
+      { fullPath: projectPath, path: projectPath },
+      'w1',
+      'review_1',
+    );
+
+    assert.equal(launcher.workflowAutoStart, 'repair');
+    assert.equal(launcher.workflowStageKey, 'repair_1');
+    assert.equal(launcher.workflowSubstageKey, 'repair_1');
+    assert.equal(launcher.workflowReviewPass, 1);
+    assert.equal(launcher.workflowRepairPass, 1);
+    assert.match(launcher.sessionSummary, /修复1：陈旧阶段恢复/);
+    assert.match(launcher.autoPrompt, /初审修复项/);
   });
 });
 

@@ -582,10 +582,10 @@ export default function SidebarSessionItem({
             rename: t('tooltips.editSessionName'),
             favorite: t('tooltips.addSessionToFavorites'),
             unfavorite: t('tooltips.removeSessionFromFavorites'),
-            pending: '标记待处理',
+            pending: '待办',
             unpending: '取消待处理',
-            hide: '隐藏会话',
-            unhide: '取消隐藏会话',
+            hide: '隐藏',
+            unhide: '取消隐藏',
             delete: t('tooltips.deleteSession'),
           }}
           testIds={{

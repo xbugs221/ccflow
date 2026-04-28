@@ -219,8 +219,8 @@ export default function ProjectWorkspaceNav({
     setIsLoadingOpenSpecChanges(true);
     try {
       const response = await api.projectOpenSpecChanges(project.name);
-      const payload = response.ok ? await response.json() : [];
-      const changes = Array.isArray(payload) ? payload.filter((item) => typeof item === 'string') : [];
+      const payload = response.ok ? await response.json() : { changes: [] };
+      const changes = Array.isArray(payload?.changes) ? payload.changes : [];
       setAvailableOpenSpecChanges(changes);
       setSelectedOpenSpecChange((current) => (changes.includes(current) ? current : ''));
     } catch (error) {
@@ -340,7 +340,7 @@ export default function ProjectWorkspaceNav({
 
   const handleDeleteSession = async (session: SessionWithProvider) => {
     const sessionTitle = createSessionViewModel(session, currentTime, t).sessionName;
-    if (!window.confirm(`确定删除会话“${sessionTitle}”吗？此操作无法撤销。`)) {
+    if (!window.confirm(`确定删除“${sessionTitle}”吗？此操作无法撤销。`)) {
       closeActionMenu();
       return;
     }
@@ -627,7 +627,7 @@ export default function ProjectWorkspaceNav({
             }}
           >
             <Edit3 className="h-4 w-4" />
-            重命名
+            改名
           </button>
           <button
             type="button"
@@ -662,8 +662,8 @@ export default function ProjectWorkspaceNav({
           >
             <Clock className="h-4 w-4" />
             {activeWorkflow
-              ? (activeWorkflow.pending === true ? '取消待处理' : '标记待处理')
-              : (activeSession?.pending === true ? '取消待处理' : '标记待处理')}
+              ? (activeWorkflow.pending === true ? '取消待处理' : '待办')
+              : (activeSession?.pending === true ? '取消待处理' : '待办')}
           </button>
           <button
             type="button"
@@ -679,7 +679,7 @@ export default function ProjectWorkspaceNav({
             }}
           >
             <Trash2 className="h-4 w-4" />
-            {actionMenu.kind === 'workflow' ? '删除工作流' : '删除会话'}
+            {actionMenu.kind === 'workflow' ? '删除工作流' : '删除'}
           </button>
           {activeWorkflow && (
             <button

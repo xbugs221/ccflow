@@ -120,26 +120,17 @@ const findWorkflowById = (
 
 /**
  * PURPOSE: Resolve the refreshed session that should replace one selected session.
- * Manual drafts may be finalized into a real provider session before the next
- * sidebar refresh sees the new history file, so we reconcile by pending id and
- * then by stable route index within the same provider bucket.
+ * Manual drafts keep their ccflow route id, so refreshed data is reconciled by
+ * exact id first and stable route index second within the same provider bucket.
  */
 const findRefreshedSelectedSession = (
   project: Project,
   selectedSession: ProjectSession,
-  pendingSessionId: string | null,
 ): ProjectSession | null => {
   const visibleSessions = getProjectSessions(project);
   const exactSession = visibleSessions.find((session) => session.id === selectedSession.id) || null;
   if (exactSession) {
     return exactSession;
-  }
-
-  const pendingSession = pendingSessionId
-    ? visibleSessions.find((session) => session.id === pendingSessionId) || null
-    : null;
-  if (pendingSession) {
-    return pendingSession;
   }
 
   if (!isTemporarySessionId(String(selectedSession.id || ''))) {
@@ -479,7 +470,6 @@ export function useProjectsState({
 
   const loadingProgressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastWorkflowRefreshKeyRef = useRef<string | null>(null);
-  const finalizedManualDraftsRef = useRef<Set<string>>(new Set());
   /**
    * Initialize at the current tail so remounting the app shell does not replay stale socket events.
    */
@@ -1023,13 +1013,9 @@ export function useProjectsState({
         return;
       }
 
-      const pendingSessionId = typeof window !== 'undefined'
-        ? window.sessionStorage.getItem('pendingSessionId')
-        : null;
       const refreshedSession = findRefreshedSelectedSession(
         refreshedProject,
         selectedSession,
-        pendingSessionId,
       );
 
       if (refreshedSession) {
@@ -1047,98 +1033,6 @@ export function useProjectsState({
       console.error('Error refreshing sidebar:', error);
     }
   }, [selectedProject, selectedSession, selectedWorkflow]);
-
-  useEffect(() => {
-    if (!selectedProject || !selectedSession?.id || !isTemporarySessionId(selectedSession.id)) {
-      return;
-    }
-
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const pendingSessionId = window.sessionStorage.getItem('pendingSessionId');
-    if (!pendingSessionId || isTemporarySessionId(pendingSessionId)) {
-      return;
-    }
-    const pendingDraftSessionId = window.sessionStorage.getItem('pendingDraftSessionId');
-    if (pendingDraftSessionId !== selectedSession.id) {
-      return;
-    }
-
-    const latestSessionCreatedMessage = [...messageHistory]
-      .reverse()
-      .find((entry) => {
-        if (entry.message?.type !== 'session-created' || entry.message?.sessionId !== pendingSessionId) {
-          return false;
-        }
-        const pendingClientRequestId = window.sessionStorage.getItem('pendingSessionClientRequestId');
-        return !pendingClientRequestId || entry.message?.clientRequestId === pendingClientRequestId;
-      });
-    if (!latestSessionCreatedMessage) {
-      return;
-    }
-
-    const provider = selectedSession.__provider === 'codex' ? 'codex' : 'claude';
-    const finalizeKey = `${selectedProject.name}:${selectedSession.id}:${pendingSessionId}:${provider}`;
-    if (finalizedManualDraftsRef.current.has(finalizeKey)) {
-      return;
-    }
-
-    finalizedManualDraftsRef.current.add(finalizeKey);
-    void (async () => {
-      try {
-        const response = await api.finalizeManualSessionDraft(selectedProject.name, selectedSession.id, {
-          actualSessionId: pendingSessionId,
-          provider,
-          projectPath: selectedProject.fullPath || selectedProject.path || '',
-        });
-        if (!response.ok) {
-          throw new Error(`Finalize draft failed with status ${response.status}`);
-        }
-        const optimisticSession = withSessionProjectMetadata(
-          {
-            ...selectedSession,
-            id: pendingSessionId,
-            status: 'pending',
-          },
-          selectedProject,
-          provider,
-        );
-        setSelectedSession(optimisticSession);
-        window.sessionStorage.removeItem('pendingDraftSessionId');
-        window.sessionStorage.removeItem('pendingSessionClientRequestId');
-        setProjects((prevProjects) => prevProjects.map((project) => {
-          if (project.name !== selectedProject.name) {
-            return project;
-          }
-
-          const targetKey = provider === 'codex' ? 'codexSessions' : 'sessions';
-          const currentSessions = Array.isArray(project[targetKey]) ? project[targetKey] : [];
-          let replaced = false;
-          const nextSessions = currentSessions.map((session) => {
-            if (session.id !== selectedSession.id) {
-              return session;
-            }
-            replaced = true;
-            return {
-              ...session,
-              ...optimisticSession,
-            };
-          });
-
-          return {
-            ...project,
-            [targetKey]: replaced ? nextSessions : [optimisticSession, ...nextSessions],
-          };
-        }));
-        await handleSidebarRefresh();
-      } catch (error) {
-        finalizedManualDraftsRef.current.delete(finalizeKey);
-        console.error('Error finalizing manual session draft:', error);
-      }
-    })();
-  }, [handleSidebarRefresh, messageHistory, selectedProject, selectedSession]);
 
   useEffect(() => {
     /**

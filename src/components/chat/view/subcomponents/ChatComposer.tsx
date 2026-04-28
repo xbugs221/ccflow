@@ -425,18 +425,6 @@ export default function ChatComposer({
                     <button
                       type="submit"
                       disabled={!canSubmit}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        if (!isComposerSubmitting) {
-                          onSubmit(event);
-                        }
-                      }}
-                      onTouchStart={(event) => {
-                        event.preventDefault();
-                        if (!isComposerSubmitting) {
-                          onSubmit(event);
-                        }
-                      }}
                       className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-primary/30"
                       title={!isConnected ? 'WebSocket disconnected' : undefined}
                     >

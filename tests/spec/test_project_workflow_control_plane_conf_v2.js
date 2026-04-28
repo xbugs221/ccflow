@@ -15,6 +15,7 @@ import {
 } from '../../server/projects.js';
 import {
   createProjectWorkflow,
+  deleteWorkflow,
 } from '../../server/workflows.js';
 import {
   readProjectConf,
@@ -125,5 +126,22 @@ test('Scenario: 工作流写入后项目配置保存不刷新 conf.json', async 
     const secondStat = await fs.stat(confPath);
 
     assert.equal(secondStat.mtimeMs, firstStat.mtimeMs);
+  });
+});
+
+test('Scenario: 删除工作流时同步删除该工作流产物目录', async () => {
+  await withIsolatedProject(async ({ projectPath }) => {
+    const project = await addProjectManually(projectPath, 'Workflow Artifact Cleanup Demo');
+    const workflow = await createProjectWorkflow(project, {
+      title: '清理旧产物',
+      objective: '删除工作流后不能复用旧审核产物',
+    });
+    const artifactDir = path.join(projectPath, '.ccflow', '1');
+
+    await fs.mkdir(artifactDir, { recursive: true });
+    await fs.writeFile(path.join(artifactDir, 'review-1.json'), '{"decision":"pass"}\n', 'utf8');
+
+    assert.equal(await deleteWorkflow(project, workflow.id), true);
+    await assert.rejects(fs.stat(artifactDir), { code: 'ENOENT' });
   });
 });

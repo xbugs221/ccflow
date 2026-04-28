@@ -126,17 +126,60 @@ function mergePersistedAndOptimisticMessages(
         mergedMessages[matchIndex] = {
           ...mergedMessages[matchIndex],
           clientRequestId: optimisticMessage.clientRequestId || mergedMessages[matchIndex].clientRequestId,
-          deliveryStatus: 'sent',
+          deliveryStatus: 'persisted',
         };
         return;
       }
 
-      if (optimisticMessage.deliveryStatus !== 'sent') {
+      if (optimisticMessage.deliveryStatus !== 'persisted') {
         mergedMessages.push(optimisticMessage);
       }
     });
 
   return dedupeAdjacentChatMessages(mergedMessages) as ChatMessage[];
+}
+
+/**
+ * Build the stable transcript identity used by top-pagination merge dedupe.
+ */
+function getSessionMessageIdentity(message: any): string | null {
+  if (!message || typeof message !== 'object') {
+    return null;
+  }
+
+  if (typeof message.messageKey === 'string' && message.messageKey) {
+    return message.messageKey;
+  }
+
+  if (Number.isFinite(Number(message.__lineNumber))) {
+    const provider = typeof message.__provider === 'string' ? message.__provider : 'session';
+    const sessionId = typeof message.sessionId === 'string' ? message.sessionId : '';
+    return `${provider}:${sessionId}:line:${Number(message.__lineNumber)}`;
+  }
+
+  return null;
+}
+
+/**
+ * Remove repeated raw transcript rows before they are converted into UI messages.
+ */
+function dedupeSessionMessagesByIdentity(messages: any[]): any[] {
+  const seen = new Set<string>();
+  const dedupedMessages: any[] = [];
+
+  messages.forEach((message) => {
+    const identity = getSessionMessageIdentity(message);
+    if (identity) {
+      if (seen.has(identity)) {
+        return;
+      }
+      seen.add(identity);
+    }
+
+    dedupedMessages.push(message);
+  });
+
+  return dedupedMessages;
 }
 
 type PendingViewSession = {
@@ -537,13 +580,42 @@ export function useChatSessionState({
           return false;
         }
 
+        const previousIdentities = new Set(
+          sessionMessagesRef.current
+            .map(getSessionMessageIdentity)
+            .filter((identity): identity is string => Boolean(identity)),
+        );
+        const newPageIdentities = new Set<string>();
+        const uniqueMoreMessages = moreMessages.filter((message: any) => {
+          const identity = getSessionMessageIdentity(message);
+          if (!identity) {
+            return true;
+          }
+          if (previousIdentities.has(identity) || newPageIdentities.has(identity)) {
+            return false;
+          }
+          newPageIdentities.add(identity);
+          return true;
+        });
+
+        if (uniqueMoreMessages.length === 0) {
+          messagesOffsetRef.current = sessionMessagesRef.current.length;
+          setHasMoreMessages(totalMessagesRef.current > messagesOffsetRef.current);
+          return false;
+        }
+
         pendingScrollRestoreRef.current = {
           height: previousScrollHeight,
           top: previousScrollTop,
         };
-        setSessionMessages((previous) => [...moreMessages, ...previous]);
+        messagesOffsetRef.current = sessionMessagesRef.current.length + uniqueMoreMessages.length;
+        setHasMoreMessages(totalMessagesRef.current > messagesOffsetRef.current);
+        setSessionMessages((previous) => dedupeSessionMessagesByIdentity([
+          ...uniqueMoreMessages,
+          ...previous,
+        ]));
         // Keep the rendered window in sync with top-pagination so newly loaded history becomes visible.
-        setVisibleMessageCount((previousCount) => previousCount + moreMessages.length);
+        setVisibleMessageCount((previousCount) => previousCount + uniqueMoreMessages.length);
         return true;
       } finally {
         isLoadingMoreRef.current = false;
@@ -734,7 +806,7 @@ export function useChatSessionState({
           const hasUnconfirmedUserDelivery = chatMessagesRef.current.some((message) => (
             message.type === 'user' &&
             Boolean(message.deliveryStatus) &&
-            message.deliveryStatus !== 'sent'
+            message.deliveryStatus !== 'persisted'
           ));
           if (!isSystemSessionChange || shouldResetForSessionLoad) {
             resetStreamingState();

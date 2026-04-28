@@ -138,8 +138,6 @@ const LEGACY_CODEX_SESSION_SUMMARY_BY_ID_KEY = 'codexSessionSummaryById';
 const SESSION_WORKFLOW_METADATA_BY_ID_KEY = 'sessionWorkflowMetadataById';
 const SESSION_UI_STATE_BY_PATH_KEY = 'sessionUiStateByPath';
 const SESSION_MODEL_STATE_BY_ID_KEY = 'sessionModelStateById';
-const SESSION_ROUTE_INDEX_KEY = 'sessionRouteIndex';
-const LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY = 'sessionRouteIndexByPath';
 const REVIEW_PASS_DECISIONS = new Set(['clean', 'pass', 'passed', 'approved', 'accept', 'accepted', 'ok', 'success']);
 const REVIEW_REPAIR_DECISIONS = new Set(['needs_repair', 'blocked', 'reject', 'rejected', 'fail', 'failed', 'changes_requested']);
 const SUBSTAGE_FILE_DEFINITIONS = {
@@ -311,6 +309,26 @@ function buildWorkflowId(routeIndex) {
 function buildWorkflowArtifactDirectoryName(workflowId) {
   const routeIndex = parseWorkflowRouteIndex(workflowId);
   return Number.isInteger(routeIndex) && routeIndex > 0 ? String(routeIndex) : 'unknown-workflow';
+}
+
+/**
+ * Remove the workflow-owned artifact bucket after the workflow record is gone.
+ */
+async function deleteWorkflowArtifactDirectory(projectPath, workflowId) {
+  /**
+   * PURPOSE: Prevent a recreated wN workflow from reading stale review,
+   * repair, or archive files left by a deleted workflow.
+   */
+  const artifactDirectoryName = buildWorkflowArtifactDirectoryName(workflowId);
+  if (!projectPath || artifactDirectoryName === 'unknown-workflow') {
+    return false;
+  }
+
+  await fs.rm(path.join(projectPath, WORKFLOW_ARTIFACT_ROOT, artifactDirectoryName), {
+    recursive: true,
+    force: true,
+  });
+  return true;
 }
 
 /**
@@ -492,52 +510,6 @@ function deleteSessionUiStateEntries(config, sessionIds) {
 }
 
 /**
- * Remove deleted workflow sessions from route buckets so config normalization
- * cannot rebuild the workflow from stale route ownership records.
- */
-function deleteSessionRouteEntries(config, sessionIds) {
-  let changed = false;
-  [SESSION_ROUTE_INDEX_KEY, LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY].forEach((key) => {
-    const routeIndex = config?.[key];
-    if (!routeIndex || typeof routeIndex !== 'object' || Array.isArray(routeIndex)) {
-      return;
-    }
-
-    if (Object.values(routeIndex).some((value) => typeof value !== 'object')) {
-      Object.entries(routeIndex).forEach(([routeIndexKey, sessionId]) => {
-        if (sessionIds.has(sessionId)) {
-          delete routeIndex[routeIndexKey];
-          changed = true;
-        }
-      });
-      if (Object.keys(routeIndex).length === 0) {
-        delete config[key];
-      }
-      return;
-    }
-
-    Object.entries(routeIndex).forEach(([bucketKey, bucket]) => {
-      if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) {
-        return;
-      }
-      Object.entries(bucket).forEach(([routeIndexKey, sessionId]) => {
-        if (sessionIds.has(sessionId)) {
-          delete bucket[routeIndexKey];
-          changed = true;
-        }
-      });
-      if (Object.keys(bucket).length === 0) {
-        delete routeIndex[bucketKey];
-      }
-    });
-    if (Object.keys(routeIndex).length === 0) {
-      delete config[key];
-    }
-  });
-  return changed;
-}
-
-/**
  * Remove all reverse indexes that can otherwise recreate a deleted workflow.
  */
 function cleanupDeletedWorkflowConfig(config, workflowId, childSessions = []) {
@@ -574,7 +546,6 @@ function cleanupDeletedWorkflowConfig(config, workflowId, childSessions = []) {
     deleteConfigMapEntry(config, MANUAL_SESSION_DRAFTS_KEY, sessionId);
   });
   deleteSessionUiStateEntries(config, sessionIds);
-  deleteSessionRouteEntries(config, sessionIds);
 }
 
 /**
@@ -844,6 +815,18 @@ async function readWorkflowReviewResultForWorkflow(projectPath, workflow, passIn
     return primary;
   }
   return readWorkflowReviewResult(projectPath, workflow.legacyId, passIndex);
+}
+
+function reviewResultRequiresRepair(reviewResult) {
+  /**
+   * PURPOSE: Interpret persisted reviewer output consistently when deciding
+   * which stage a stale launcher request should actually start.
+   */
+  const decision = String(reviewResult?.decision || '').trim().toLowerCase();
+  const findingCount = Array.isArray(reviewResult?.findings) ? reviewResult.findings.length : 0;
+  return REVIEW_REPAIR_DECISIONS.has(decision)
+    || findingCount > 0
+    || !REVIEW_PASS_DECISIONS.has(decision);
 }
 
 function buildReviewFocusNote(passIndex) {
@@ -1197,7 +1180,7 @@ function compactArtifactForStore(artifact = {}) {
  */
 function compactChildSessionForStore(session = {}) {
   const compact = {};
-  ['id', 'title', 'summary', 'provider', 'stageKey', 'substageKey', 'reviewPassIndex', 'url'].forEach((key) => {
+  ['id', 'title', 'summary', 'provider', 'stageKey', 'reviewPassIndex', 'url'].forEach((key) => {
     if (session[key] !== undefined && session[key] !== '') compact[key] = session[key];
   });
   return compact;
@@ -1280,7 +1263,7 @@ function createWorkflowRecord(payload = {}) {
   const title = String(payload.title || payload.objective || '新需求').trim();
   const workflowId = payload.workflowId || `workflow-${Date.now().toString(36)}`;
   const adoptsExistingOpenSpec = payload.adoptsExistingOpenSpec === true;
-  const initialStage = 'planning';
+  const initialStage = adoptsExistingOpenSpec ? 'execution' : 'planning';
 
   return {
     id: workflowId,
@@ -2662,7 +2645,28 @@ export async function buildWorkflowLauncherConfig(project, workflowId, stage) {
     throw new Error('Workflow not found');
   }
 
-  const normalizedStage = String(stage || '').trim();
+  let normalizedStage = String(stage || '').trim();
+  const requestedStageStatus = (workflow.stageStatuses || [])
+    .find((item) => item?.key === normalizedStage)?.status || '';
+  if (requestedStageStatus === 'completed') {
+    const requestedReviewMatch = normalizedStage.match(/^review_(\d+)$/);
+    const requestedRepairMatch = normalizedStage.match(/^repair_(\d+)$/);
+    if (requestedReviewMatch) {
+      const passIndex = Number.parseInt(requestedReviewMatch[1], 10);
+      const reviewResult = await readWorkflowReviewResultForWorkflow(projectPath, workflow, passIndex);
+      normalizedStage = reviewResultRequiresRepair(reviewResult)
+        ? `repair_${passIndex}`
+        : (passIndex < REVIEW_PASSES.length ? `review_${passIndex + 1}` : 'archive');
+    } else if (requestedRepairMatch) {
+      const passIndex = Number.parseInt(requestedRepairMatch[1], 10);
+      normalizedStage = passIndex < REVIEW_PASSES.length ? `review_${passIndex + 1}` : 'archive';
+    } else if (normalizedStage === 'planning') {
+      normalizedStage = 'execution';
+    } else if (normalizedStage === 'execution') {
+      normalizedStage = 'review_1';
+    }
+  }
+
   const reviewMatch = normalizedStage.match(/^review_(\d+)$/);
   if (reviewMatch) {
     const passIndex = Number.parseInt(reviewMatch[1], 10);
@@ -2816,6 +2820,7 @@ export async function deleteWorkflow(project, workflowId) {
     deletedWorkflowId: workflowId,
     deletedWorkflowChildSessions: childSessions,
   });
+  await deleteWorkflowArtifactDirectory(projectPath, workflowId);
   return true;
 }
 

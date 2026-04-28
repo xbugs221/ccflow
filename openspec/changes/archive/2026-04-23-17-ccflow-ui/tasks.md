@@ -8,7 +8,7 @@
 ## 2. 项目内双分组导航
 
 - [x] 2.1 把项目内导航固定为“需求工作流在上、手动会话在下”两个分组
-- [x] 2.2 复用现有重命名、删除、收藏、待处理等交互到新的项目内导航
+- [x] 2.2 复用现有改名、删除、收藏、待处理等交互到新的项目内导航
 - [x] 2.3 保证从 workflow/session 页切换到同项目其他内容时，选中态与刷新恢复保持稳定
 - [x] 2.4 验收：`pnpm exec playwright test --config playwright.spec.config.js tests/spec/project-workflow-control-plane-routing.spec.js --grep "项目工作区导航按需求工作流与手动会话分组显示"` 全部通过
 

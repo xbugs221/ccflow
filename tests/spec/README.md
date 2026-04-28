@@ -1,27 +1,15 @@
-# OpenSpec 验收测试
+# OpenSpec Acceptance Tests
 
-这些测试是 OpenSpec 验收用例，覆盖配置迁移、项目发现、工作区导航、聊天搜索、文件树和工作流控制面等真实业务链路。
+本目录存放 OpenSpec 派生的验收测试。测试描述业务行为，不依赖实现细节；实现完成后必须全部通过。
 
-## 测试文件
+## 24-session-management-refactor
 
-- `test_project_chat_config_v2.js`：覆盖 `project-chat-config-v2`，验证 `conf.json` v2 的 `chat` / `workflows` 结构、普通会话编号、草稿 finalize 和旧字段不再写入。
-- `test_project_workflow_control_plane_conf_v2.js`：覆盖 `project-workflow-control-plane`，验证工作流编号由数字 key 推导、内部会话顺序编号、内部草稿 finalize 和不占用顶层 `chat` 编号。
-- `test_codex_project_discovery_conf_v2.js`：覆盖 `codex-project-discovery`，验证终端 Codex 会话导入顶层 `chat`、标题取第一条用户指令且不会重复分配编号。
+- `test_session_management_refactor.js`: 派生自 `openspec/changes/24-session-management-refactor/specs/session-management-refactor/spec.md`，覆盖 ccflow 会话身份、并发绑定、pending 恢复、事件重放、历史校准和 steer 干预。
 
-## 运行命令
+## 运行
 
 ```bash
-pnpm run test:spec
+node --test tests/spec/test_session_management_refactor.js
 ```
 
-只运行 node:test 规格：
-
-```bash
-pnpm run test:spec:node
-```
-
-只运行 Playwright 规格：
-
-```bash
-pnpm run test:spec:browser
-```
+这些测试是验收标准。进入实现阶段后，agent 只能修改实现代码，不能修改这些测试来降低验收标准。

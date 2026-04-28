@@ -47,6 +47,31 @@ async function readPersistedThinkingMode(sessionId) {
   return record?.thinkingMode || '';
 }
 
+/**
+ * Remove provider metadata from the fixture Claude session while keeping it in the Claude session list.
+ */
+async function serveLegacyClaudeSessionWithoutProvider(page, sessionId) {
+  await page.route('**/api/projects', async (route) => {
+    const response = await route.fetch();
+    const projects = await response.json();
+    const nextProjects = projects.map((project) => ({
+      ...project,
+      sessions: (project.sessions || []).map((session) => {
+        if (session.id !== sessionId) {
+          return session;
+        }
+        const { __provider, ...legacySession } = session;
+        return legacySession;
+      }),
+    }));
+
+    await route.fulfill({
+      response,
+      json: nextProjects,
+    });
+  });
+}
+
 test('Claude-compatible thinking depth persists to project config and survives refresh', async ({ page }) => {
   /** Scenario: 用户给 Kimi/Claude 兼容会话选择 High 后，项目 conf.json 落盘；刷新和跨设备读取都继续使用 High。 */
   const sessionId = 'fixture-project-manual-session';
@@ -62,4 +87,32 @@ test('Claude-compatible thinking depth persists to project config and survives r
 
   await page.getByTestId('session-model-controls-trigger').click();
   await expect(page.getByTestId('session-model-controls-depth')).toHaveValue('high');
+});
+
+test('Claude thinking depth uses inferred provider when session metadata is missing', async ({ page }) => {
+  /** Scenario: 旧会话对象没有 __provider，但它仍在项目 Claude sessions 列表中，thinking depth 同步必须按 Claude 处理。 */
+  const sessionId = 'fixture-project-manual-session';
+  let persistedProvider = '';
+
+  await serveLegacyClaudeSessionWithoutProvider(page, sessionId);
+  await page.route('**/api/projects/*/sessions/*/model-state', async (route) => {
+    if (route.request().method() === 'PUT') {
+      const body = route.request().postDataJSON();
+      persistedProvider = body?.provider || '';
+    }
+    await route.continue();
+  });
+
+  await openClaudeSession(page);
+  await selectThinkingMode(page, 'medium');
+
+  await expect.poll(() => persistedProvider).toBe('claude');
+  await expect.poll(
+    () => readPersistedThinkingMode(sessionId),
+  ).toBe('medium');
+
+  await page.reload({ waitUntil: 'networkidle' });
+
+  await page.getByTestId('session-model-controls-trigger').click();
+  await expect(page.getByTestId('session-model-controls-depth')).toHaveValue('medium');
 });

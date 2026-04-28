@@ -47,7 +47,6 @@ interface ChatMessagesPaneProps {
   isLoadingMoreMessages: boolean;
   hasMoreMessages: boolean;
   totalMessages: number;
-  sessionMessagesCount: number;
   visibleMessageCount: number;
   visibleMessages: ChatMessage[];
   loadEarlierMessages: () => void;
@@ -94,7 +93,6 @@ export default function ChatMessagesPane({
   isLoadingMoreMessages,
   hasMoreMessages,
   totalMessages,
-  sessionMessagesCount,
   visibleMessageCount,
   visibleMessages,
   loadEarlierMessages,
@@ -115,6 +113,11 @@ export default function ChatMessagesPane({
   const messageKeyMapRef = useRef<WeakMap<ChatMessage, string>>(new WeakMap());
   const allocatedKeysRef = useRef<Set<string>>(new Set());
   const generatedMessageKeyCounterRef = useRef(0);
+  const renderedMessageCount = chatMessages.length;
+  const visibleRenderedMessageCount = visibleMessages.length;
+  const hasHiddenRenderedHistory = renderedMessageCount > visibleRenderedMessageCount;
+  const shouldShowTopHistoryHint =
+    hasMoreMessages && !isLoadingMoreMessages && !allMessagesLoaded && hasHiddenRenderedHistory;
 
   // Keep keys stable across prepends so existing MessageComponent instances retain local state.
   const getMessageKey = useCallback((message: ChatMessage) => {
@@ -192,11 +195,14 @@ export default function ChatMessagesPane({
           )}
 
           {/* Indicator showing there are more messages to load (hide when all loaded) */}
-          {hasMoreMessages && !isLoadingMoreMessages && !allMessagesLoaded && (
+          {shouldShowTopHistoryHint && (
             <div className="text-center text-gray-500 dark:text-gray-400 text-sm py-2 border-b border-gray-200 dark:border-gray-700">
-              {totalMessages > 0 && (
+              {renderedMessageCount > 0 && (
                 <span>
-                  {t('session.messages.showingOf', { shown: sessionMessagesCount, total: totalMessages })}{' '}
+                  {t('session.messages.showingOf', {
+                    shown: visibleRenderedMessageCount,
+                    total: renderedMessageCount,
+                  })}{' '}
                   <span className="text-xs">{t('session.messages.scrollToLoad')}</span>
                 </span>
               )}

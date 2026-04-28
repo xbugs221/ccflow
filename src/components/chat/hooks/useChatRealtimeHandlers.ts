@@ -84,7 +84,10 @@ interface UseChatRealtimeHandlersArgs {
 const isTemporarySessionId = (sessionId?: string | null): boolean =>
   Boolean(sessionId && (sessionId.startsWith('new-session-') || /^c\d+$/.test(sessionId)));
 
-/**
+const isCcflowRouteSessionId = (sessionId?: string | null): boolean =>
+  Boolean(sessionId && /^c\d+$/.test(sessionId));
+
+/** 
  * Check whether a provider session-created event belongs to the draft request
  * currently shown in this chat view.
  */
@@ -130,6 +133,18 @@ const markPendingUserMessagesDelivered = (
   msgs.map((msg) =>
     msg.type === 'user' && msg.deliveryStatus === 'pending' && !msg.clientRequestId
       ? { ...msg, deliveryStatus: 'sent' as const }
+      : msg,
+  );
+
+/**
+ * Mark optimistic user sends as persisted once the backend reports the agent turn is complete.
+ */
+const markUserMessagesPersisted = (
+  msgs: ChatMessage[],
+): ChatMessage[] =>
+  msgs.map((msg) =>
+    msg.type === 'user' && (msg.deliveryStatus === 'pending' || msg.deliveryStatus === 'sent')
+      ? { ...msg, deliveryStatus: 'persisted' as const }
       : msg,
   );
 
@@ -346,6 +361,9 @@ export function useChatRealtimeHandlers({
       const activeViewSessionId =
         selectedSession?.id || currentSessionId || pendingViewSessionRef.current?.sessionId || null;
       const isTemporaryViewSession = isTemporarySessionId(activeViewSessionId);
+      const isCcflowRouteView = isCcflowRouteSessionId(activeViewSessionId);
+      const messageRouteSessionId =
+        latestMessage.ccflowSessionId || latestMessage.ccflow_session_id || latestMessage.sessionId;
       const isSystemInitForView =
         systemInitSessionId && (!activeViewSessionId || systemInitSessionId === activeViewSessionId);
       const shouldBypassSessionFilter = isGlobalMessage
@@ -411,21 +429,32 @@ export function useChatRealtimeHandlers({
           }
         }
 
-        if (!latestMessage.sessionId && latestMessage.type === 'codex-response') {
+        if (!messageRouteSessionId && latestMessage.type === 'codex-response') {
           // Codex CLI item events can be scoped by the current view route rather than the socket envelope.
-        } else if (!latestMessage.sessionId && !isUnscopedError) {
+        } else if (!messageRouteSessionId && !isUnscopedError) {
           return;
         }
 
-        if (latestMessage.sessionId && latestMessage.sessionId !== activeViewSessionId) {
-          if (latestMessage.sessionId && lifecycleMessageTypes.has(String(latestMessage.type))) {
-            handleBackgroundLifecycle(latestMessage.sessionId);
+        if (messageRouteSessionId && messageRouteSessionId !== activeViewSessionId) {
+          if (messageRouteSessionId && lifecycleMessageTypes.has(String(latestMessage.type))) {
+            handleBackgroundLifecycle(messageRouteSessionId);
           }
           return;
         }
       }
 
       switch (latestMessage.type) {
+      case 'message-accepted':
+        setChatMessages((previous) =>
+          previous.map((message) => (
+            message.type === 'user'
+            && message.clientRequestId
+            && message.clientRequestId === latestMessage.clientRequestId
+              ? { ...message, deliveryStatus: 'sent' }
+              : message
+          )),
+        );
+        break;
       case 'session-created':
         if (
           !isCodexModelSwitchForCurrentSession
@@ -433,7 +462,11 @@ export function useChatRealtimeHandlers({
         ) {
           return;
         }
-        if (latestMessage.sessionId && (!currentSessionId || isTemporarySessionId(currentSessionId))) {
+        if (
+          latestMessage.sessionId
+          && (!currentSessionId || isTemporarySessionId(currentSessionId))
+          && !isCcflowRouteView
+        ) {
           sessionStorage.setItem('pendingSessionId', latestMessage.sessionId);
           if (pendingViewSessionRef.current && !pendingViewSessionRef.current.sessionId) {
             pendingViewSessionRef.current.sessionId = latestMessage.sessionId;
@@ -750,9 +783,14 @@ export function useChatRealtimeHandlers({
       case 'claude-complete': {
         const pendingSessionId = sessionStorage.getItem('pendingSessionId');
         const completedSessionId =
-          latestMessage.sessionId || currentSessionId || pendingSessionId;
+          latestMessage.ccflowSessionId
+          || latestMessage.ccflow_session_id
+          || currentSessionId
+          || latestMessage.sessionId
+          || pendingSessionId;
 
         clearLoadingIndicators();
+        setChatMessages((previous) => markUserMessagesPersisted(previous));
         markSessionsAsCompleted(
           completedSessionId,
           currentSessionId,
@@ -785,6 +823,7 @@ export function useChatRealtimeHandlers({
 
         if (codexData.type === 'turn_complete') {
           clearLoadingIndicators();
+          setChatMessages((previous) => markUserMessagesPersisted(previous));
           markSessionsAsCompleted(latestMessage.sessionId, currentSessionId, selectedSession?.id);
           onTurnOutcome?.({
             sessionId: latestMessage.sessionId || currentSessionId || selectedSession?.id || null,
@@ -810,6 +849,7 @@ export function useChatRealtimeHandlers({
           latestMessage.sessionId || currentSessionId || codexPendingSessionId;
 
         clearLoadingIndicators();
+        setChatMessages((previous) => markUserMessagesPersisted(previous));
         markSessionsAsCompleted(
           codexCompletedSessionId,
           codexActualSessionId,

@@ -30,5 +30,5 @@
 - 服务端项目配置读写：`server/projects.js` 中 `loadProjectConfig`、`saveProjectConfig`、会话标题、UI 状态、模型状态、草稿和 route index 相关 helper。
 - 工作流控制面：工作流内部会话注册、读取、删除和展示逻辑。
 - Codex 项目发现：终端会话导入时的编号和标题生成。
-- API 行为：现有会话列表、会话重命名、UI 状态、模型状态和草稿 finalize API 的外部行为保持不变，但底层配置写入 v2。
+- API 行为：现有会话列表、会话改名、UI 状态、模型状态和草稿 finalize API 的外部行为保持不变，但底层配置写入 v2。
 - 测试：需要新增验收测试覆盖 v2 写入、旧配置迁移、草稿 finalize、终端会话导入和工作流内部会话隔离。

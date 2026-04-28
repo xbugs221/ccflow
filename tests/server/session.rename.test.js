@@ -13,6 +13,7 @@ import {
   addProjectManually,
   clearProjectDirectoryCache,
   createManualSessionDraft,
+  bindManualSessionDraftProviderSession,
   deleteCodexSession,
   deleteSession,
   finalizeManualSessionDraft,
@@ -22,13 +23,13 @@ import {
   renameCodexSession,
   renameSession,
   saveProjectConfig,
+  startManualSessionDraft,
 } from '../../server/projects.js';
 import {
   createProjectWorkflow,
   listProjectWorkflows,
   registerWorkflowChildSession,
 } from '../../server/workflows.js';
-
 let homeIsolationQueue = Promise.resolve();
 
 /**
@@ -268,6 +269,58 @@ test('manual Codex draft sessions are visible before the first provider message'
   });
 });
 
+test('manual Codex route hides the bound provider session after first message', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'codex-manual-bound');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Codex Bound Demo');
+    const draftSession = await createManualSessionDraft(project.name, projectPath, 'codex', '会话3');
+    await createCodexSessionFile(tempHome, projectPath, 'codex-real-session');
+    await startManualSessionDraft(project.name, projectPath, draftSession.id, 'codex', 'req-1');
+    await bindManualSessionDraftProviderSession(
+      project.name,
+      projectPath,
+      draftSession.id,
+      'codex-real-session',
+      'req-1',
+    );
+
+    const sessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].id, draftSession.id);
+    assert.equal(sessions[0].providerSessionId, 'codex-real-session');
+  });
+});
+
+test('manual draft start request cannot be overwritten by another tab', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'manual-start-request-lock');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Manual Start Lock Demo');
+    const draftSession = await createManualSessionDraft(project.name, projectPath, 'codex', '会话锁');
+
+    assert.deepEqual(
+      await startManualSessionDraft(project.name, projectPath, draftSession.id, 'codex', 'req-1'),
+      {
+        started: true,
+        record: {
+          sessionId: draftSession.id,
+          title: '会话锁',
+          provider: 'codex',
+          startRequestId: 'req-1',
+        },
+      },
+    );
+
+    const secondStart = await startManualSessionDraft(project.name, projectPath, draftSession.id, 'codex', 'req-2');
+    assert.equal(secondStart.started, false);
+    assert.equal(secondStart.reason, 'already-started');
+    assert.equal(secondStart.startRequestId, 'req-1');
+  });
+});
+
 test('manual draft route indices stay unique across Claude and Codex providers in one project', { concurrency: false }, async () => {
   await withTemporaryHome(async (tempHome) => {
     const projectPath = path.join(tempHome, 'workspace', 'mixed-provider-drafts');
@@ -466,6 +519,38 @@ test('finalizing a manual Claude draft binds the label to the real backend sessi
   });
 });
 
+test('finalizing a manual Codex draft keeps the original route slot', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'codex-manual-finalize');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Codex Finalize Demo');
+    const draftSession = await createManualSessionDraft(project.name, projectPath, 'codex', '会话4');
+    await createCodexSessionFile(tempHome, projectPath, 'codex-session-real');
+
+    const finalized = await finalizeManualSessionDraft(
+      project.name,
+      draftSession.id,
+      'codex-session-real',
+      'codex',
+      projectPath,
+    );
+
+    assert.equal(finalized, true);
+
+    const sessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true });
+    const finalizedSession = sessions.find((session) => session.id === 'codex-session-real');
+    assert.equal(finalizedSession?.summary, '会话4');
+    assert.equal(finalizedSession?.routeIndex, draftSession.routeIndex);
+    assert.equal(sessions.some((session) => session.id === draftSession.id), false);
+
+    const config = await loadProjectConfig(projectPath);
+    const finalizedChat = Object.values(config.chat || {}).find((record) => record.sessionId === 'codex-session-real');
+    assert.equal(finalizedChat?.title, '会话4');
+    assert.equal('manualSessionDrafts' in config, false);
+  });
+});
+
 test('finalizing workflow-owned drafts preserves ownership on real provider sessions', { concurrency: false }, async () => {
   await withTemporaryHome(async (tempHome) => {
     const projectPath = path.join(tempHome, 'workspace', 'workflow-finalize');
@@ -606,17 +691,17 @@ test('Claude session rename with projectPath writes conf to project-local config
     const project = await addProjectManually(externalProjectPath, 'Claude Demo Path');
     const sessionPath = await createClaudeSessionFile(project.name, 'session-with-path');
 
-    await renameSession(project.name, 'session-with-path', '带路径的重命名', externalProjectPath);
+    await renameSession(project.name, 'session-with-path', '带路径的改名', externalProjectPath);
 
     const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
     assert.equal(sessionsResult.sessions.length, 1);
-    assert.equal(sessionsResult.sessions[0].summary, '带路径的重命名');
+    assert.equal(sessionsResult.sessions[0].summary, '带路径的改名');
 
     const persistedContent = await fs.readFile(sessionPath, 'utf8');
     assert.match(persistedContent, /"type":"summary"/);
-    assert.match(persistedContent, /"summary":"带路径的重命名"/);
+    assert.match(persistedContent, /"summary":"带路径的改名"/);
 
     const projectLocalConfig = await loadProjectConfig(externalProjectPath);
-    assert.equal(projectLocalConfig.chat?.['1']?.title, '带路径的重命名');
+    assert.equal(projectLocalConfig.chat?.['1']?.title, '带路径的改名');
   });
 });

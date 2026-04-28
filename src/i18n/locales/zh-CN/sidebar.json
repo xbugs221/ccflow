@@ -3,7 +3,7 @@
     "title": "项目",
     "newProject": "新建项目",
     "deleteProject": "删除项目",
-    "renameProject": "重命名项目",
+    "renameProject": "改名项目",
     "noProjects": "未找到项目",
     "loadingProjects": "加载项目中...",
     "searchPlaceholder": "搜索项目...",
@@ -25,30 +25,30 @@
   },
   "sessions": {
     "title": "会话",
-    "newSession": "新建会话",
-    "deleteSession": "删除会话",
-    "renameSession": "重命名会话",
-    "noSessions": "暂无会话",
-    "loadingSessions": "加载会话中...",
+    "newSession": "新建",
+    "deleteSession": "删除",
+    "renameSession": "改名",
+    "noSessions": "暂无",
+    "loadingSessions": "加载中...",
     "unnamed": "未命名",
     "loading": "加载中...",
-    "showMore": "显示更多会话",
+    "showMore": "显示更多",
     "showLess": "收起",
-    "loadMore": "加载更多会话"
+    "loadMore": "加载更多"
   },
   "tooltips": {
     "viewEnvironments": "查看环境",
     "hideSidebar": "隐藏侧边栏",
     "createProject": "创建新项目",
     "refresh": "刷新项目和会话 (Ctrl+R)",
-    "renameProject": "重命名项目 (F2)",
+    "renameProject": "改名项目 (F2)",
     "deleteProject": "彻底删除项目 (Delete)",
     "addToFavorites": "添加到收藏",
     "removeFromFavorites": "从收藏移除",
-    "addSessionToFavorites": "收藏此会话",
-    "removeSessionFromFavorites": "取消收藏此会话",
-    "editSessionName": "手动编辑会话名称",
-    "deleteSession": "永久删除此会话",
+    "addSessionToFavorites": "收藏",
+    "removeSessionFromFavorites": "取消收藏",
+    "editSessionName": "改名",
+    "deleteSession": "删除",
     "save": "保存",
     "cancel": "取消"
   },
@@ -67,7 +67,7 @@
     "cancel": "取消",
     "save": "保存",
     "delete": "删除",
-    "rename": "重命名"
+    "rename": "改名"
   },
   "status": {
     "active": "活动",
@@ -88,14 +88,14 @@
   },
   "messages": {
     "deleteConfirm": "确定要删除吗？",
-    "renameSuccess": "重命名成功",
+    "renameSuccess": "改名成功",
     "deleteSuccess": "删除成功",
     "errorOccurred": "发生错误",
-    "deleteSessionConfirm": "确定要删除此会话吗？此操作无法撤销。",
+    "deleteSessionConfirm": "确定要删除吗？此操作无法撤销。",
     "deleteProjectConfirm": "确定要删除此项目及其所有对话吗？此操作无法撤销。",
     "enterProjectPath": "请输入项目路径",
-    "deleteSessionFailed": "删除会话失败，请重试。",
-    "deleteSessionError": "删除会话时出错，请重试。",
+    "deleteSessionFailed": "删除失败，请重试。",
+    "deleteSessionError": "删除时出错，请重试。",
     "deleteProjectFailed": "删除项目失败，请重试。",
     "deleteProjectError": "删除项目时出错，请重试。",
     "createProjectFailed": "创建项目失败，请重试。",
@@ -106,11 +106,11 @@
   },
   "deleteConfirmation": {
     "deleteProject": "删除项目",
-    "deleteSession": "删除会话",
+    "deleteSession": "删除",
     "confirmDelete": "您确定要删除",
     "sessionCount_one": "此项目包含 {{count}} 个对话。",
     "sessionCount_other": "此项目包含 {{count}} 个对话。",
-    "allConversationsDeleted": "所有对话将被永久删除。",
+    "allConversationsDeleted": "所有对话将被删除。",
     "cannotUndo": "此操作无法撤销。"
   }
 }

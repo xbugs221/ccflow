@@ -1,6 +1,6 @@
 ## Context
 
-当前项目重命名链路只把 `displayName` 按 `projectName` 写入 `~/.claude/project-config.json`，但项目列表聚合时对 Codex-only 项目不会读取该配置，且其 `projectName` 可能由路径推导并不稳定，导致重命名刷新后丢失。
+当前项目改名链路只把 `displayName` 按 `projectName` 写入 `~/.claude/project-config.json`，但项目列表聚合时对 Codex-only 项目不会读取该配置，且其 `projectName` 可能由路径推导并不稳定，导致改名刷新后丢失。
 
 聊天输入区 mode 按钮旁当前使用 `TokenUsagePie` 展示上下文 token 百分比，这与用户真正关心的配额窗口（5 小时 / 7 天）不一致。现有本机配置中两条 provider 链路已经有 statusline 语义：
 - Claude：`~/.claude/settings.json` 的 `statusLine.command`（脚本可产出 5h/7d 使用率）。
@@ -11,7 +11,7 @@
 ## Goals / Non-Goals
 
 **Goals:**
-- 重命名后的项目展示名在刷新后稳定生效，覆盖 Claude、手工项目、Codex-only 项目。
+- 改名后的项目展示名在刷新后稳定生效，覆盖 Claude、手工项目、Codex-only 项目。
 - 输入区展示 `5hours/7days remaining`，并按 provider 分别取数与计算。
 - 额度数据不可用时保持可降级，不影响消息发送和会话切换。
 
@@ -29,8 +29,8 @@
   - 仅继续使用 `projectName`：无法解决 Codex-only 刷新丢失。
   - 新建独立配置文件：可行，但引入额外迁移与读写分散成本。
 
-### 2) 重命名接口补充项目路径入参
-- **Decision**: `/api/projects/:projectName/rename` 接口新增可选 `projectPath`，前端在重命名时一并提交 `selectedProject.fullPath`。
+### 2) 改名接口补充项目路径入参
+- **Decision**: `/api/projects/:projectName/rename` 接口新增可选 `projectPath`，前端在改名时一并提交 `selectedProject.fullPath`。
 - **Rationale**: 后端在写入路径索引时需要稳定主键；保留 `projectName` 兼容老请求。
 - **Alternatives considered**:
   - 后端自行二次推导路径：对 Codex-only 项目不稳定且多一次查找链路。
@@ -71,8 +71,8 @@
 
 ## Migration Plan
 
-1. 在后端加入路径索引读写与兼容逻辑，保证不改前端也不破坏现有重命名。
-2. 前端重命名请求补充 `projectPath`，并验证刷新后名称稳定。
+1. 在后端加入路径索引读写与兼容逻辑，保证不改前端也不破坏现有改名。
+2. 前端改名请求补充 `projectPath`，并验证刷新后名称稳定。
 3. 增加 provider-usage-remaining 接口及 Claude/Codex 适配器。
 4. 前端替换 `TokenUsagePie` 为 `5hours/7days remaining` 展示组件，并接入 provider 数据。
 5. 灰度验证后移除旧百分比组件引用。

@@ -463,7 +463,7 @@ function ChatInterface({
 
       const response = await api.updateSessionModelState(projectName, selectedSession.id, {
         projectPath,
-        provider: selectedSession.__provider,
+        provider: patch.provider || effectiveProvider,
         ...patch,
       });
       if (!response.ok) {
@@ -516,7 +516,7 @@ function ChatInterface({
       ? selectedSession.thinkingMode.trim()
       : '';
     if (
-      selectedSession?.__provider !== 'claude'
+      effectiveProvider !== 'claude'
       || !sessionThinkingMode
       || sessionThinkingMode === thinkingMode
     ) {
@@ -525,6 +525,7 @@ function ChatInterface({
 
     setThinkingMode(sessionThinkingMode);
   }, [
+    effectiveProvider,
     selectedSession?.__provider,
     selectedSession?.id,
     selectedSession?.thinkingMode,
@@ -563,13 +564,13 @@ function ChatInterface({
           ? payload.state.thinkingMode.trim()
           : '';
 
-        if (selectedSession?.__provider === 'codex' && model && model !== codexModel) {
+        if (effectiveProvider === 'codex' && model && model !== codexModel) {
           setCodexModel(model);
         }
-        if (selectedSession?.__provider === 'codex' && reasoningEffort && reasoningEffort !== codexReasoningEffort) {
+        if (effectiveProvider === 'codex' && reasoningEffort && reasoningEffort !== codexReasoningEffort) {
           setCodexReasoningEffort(reasoningEffort);
         }
-        if (selectedSession?.__provider === 'claude' && syncedThinkingMode && syncedThinkingMode !== thinkingMode) {
+        if (effectiveProvider === 'claude' && syncedThinkingMode && syncedThinkingMode !== thinkingMode) {
           setThinkingMode(syncedThinkingMode);
         }
       } catch (error) {
@@ -708,9 +709,8 @@ function ChatInterface({
     const clientRequestId = `workflow-autostart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     /**
      * Workflow auto-start bypasses the regular composer submit path, so it must
-     * establish the same pending draft context before the provider emits the
-     * concrete session id. Otherwise a stale pendingSessionId can finalize this
-     * workflow draft with another workflow's provider session.
+     * attach the same ccflow route identity before the provider emits a concrete
+     * session id.
      */
     pendingViewSessionRef.current = {
       sessionId: null,
@@ -718,11 +718,6 @@ function ChatInterface({
       clientRequestId,
       draftSessionId: activeSessionId,
     };
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.removeItem('pendingSessionId');
-      window.sessionStorage.setItem('pendingDraftSessionId', activeSessionId);
-      window.sessionStorage.setItem('pendingSessionClientRequestId', clientRequestId);
-    }
 
     setIsLoading(true);
     setCanAbortSession(true);
@@ -738,12 +733,24 @@ function ChatInterface({
         clientRequestId,
         command: autoStartPrompt,
         sessionId: null,
+        ccflowSessionId: activeSessionId,
+        ccflow_session_id: activeSessionId,
+        startRequestId: clientRequestId,
+        start_request_id: clientRequestId,
+        clientRef: autoStartPrompt,
+        client_ref: autoStartPrompt,
         options: {
           projectName: resolvedProjectName,
           cwd: resolvedProjectPath,
           projectPath: resolvedProjectPath,
           sessionId: null,
+          ccflowSessionId: activeSessionId,
+          ccflow_session_id: activeSessionId,
           clientRequestId,
+          startRequestId: clientRequestId,
+          start_request_id: clientRequestId,
+          clientRef: autoStartPrompt,
+          client_ref: autoStartPrompt,
           resume: false,
           model: codexModel,
           reasoningEffort: codexReasoningEffort,
@@ -758,12 +765,24 @@ function ChatInterface({
       type: 'claude-command',
       clientRequestId,
       command: autoStartPrompt,
+      ccflowSessionId: activeSessionId,
+      ccflow_session_id: activeSessionId,
+      startRequestId: clientRequestId,
+      start_request_id: clientRequestId,
+      clientRef: autoStartPrompt,
+      client_ref: autoStartPrompt,
       options: {
         projectName: resolvedProjectName,
         cwd: resolvedProjectPath,
         projectPath: resolvedProjectPath,
         sessionId: null,
+        ccflowSessionId: activeSessionId,
+        ccflow_session_id: activeSessionId,
         clientRequestId,
+        startRequestId: clientRequestId,
+        start_request_id: clientRequestId,
+        clientRef: autoStartPrompt,
+        client_ref: autoStartPrompt,
         resume: false,
         model: claudeModel,
         permissionMode: 'bypassPermissions',
@@ -903,13 +922,15 @@ function ChatInterface({
         const model = typeof state.model === 'string' ? state.model.trim() : '';
         const reasoningEffort = typeof state.reasoningEffort === 'string' ? state.reasoningEffort.trim() : '';
         const syncedThinkingMode = typeof state.thinkingMode === 'string' ? state.thinkingMode.trim() : '';
-        if (message.provider === 'codex' && model && model !== codexModel) {
+        const messageProvider = projectSessionProvider
+          || (message.provider === 'claude' || message.provider === 'codex' ? message.provider : effectiveProvider);
+        if (messageProvider === 'codex' && model && model !== codexModel) {
           setCodexModel(model);
         }
-        if (message.provider === 'codex' && reasoningEffort && reasoningEffort !== codexReasoningEffort) {
+        if (messageProvider === 'codex' && reasoningEffort && reasoningEffort !== codexReasoningEffort) {
           setCodexReasoningEffort(reasoningEffort);
         }
-        if (message.provider === 'claude' && syncedThinkingMode && syncedThinkingMode !== thinkingMode) {
+        if (messageProvider === 'claude' && syncedThinkingMode && syncedThinkingMode !== thinkingMode) {
           setThinkingMode(syncedThinkingMode);
         }
       }
@@ -1313,7 +1334,6 @@ function ChatInterface({
           isLoadingMoreMessages={isLoadingMoreMessages}
           hasMoreMessages={hasMoreMessages}
           totalMessages={totalMessages}
-          sessionMessagesCount={sessionMessages.length}
           visibleMessageCount={visibleMessageCount}
           visibleMessages={visibleMessages}
           loadEarlierMessages={loadEarlierMessages}

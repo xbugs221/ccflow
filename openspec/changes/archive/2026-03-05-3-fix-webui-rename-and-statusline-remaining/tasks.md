@@ -1,14 +1,14 @@
-## 1. 项目重命名持久化（后端）
+## 1. 项目改名持久化（后端）
 
 - [x] 1.1 在 `server/projects.js` 增加路径级展示名索引读写（`displayNameByPath`）与规范化路径 helper。
 - [x] 1.2 扩展 `renameProject(projectName, newDisplayName, projectPath?)`，写入/删除时同时维护路径键与旧 `projectName` 键兼容。
 - [x] 1.3 在项目聚合三条分支（Claude、manual、Codex-only）统一接入 `resolveDisplayName` 解析，确保路径键优先。
-- [x] 1.4 增加后端测试覆盖：Codex-only 重命名后刷新仍生效、空名称回退自动名、路径键与旧键冲突时路径优先。
+- [x] 1.4 增加后端测试覆盖：Codex-only 改名后刷新仍生效、空名称回退自动名、路径键与旧键冲突时路径优先。
 
-## 2. 重命名调用链路（前端）
+## 2. 改名调用链路（前端）
 
-- [x] 2.1 在侧边栏重命名提交时附带 `projectPath/fullPath`，并保持对旧接口参数的兼容。
-- [x] 2.2 校验重命名后刷新流程（`refreshProjects`）能正确回显新名称，不依赖整页 reload。
+- [x] 2.1 在侧边栏改名提交时附带 `projectPath/fullPath`，并保持对旧接口参数的兼容。
+- [x] 2.2 校验改名后刷新流程（`refreshProjects`）能正确回显新名称，不依赖整页 reload。
 
 ## 3. Provider 额度剩余读取层
 
@@ -25,6 +25,6 @@
 
 ## 5. 联调与回归验证
 
-- [x] 5.1 回归验证：Claude/manual/Codex-only 三类项目重命名均可跨刷新保持。
+- [x] 5.1 回归验证：Claude/manual/Codex-only 三类项目改名均可跨刷新保持。
 - [x] 5.2 回归验证：聊天区不再展示 token 百分比饼图，且 Claude/Codex 分别显示各自 5h/7d remaining。
 - [x] 5.3 补充变更说明与测试记录，确认 `/opsx:apply` 阶段可按任务顺序实现。

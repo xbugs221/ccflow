@@ -79,7 +79,7 @@
   "fileOperations": {
     "newFile": "新建文件",
     "newFolder": "新建文件夹",
-    "rename": "重命名",
+    "rename": "改名",
     "move": "移动",
     "copyPath": "复制路径",
     "openInEditor": "在编辑器中打开"
