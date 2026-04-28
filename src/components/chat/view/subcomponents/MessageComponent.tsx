@@ -1,0 +1,465 @@
+import React, { memo, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Check, X } from 'lucide-react';
+import type { ChatMessage, Provider } from '../../types/types';
+import { Markdown } from './Markdown';
+import { formatUsageLimitText } from '../../utils/chatFormatting';
+import { copyTextToClipboard } from '../../../../utils/clipboard';
+import type { Project } from '../../../../types/app';
+import { ToolRenderer, shouldHideToolResult } from '../../tools';
+
+type DiffLine = {
+  type: string;
+  content: string;
+  lineNum: number;
+};
+
+interface MessageComponentProps {
+  message: ChatMessage;
+  index: number;
+  prevMessage: ChatMessage | null;
+  createDiff: (oldStr: string, newStr: string) => DiffLine[];
+  onFileOpen?: (filePath: string, diffInfo?: unknown) => void;
+  onShowSettings?: () => void;
+  autoExpandTools?: boolean;
+  showRawParameters?: boolean;
+  showThinking?: boolean;
+  selectedProject?: Project | null;
+  provider: Provider | string;
+}
+
+type InteractiveOption = {
+  number: string;
+  text: string;
+  isSelected: boolean;
+};
+
+/**
+ * Extract the newest output lines from a running Codex tool card.
+ */
+function getCodexLiveOutput(message: ChatMessage): string {
+  const rawContent = message.toolResult && typeof message.toolResult === 'object'
+    ? message.toolResult.content ?? message.toolResult.output ?? message.toolResult.text
+    : message.toolResult;
+  if (rawContent === null || rawContent === undefined) {
+    return '';
+  }
+  return String(rawContent)
+    .split('\n')
+    .slice(-5)
+    .join('\n');
+}
+
+const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFileOpen, onShowSettings, autoExpandTools, showRawParameters, showThinking, selectedProject, provider }: MessageComponentProps) => {
+  const { t } = useTranslation('chat');
+  const messageAttachments = Array.isArray(message.attachments)
+    ? message.attachments
+    : (Array.isArray(message.images) ? message.images : []);
+  const isGrouped = prevMessage && prevMessage.type === message.type &&
+    ((prevMessage.type === 'assistant') ||
+      (prevMessage.type === 'user') ||
+      (prevMessage.type === 'tool') ||
+      (prevMessage.type === 'error'));
+  const messageRef = React.useRef<HTMLDivElement | null>(null);
+  const [messageCopied, setMessageCopied] = React.useState(false);
+
+  const formattedTime = useMemo(() => new Date(message.timestamp).toLocaleTimeString(), [message.timestamp]);
+  const shouldHideThinkingMessage = Boolean(message.isThinking && !showThinking);
+  const isCodexToolCard = provider === 'codex' && Boolean(message.isToolUse);
+  const isCodexRunningTool = isCodexToolCard && message.exitCode === null;
+  const codexLiveOutput = isCodexRunningTool ? getCodexLiveOutput(message) : '';
+
+  if (shouldHideThinkingMessage) {
+    return null;
+  }
+
+  return (
+    <div
+      ref={messageRef}
+      data-message-key={message.messageKey}
+      className={`chat-message ${message.type} ${isGrouped ? 'grouped' : ''} ${message.type === 'user' ? 'flex justify-end px-3 sm:px-0' : 'px-3 sm:px-0'}`}
+    >
+      {message.type === 'user' ? (
+        /* User message bubble on the right */
+        <div className="flex items-end space-x-0 sm:space-x-3 w-full sm:w-auto sm:max-w-[85%] md:max-w-md lg:max-w-lg xl:max-w-xl">
+          <div className="bg-blue-600 text-white rounded-2xl rounded-br-md px-3 sm:px-4 py-2 shadow-sm flex-1 sm:flex-initial group">
+            <div className="text-sm whitespace-pre-wrap break-words">
+              {message.content}
+            </div>
+            {messageAttachments.length > 0 && (
+              <div className="mt-2 space-y-2">
+                {messageAttachments.map((attachment, idx) => (
+                  <div
+                    key={`${attachment.absolutePath || attachment.relativePath || attachment.name}-${idx}`}
+                    className="rounded-lg bg-blue-500/30 px-3 py-2 text-xs text-blue-50"
+                  >
+                    <div className="font-medium">{attachment.relativePath || attachment.name}</div>
+                    <div className="break-all text-blue-100/90">{attachment.absolutePath || attachment.name}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-1 mt-1 text-xs text-blue-100">
+              <button
+                type="button"
+                onClick={() => {
+                  const text = String(message.content || '');
+                  if (!text) return;
+
+                  copyTextToClipboard(text).then((success) => {
+                    if (!success) return;
+                    setMessageCopied(true);
+                  });
+                }}
+                title={messageCopied ? t('copyMessage.copied') : t('copyMessage.copy')}
+                aria-label={messageCopied ? t('copyMessage.copied') : t('copyMessage.copy')}
+              >
+                {messageCopied ? (
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path
+                      fillRule="evenodd"
+                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    className="w-3.5 h-3.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+                  </svg>
+                )}
+              </button>
+              {message.deliveryStatus === 'sent' && (
+                <Check className="w-3.5 h-3.5 text-emerald-300" strokeWidth={3} aria-label="Message sent" />
+              )}
+              {message.deliveryStatus === 'failed' && (
+                <X className="w-3.5 h-3.5 text-red-300" strokeWidth={3} aria-label="Message failed" />
+              )}
+              <span>{formattedTime}</span>
+            </div>
+          </div>
+          {!isGrouped && (
+            <div className="hidden sm:flex w-8 h-8 bg-blue-600 rounded-full items-center justify-center text-white text-sm flex-shrink-0">
+              U
+            </div>
+          )}
+        </div>
+      ) : message.isTaskNotification ? (
+        /* Compact task notification on the left */
+        <div className="w-full">
+          <div className="flex items-center gap-2 py-0.5">
+            <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${message.taskStatus === 'completed' ? 'bg-green-400 dark:bg-green-500' : 'bg-amber-400 dark:bg-amber-500'}`} />
+            <span className="text-xs text-gray-500 dark:text-gray-400">{message.content}</span>
+          </div>
+        </div>
+      ) : (
+        /* Claude/Error/Tool messages on the left */
+        <div className="w-full">
+          {!isGrouped && (
+            <div className="flex items-center space-x-3 mb-2">
+              {message.type === 'error' ? (
+                <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0">
+                  !
+                </div>
+              ) : message.type === 'tool' ? (
+                <div className="w-8 h-8 bg-gray-600 dark:bg-gray-700 rounded-full flex items-center justify-center text-white text-sm flex-shrink-0">
+                  🔧
+                </div>
+              ) : null}
+              <div className="text-sm font-medium text-gray-900 dark:text-white">
+                {message.type === 'error'
+                  ? t('messageTypes.error')
+                  : message.type === 'tool'
+                    ? t('messageTypes.tool')
+                    : provider === 'codex'
+                      ? t('messageTypes.codex')
+                      : t('messageTypes.claude')}
+              </div>
+            </div>
+          )}
+
+          <div className="w-full">
+
+            {message.isToolUse ? (
+              <div
+                data-testid={isCodexToolCard ? 'codex-tool-card' : undefined}
+                data-collapsed={isCodexToolCard ? String(!isCodexRunningTool && Boolean(message.toolResult)) : undefined}
+              >
+                {isCodexToolCard && (
+                  <div data-testid="codex-tool-card-title" className="sr-only">
+                    {message.toolName || 'UnknownTool'}
+                  </div>
+                )}
+                <div className="flex flex-col">
+                  <div className="flex flex-col">
+                    <Markdown
+                      className="prose prose-sm max-w-none dark:prose-invert"
+                      selectedProject={selectedProject}
+                      onFileOpen={onFileOpen}
+                    >
+                      {String(message.displayText || '')}
+                    </Markdown>
+                  </div>
+                </div>
+
+                {Boolean(message.toolInput) && (
+                  <ToolRenderer
+                    toolName={message.toolName || 'UnknownTool'}
+                    toolInput={message.toolInput}
+                    toolResult={message.toolResult}
+                    toolId={message.toolId}
+                    mode="input"
+                    onFileOpen={onFileOpen}
+                    createDiff={createDiff}
+                    selectedProject={selectedProject}
+                    autoExpandTools={autoExpandTools}
+                    showRawParameters={showRawParameters}
+                    rawToolInput={typeof message.toolInput === 'string' ? message.toolInput : undefined}
+                    isSubagentContainer={message.isSubagentContainer}
+                    subagentState={message.subagentState}
+                  />
+                )}
+
+                {codexLiveOutput && (
+                  <pre
+                    data-testid="codex-tool-live-output"
+                    className="mt-2 rounded border border-gray-200/60 dark:border-gray-700/50 bg-gray-50/80 dark:bg-gray-900/40 px-3 py-2 text-[11px] font-mono whitespace-pre-wrap break-words text-gray-700 dark:text-gray-200"
+                  >
+                    {codexLiveOutput}
+                  </pre>
+                )}
+
+                {/* Tool Result Section */}
+                {message.toolResult && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
+                  message.toolResult.isError ? (
+                    // Error results - red error box with content
+                    <div
+                      id={`tool-result-${message.toolId}`}
+                      className="relative mt-2 p-3 rounded border scroll-mt-4 bg-red-50/50 dark:bg-red-950/10 border-red-200/60 dark:border-red-800/40"
+                    >
+                      <div className="relative flex items-center gap-1.5 mb-2">
+                        <svg className="w-4 h-4 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        <span className="text-xs font-medium text-red-700 dark:text-red-300">{t('messageTypes.error')}</span>
+                      </div>
+                      <div className="relative text-sm text-red-900 dark:text-red-100">
+                        <Markdown
+                          className="prose prose-sm max-w-none prose-red dark:prose-invert"
+                          selectedProject={selectedProject}
+                          onFileOpen={onFileOpen}
+                        >
+                          {String(message.toolResult.content || '')}
+                        </Markdown>
+                      </div>
+                    </div>
+                  ) : (
+                    // Non-error results - route through ToolRenderer (single source of truth)
+                    <div id={`tool-result-${message.toolId}`} className="scroll-mt-4">
+                      <ToolRenderer
+                        toolName={message.toolName || 'UnknownTool'}
+                        toolInput={message.toolInput}
+                        toolResult={message.toolResult}
+                        toolId={message.toolId}
+                        mode="result"
+                        onFileOpen={onFileOpen}
+                        createDiff={createDiff}
+                        selectedProject={selectedProject}
+                        autoExpandTools={autoExpandTools}
+                        isSubagentContainer={message.isSubagentContainer}
+                        subagentState={message.subagentState}
+                      />
+                    </div>
+                  )
+                )}
+              </div>
+            ) : message.isInteractivePrompt ? (
+              // Special handling for interactive prompts
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-amber-900 dark:text-amber-100 text-base mb-3">
+                      {t('interactive.title')}
+                    </h4>
+                    {(() => {
+                      const lines = (message.content || '').split('\n').filter((line) => line.trim());
+                      const questionLine = lines.find((line) => line.includes('?')) || lines[0] || '';
+                      const options: InteractiveOption[] = [];
+
+                      // Parse the menu options
+                      lines.forEach((line) => {
+                        // Match lines like "❯ 1. Yes" or "  2. No"
+                        const optionMatch = line.match(/[❯\s]*(\d+)\.\s+(.+)/);
+                        if (optionMatch) {
+                          const isSelected = line.includes('❯');
+                          options.push({
+                            number: optionMatch[1],
+                            text: optionMatch[2].trim(),
+                            isSelected
+                          });
+                        }
+                      });
+
+                      return (
+                        <>
+                          <p className="text-sm text-amber-800 dark:text-amber-200 mb-4">
+                            {questionLine}
+                          </p>
+
+                          {/* Option buttons */}
+                          <div className="space-y-2 mb-4">
+                            {options.map((option) => (
+                              <button
+                                key={option.number}
+                                className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all ${option.isSelected
+                                  ? 'bg-amber-600 dark:bg-amber-700 text-white border-amber-600 dark:border-amber-700 shadow-md'
+                                  : 'bg-white dark:bg-gray-800 text-amber-900 dark:text-amber-100 border-amber-300 dark:border-amber-700'
+                                  } cursor-not-allowed opacity-75`}
+                                disabled
+                              >
+                                <div className="flex items-center gap-3">
+                                  <span className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${option.isSelected
+                                    ? 'bg-white/20'
+                                    : 'bg-amber-100 dark:bg-amber-800/50'
+                                    }`}>
+                                    {option.number}
+                                  </span>
+                                  <span className="text-sm sm:text-base font-medium flex-1">
+                                    {option.text}
+                                  </span>
+                                  {option.isSelected && (
+                                    <span className="text-lg">❯</span>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="bg-amber-100 dark:bg-amber-800/30 rounded-lg p-3">
+                            <p className="text-amber-900 dark:text-amber-100 text-sm font-medium mb-1">
+                              {t('interactive.waiting')}
+                            </p>
+                            <p className="text-amber-800 dark:text-amber-200 text-xs">
+                              {t('interactive.instruction')}
+                            </p>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+            ) : message.isThinking ? (
+              /* Thinking messages - collapsible by default */
+              <div className="text-sm text-gray-700 dark:text-gray-300">
+                <details className="group">
+                  <summary className="cursor-pointer text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 font-medium flex items-center gap-2">
+                    <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    <span>{t('thinking.emoji')}</span>
+                  </summary>
+                  <div className="mt-2 pl-4 border-l-2 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 text-sm">
+                    <Markdown
+                      className="prose prose-sm max-w-none dark:prose-invert prose-gray"
+                      selectedProject={selectedProject}
+                      onFileOpen={onFileOpen}
+                    >
+                      {message.content}
+                    </Markdown>
+                  </div>
+                </details>
+              </div>
+            ) : (
+              <div className="text-sm text-gray-700 dark:text-gray-300">
+                {/* Thinking accordion for reasoning */}
+                {showThinking && message.reasoning && (
+                  <details className="mb-3">
+                    <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-medium">
+                      {t('thinking.emoji')}
+                    </summary>
+                    <div className="mt-2 pl-4 border-l-2 border-gray-300 dark:border-gray-600 italic text-gray-600 dark:text-gray-400 text-sm">
+                      <div className="whitespace-pre-wrap">
+                        {message.reasoning}
+                      </div>
+                    </div>
+                  </details>
+                )}
+
+                {(() => {
+                  const content = formatUsageLimitText(String(message.content || ''));
+
+                  // Detect if content is pure JSON (starts with { or [)
+                  const trimmedContent = content.trim();
+                  if ((trimmedContent.startsWith('{') || trimmedContent.startsWith('[')) &&
+                    (trimmedContent.endsWith('}') || trimmedContent.endsWith(']'))) {
+                    try {
+                      const parsed = JSON.parse(trimmedContent);
+                      const formatted = JSON.stringify(parsed, null, 2);
+
+                      return (
+                        <div className="my-2">
+                          <div className="flex items-center gap-2 mb-2 text-sm text-gray-600 dark:text-gray-400">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
+                            <span className="font-medium">{t('json.response')}</span>
+                          </div>
+                          <div className="bg-gray-800 dark:bg-gray-900 border border-gray-600/30 dark:border-gray-700 rounded-lg overflow-hidden">
+                            <pre className="p-4 overflow-x-auto">
+                              <code className="text-gray-100 dark:text-gray-200 text-sm font-mono block whitespace-pre">
+                                {formatted}
+                              </code>
+                            </pre>
+                          </div>
+                        </div>
+                      );
+                    } catch {
+                      // Not valid JSON, fall through to normal rendering
+                    }
+                  }
+
+                  // Normal rendering for non-JSON content
+                  return message.type === 'assistant' ? (
+                    <Markdown
+                      className="prose prose-sm max-w-none dark:prose-invert prose-gray"
+                      selectedProject={selectedProject}
+                      onFileOpen={onFileOpen}
+                    >
+                      {content}
+                    </Markdown>
+                  ) : (
+                    <div className="whitespace-pre-wrap">
+                      {content}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {!isGrouped && (
+              <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                {formattedTime}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+export default MessageComponent;

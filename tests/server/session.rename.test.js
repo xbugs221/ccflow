@@ -1,0 +1,622 @@
+/**
+ * PURPOSE: Verify Claude session rename persistence behavior for sidebar rename flows.
+ * The tests append summary records to real JSONL session files and confirm refreshed reads use the new title.
+ */
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import {
+  addProjectManually,
+  clearProjectDirectoryCache,
+  createManualSessionDraft,
+  deleteCodexSession,
+  deleteSession,
+  finalizeManualSessionDraft,
+  getCodexSessions,
+  getSessions,
+  loadProjectConfig,
+  renameCodexSession,
+  renameSession,
+  saveProjectConfig,
+} from '../../server/projects.js';
+import {
+  createProjectWorkflow,
+  listProjectWorkflows,
+  registerWorkflowChildSession,
+} from '../../server/workflows.js';
+
+let homeIsolationQueue = Promise.resolve();
+
+/**
+ * Execute each test case under an isolated HOME directory.
+ */
+async function withTemporaryHome(testBody) {
+  const run = async () => {
+    const originalHome = process.env.HOME;
+    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-session-rename-test-'));
+
+    process.env.HOME = tempHome;
+    clearProjectDirectoryCache();
+    try {
+      await testBody(tempHome);
+    } finally {
+      clearProjectDirectoryCache();
+      if (originalHome) {
+        process.env.HOME = originalHome;
+      } else {
+        delete process.env.HOME;
+      }
+
+      await fs.rm(tempHome, { recursive: true, force: true });
+    }
+  };
+
+  const runPromise = homeIsolationQueue.then(run, run);
+  homeIsolationQueue = runPromise.catch(() => {});
+  return runPromise;
+}
+
+/**
+ * Create a minimal Claude session JSONL file that the parser can list and rename.
+ */
+async function createClaudeSessionFile(projectName, sessionId) {
+  const projectDir = path.join(process.env.HOME, '.claude', 'projects', projectName);
+  const sessionPath = path.join(projectDir, `${sessionId}.jsonl`);
+
+  await fs.mkdir(projectDir, { recursive: true });
+  await fs.writeFile(
+    sessionPath,
+    [
+      JSON.stringify({
+        sessionId,
+        type: 'user',
+        timestamp: '2026-03-06T08:00:00.000Z',
+        cwd: '/tmp/workspace',
+        message: { role: 'user', content: 'original session prompt' },
+        parentUuid: null,
+        uuid: 'user-1',
+      }),
+      JSON.stringify({
+        sessionId,
+        type: 'assistant',
+        timestamp: '2026-03-06T08:00:05.000Z',
+        cwd: '/tmp/workspace',
+        message: { role: 'assistant', content: 'assistant reply' },
+        parentUuid: 'user-1',
+        uuid: 'assistant-1',
+      }),
+    ].join('\n') + '\n',
+    'utf8',
+  );
+
+  return sessionPath;
+}
+
+/**
+ * Create a minimal Codex session JSONL file that project discovery can index.
+ */
+async function createCodexSessionFile(homeDir, projectPath, sessionId) {
+  const sessionDir = path.join(homeDir, '.codex', 'sessions', '2026', '03', '06');
+  const sessionPath = path.join(sessionDir, `${sessionId}.jsonl`);
+
+  await fs.mkdir(sessionDir, { recursive: true });
+  await fs.writeFile(
+    sessionPath,
+    [
+      JSON.stringify({
+        type: 'session_meta',
+        timestamp: '2026-03-06T08:00:00.000Z',
+        payload: { id: sessionId, cwd: projectPath, model: 'gpt-5.4' },
+      }),
+      JSON.stringify({
+        type: 'event_msg',
+        timestamp: '2026-03-06T08:00:01.000Z',
+        payload: { type: 'user_message', message: '真实 Codex workflow 会话' },
+      }),
+    ].join('\n') + '\n',
+    'utf8',
+  );
+
+  return sessionPath;
+}
+
+/**
+ * Create a Claude session fixture with custom user prompts for summary tests.
+ */
+async function createClaudeSessionFixture(projectName, sessionId, userPrompts) {
+  const projectDir = path.join(process.env.HOME, '.claude', 'projects', projectName);
+  const sessionPath = path.join(projectDir, `${sessionId}.jsonl`);
+
+  await fs.mkdir(projectDir, { recursive: true });
+  const lines = userPrompts.map((prompt, index) => JSON.stringify({
+    sessionId,
+    type: 'user',
+    timestamp: `2026-03-06T08:00:0${index}.000Z`,
+    cwd: '/tmp/workspace',
+    message: { role: 'user', content: prompt },
+    parentUuid: index === 0 ? null : `user-${index}`,
+    uuid: `user-${index + 1}`,
+  }));
+  await fs.writeFile(sessionPath, `${lines.join('\n')}\n`, 'utf8');
+
+  return sessionPath;
+}
+
+test('Claude session rename persists via appended summary records', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'claude-demo');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Claude Demo');
+    const sessionPath = await createClaudeSessionFile(project.name, 'session-1');
+
+    await renameSession(project.name, 'session-1', 'Renamed Session');
+
+    const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
+    assert.equal(sessionsResult.sessions.length, 1);
+    assert.equal(sessionsResult.sessions[0].summary, 'Renamed Session');
+
+    const persistedContent = await fs.readFile(sessionPath, 'utf8');
+    assert.match(persistedContent, /"type":"summary"/);
+    assert.match(persistedContent, /"summary":"Renamed Session"/);
+  });
+});
+
+test('Codex session rename persists project-local conf title', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'codex-rename-title');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    await addProjectManually(projectPath, 'Codex Rename Title Demo');
+    await createCodexSessionFile(tempHome, projectPath, 'codex-rename-real');
+    const config = await loadProjectConfig(projectPath);
+    config.chat = {
+      1: {
+        sessionId: 'codex-rename-real',
+        title: '旧 Codex 标题',
+        ui: {},
+      },
+    };
+    await saveProjectConfig(config, projectPath);
+
+    await renameCodexSession('codex-rename-real', '新 Codex 标题', projectPath);
+
+    const nextConfig = await loadProjectConfig(projectPath);
+    assert.equal(nextConfig.chat[1].title, '新 Codex 标题');
+  });
+});
+
+test('Claude session rename rejects blank summaries', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'claude-demo-empty');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Claude Demo Empty');
+    await createClaudeSessionFile(project.name, 'session-blank');
+
+    await assert.rejects(
+      () => renameSession(project.name, 'session-blank', '   '),
+      /Session summary is required/,
+    );
+  });
+});
+
+test('Claude session summary ignores bootstrap ping and uses the first real prompt', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'claude-demo-bootstrap');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Claude Demo Bootstrap');
+    await createClaudeSessionFixture(project.name, 'session-bootstrap', ['ping', '真正的业务问题']);
+
+    const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
+    assert.equal(sessionsResult.sessions.length, 1);
+    assert.equal(sessionsResult.sessions[0].summary, '真正的业务问题');
+  });
+});
+
+test('Claude session rename updates display summary without changing filename', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'claude-demo-rename-file');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Claude Demo Rename File');
+    const sessionPath = await createClaudeSessionFile(project.name, 'session-stable-file');
+
+    await renameSession(project.name, 'session-stable-file', '新的会话名称');
+
+    const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
+    assert.equal(sessionsResult.sessions[0].summary, '新的会话名称');
+    await assert.doesNotReject(fs.access(sessionPath));
+    assert.equal(path.basename(sessionPath), 'session-stable-file.jsonl');
+  });
+});
+
+test('manual Claude draft sessions are visible before the first provider message', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'claude-manual-draft');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Claude Draft Demo');
+    const draftSession = await createManualSessionDraft(project.name, projectPath, 'claude', '会话1');
+
+    const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
+    assert.equal(sessionsResult.sessions.length, 1);
+    assert.equal(sessionsResult.sessions[0].id, draftSession.id);
+    assert.equal(sessionsResult.sessions[0].summary, '会话1');
+    assert.equal(sessionsResult.sessions[0].status, 'draft');
+  });
+});
+
+test('manual Codex draft sessions are visible before the first provider message', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'codex-manual-draft');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Codex Draft Demo');
+    const draftSession = await createManualSessionDraft(project.name, projectPath, 'codex', '会话2');
+
+    const sessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].id, draftSession.id);
+    assert.equal(sessions[0].summary, '会话2');
+    assert.equal(sessions[0].status, 'draft');
+  });
+});
+
+test('manual draft route indices stay unique across Claude and Codex providers in one project', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'mixed-provider-drafts');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Mixed Provider Draft Demo');
+    const claudeDraft = await createManualSessionDraft(project.name, projectPath, 'claude', '会话1');
+    const codexDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '会话2');
+
+    assert.equal(claudeDraft.id, 'c1');
+    assert.equal(claudeDraft.routeIndex, 1);
+    assert.equal(codexDraft.id, 'c2');
+    assert.equal(codexDraft.routeIndex, 2);
+
+    const config = await loadProjectConfig(projectPath);
+    assert.equal(config.chat['1'].sessionId, claudeDraft.id);
+    assert.equal(config.chat['2'].sessionId, codexDraft.id);
+  });
+});
+
+test('workflow-owned Codex drafts stay out of the standalone manual-session collection', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'codex-workflow-draft');
+    await fs.mkdir(projectPath, { recursive: true });
+
+      const project = await addProjectManually(projectPath, 'Codex Workflow Draft Demo');
+      await createManualSessionDraft(project.name, projectPath, 'codex', '规划提案：隐藏草稿', {
+        workflowId: 'workflow-hidden-draft',
+        stageKey: 'planning',
+      });
+
+    const sessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true });
+    assert.equal(sessions.length, 0);
+  });
+});
+
+test('manual Codex draft numbering ignores workflow child sessions in project route bucket', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'codex-workflow-route-bucket');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Codex Workflow Route Demo');
+    const firstManualDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '会话1');
+    await createCodexSessionFile(tempHome, projectPath, 'codex-workflow-child-real');
+
+    const config = await loadProjectConfig(projectPath);
+    config.workflows = {
+      1: {
+        title: '工作流',
+        chat: {
+          1: {
+            sessionId: 'codex-workflow-child-real',
+            provider: 'codex',
+            stageKey: 'execution',
+          },
+        },
+      },
+    };
+    await saveProjectConfig(config, projectPath);
+
+    const secondManualDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '会话2');
+    const sessions = await getCodexSessions(projectPath, {
+      limit: 0,
+      includeHidden: true,
+      excludeWorkflowChildSessions: true,
+    });
+
+    assert.equal(secondManualDraft.routeIndex, 2);
+    assert.ok(sessions.some((session) => session.id === secondManualDraft.id));
+    assert.equal(sessions.some((session) => session.id === 'codex-workflow-child-real'), false);
+  });
+});
+
+test('manual Codex draft numbering skips terminal-created standalone route indices', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'codex-terminal-route-bucket');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Codex Terminal Route Demo');
+    await createManualSessionDraft(project.name, projectPath, 'codex', '会话1');
+    await createCodexSessionFile(tempHome, projectPath, 'codex-terminal-real-18');
+    await createCodexSessionFile(tempHome, projectPath, 'codex-terminal-real-19');
+
+    const config = await loadProjectConfig(projectPath);
+    config.chat = {
+      ...(config.chat || {}),
+      18: { sessionId: 'codex-terminal-real-18', provider: 'codex', title: '终端会话18' },
+      19: { sessionId: 'codex-terminal-real-19', provider: 'codex', title: '终端会话19' },
+    };
+    await saveProjectConfig(config, projectPath);
+
+    const nextManualDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '会话20');
+
+    assert.equal(nextManualDraft.routeIndex, 20);
+    assert.equal(nextManualDraft.id, 'c20');
+  });
+});
+
+test('manual Codex draft numbering does not recycle after a manual draft is removed', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'codex-manual-delete-counter');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Codex Manual Delete Counter Demo');
+    const firstManualDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '会话1');
+    const secondManualDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '会话2');
+
+    const config = await loadProjectConfig(projectPath);
+    delete config.chat[String(firstManualDraft.routeIndex)];
+    await saveProjectConfig(config, projectPath);
+
+    const thirdManualDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '会话3');
+
+    assert.equal(secondManualDraft.routeIndex, 2);
+    assert.equal(thirdManualDraft.routeIndex, 3);
+  });
+});
+
+test('deleting a Claude session removes its JSONL file', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'claude-delete-real-file');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Claude Delete Real File Demo');
+    const sessionPath = await createClaudeSessionFile(project.name, 'claude-delete-real');
+
+    await deleteSession(project.name, 'claude-delete-real');
+
+    await assert.rejects(fs.access(sessionPath));
+  });
+});
+
+test('deleting a Codex session removes its JSONL file', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'codex-delete-real-file');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    await addProjectManually(projectPath, 'Codex Delete Real File Demo');
+    const sessionPath = await createCodexSessionFile(tempHome, projectPath, 'codex-delete-real');
+
+    await deleteCodexSession('codex-delete-real');
+
+    await assert.rejects(fs.access(sessionPath));
+  });
+});
+
+test('deleting a stale Codex chat record removes the local route entry', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'codex-delete-stale-chat');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    await addProjectManually(projectPath, 'Codex Delete Stale Chat Demo');
+    await saveProjectConfig({
+      schemaVersion: 2,
+      chat: {
+        77: {
+          sessionId: 'c78b7c1c-5ec0-4722-981f-e7442264a3bc',
+          title: 'Stale Codex Chat',
+          provider: 'codex',
+        },
+      },
+    }, projectPath);
+
+    await deleteCodexSession('c78b7c1c-5ec0-4722-981f-e7442264a3bc', projectPath);
+
+    const config = await loadProjectConfig(projectPath);
+    assert.equal(config.chat, undefined);
+  });
+});
+
+test('finalizing a manual Claude draft binds the label to the real backend session', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'claude-manual-finalize');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Claude Finalize Demo');
+    const draftSession = await createManualSessionDraft(project.name, projectPath, 'claude', '会话3');
+    await createClaudeSessionFile(project.name, 'claude-session-real');
+
+    const finalized = await finalizeManualSessionDraft(
+      project.name,
+      draftSession.id,
+      'claude-session-real',
+      'claude',
+    );
+
+    assert.equal(finalized, true);
+
+    const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
+    const finalizedSession = sessionsResult.sessions.find((session) => session.id === 'claude-session-real');
+    assert.equal(finalizedSession?.summary, '会话3');
+
+    const config = await loadProjectConfig(projectPath);
+    const finalizedChat = Object.values(config.chat || {}).find((record) => record.sessionId === 'claude-session-real');
+    assert.equal(finalizedChat?.title, '会话3');
+  });
+});
+
+test('finalizing workflow-owned drafts preserves ownership on real provider sessions', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'workflow-finalize');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Workflow Finalize Demo');
+      const claudeDraft = await createManualSessionDraft(project.name, projectPath, 'claude', '审核会话', {
+        workflowId: 'workflow-review',
+        stageKey: 'verification',
+        reviewPassIndex: 2,
+      });
+    await createClaudeSessionFile(project.name, 'claude-workflow-real');
+
+      const codexDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '执行会话', {
+        workflowId: 'workflow-execution',
+        stageKey: 'execution',
+      });
+    await createCodexSessionFile(tempHome, projectPath, 'codex-workflow-real');
+
+    assert.equal(
+      await finalizeManualSessionDraft(project.name, claudeDraft.id, 'claude-workflow-real', 'claude'),
+      true,
+    );
+    assert.equal(
+      await finalizeManualSessionDraft(project.name, codexDraft.id, 'codex-workflow-real', 'codex'),
+      true,
+    );
+
+    const claudeSessions = await getSessions(project.name, 5, 0, { includeHidden: true });
+      const claudeSession = claudeSessions.sessions.find((session) => session.id === 'claude-workflow-real');
+      assert.equal(claudeSession.workflowId, 'workflow-review');
+      assert.equal(claudeSession.stageKey, 'verification');
+
+    const codexSessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true });
+      const codexSession = codexSessions.find((session) => session.id === 'codex-workflow-real');
+      assert.equal(codexSession.workflowId, 'workflow-execution');
+      assert.equal(codexSession.stageKey, 'execution');
+    });
+});
+
+test('finalizing a workflow child draft replaces the temporary child session id', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'workflow-child-finalize');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Workflow Child Finalize Demo');
+    const workflow = await createProjectWorkflow(project, {
+      title: '重构精简仓库',
+      objective: '验证工作流子会话 finalize 后仍稳定指向同一个内部会话槽位',
+    });
+      const draftSession = await createManualSessionDraft(project.name, projectPath, 'codex', '规划提案：重构精简仓库', {
+        workflowId: workflow.id,
+        stageKey: 'planning',
+      });
+    await registerWorkflowChildSession(project, workflow.id, {
+      sessionId: draftSession.id,
+      title: '规划提案：重构精简仓库',
+      summary: '规划提案：重构精简仓库',
+        provider: 'codex',
+        stageKey: 'planning',
+      });
+
+    const beforeFinalize = await listProjectWorkflows(projectPath);
+    assert.equal(beforeFinalize[0].childSessions[0].id, draftSession.id);
+    assert.equal(beforeFinalize[0].childSessions[0].routeIndex, 1);
+
+    assert.equal(
+      await finalizeManualSessionDraft(project.name, draftSession.id, 'codex-workflow-real', 'codex', projectPath),
+      true,
+    );
+
+    const afterFinalize = await listProjectWorkflows(projectPath);
+    assert.equal(afterFinalize[0].childSessions[0].id, 'codex-workflow-real');
+    assert.equal(afterFinalize[0].childSessions[0].routeIndex, 1);
+      assert.equal(afterFinalize[0].childSessions[0].workflowId, workflow.id);
+      assert.equal(afterFinalize[0].childSessions[0].stageKey, 'planning');
+    });
+});
+
+test('finalizing an indexed review draft preserves the existing review child route', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'workflow-review-finalize');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Workflow Review Finalize Demo');
+    const workflow = await createProjectWorkflow(project, {
+      title: '重构精简仓库',
+      objective: '验证初审 finalize 不会从 c3 漂移到 c4',
+    });
+    await registerWorkflowChildSession(project, workflow.id, {
+      sessionId: 'planning-real',
+        title: '规划提案：重构精简仓库',
+        provider: 'codex',
+        stageKey: 'planning',
+      });
+    await registerWorkflowChildSession(project, workflow.id, {
+      sessionId: 'execution-real',
+        title: '执行：重构精简仓库',
+        provider: 'codex',
+        stageKey: 'execution',
+      });
+      const reviewDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '评审1：重构精简仓库', {
+        workflowId: workflow.id,
+        stageKey: 'review_1',
+        reviewPassIndex: 1,
+      });
+    await registerWorkflowChildSession(project, workflow.id, {
+      sessionId: reviewDraft.id,
+        title: '评审1：重构精简仓库',
+        provider: 'codex',
+        stageKey: 'review_1',
+      });
+  
+      const beforeFinalize = await listProjectWorkflows(projectPath);
+      const reviewBefore = beforeFinalize[0].childSessions.find((session) => session.stageKey === 'review_1');
+    assert.equal(reviewBefore.id, reviewDraft.id);
+    assert.equal(reviewBefore.routeIndex, 3);
+
+    assert.equal(
+      await finalizeManualSessionDraft(project.name, reviewDraft.id, 'review-real', 'codex', projectPath),
+      true,
+    );
+
+      const afterFinalize = await listProjectWorkflows(projectPath);
+      const reviewSessions = afterFinalize[0].childSessions.filter((session) => session.stageKey === 'review_1');
+    assert.equal(reviewSessions.length, 1);
+    assert.equal(reviewSessions[0].id, 'review-real');
+    assert.equal(reviewSessions[0].routeIndex, 3);
+    assert.equal(reviewSessions[0].reviewPassIndex, 1);
+  });
+});
+
+test('Claude session rename with projectPath writes conf to project-local config', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const externalProjectPath = path.join(tempHome, 'workspace', 'claude-demo-path');
+    await fs.mkdir(externalProjectPath, { recursive: true });
+
+    const project = await addProjectManually(externalProjectPath, 'Claude Demo Path');
+    const sessionPath = await createClaudeSessionFile(project.name, 'session-with-path');
+
+    await renameSession(project.name, 'session-with-path', '带路径的重命名', externalProjectPath);
+
+    const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
+    assert.equal(sessionsResult.sessions.length, 1);
+    assert.equal(sessionsResult.sessions[0].summary, '带路径的重命名');
+
+    const persistedContent = await fs.readFile(sessionPath, 'utf8');
+    assert.match(persistedContent, /"type":"summary"/);
+    assert.match(persistedContent, /"summary":"带路径的重命名"/);
+
+    const projectLocalConfig = await loadProjectConfig(externalProjectPath);
+    assert.equal(projectLocalConfig.chat?.['1']?.title, '带路径的重命名');
+  });
+});
