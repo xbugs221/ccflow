@@ -4,3 +4,12 @@
 - 支持kimi-k2.6模型（通过claude-code接入）
 
 项目早期，估计仍有一些BUG，后续可能会重构，欢迎试用或fork，也欢迎PR
+
+快速开始：
+
+```sh
+git clone https://github.com/xbugs221/ccflow.git
+cd ccflow
+pnpm build
+node server/index.js
+```
