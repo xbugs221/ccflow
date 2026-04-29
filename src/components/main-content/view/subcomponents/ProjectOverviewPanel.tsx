@@ -5,7 +5,7 @@
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, Edit3, EyeOff, FolderOpen, MessageSquarePlus, Plus, Star, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clock, Edit3, EyeOff, FolderOpen, MessageSquarePlus, Plus, Star, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../../ui/button';
 import { Input } from '../../../ui/input';
@@ -17,6 +17,7 @@ import { api } from '../../../../utils/api';
 import { buildProjectWorkflowRoute } from '../../../../utils/projectRoute';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import SessionActionIconMenu from '../../../session-actions/SessionActionIconMenu';
+import WorkflowStageProgress from '../../../workflow/WorkflowStageProgress';
 import {
   getSessionActivitySignature,
   getSessionProjectName,
@@ -86,22 +87,6 @@ function getSessionSelectionKey(session: ProjectSession & { __provider: SessionP
    * collide when selected together on the project homepage.
    */
   return `${session.__projectName || projectName}::${session.__provider}::${session.id}`;
-}
-
-function getWorkflowStatusTone(workflow: ProjectWorkflow): string {
-  /**
-   * Keep the workflow checklist readable with a small set of semantic tones.
-   */
-  const runState = String(workflow.runState || '').toLowerCase();
-  if (runState.includes('done') || runState.includes('complete') || runState.includes('success')) {
-    return 'text-green-600 dark:text-green-400';
-  }
-
-  if (runState.includes('blocked') || runState.includes('failed') || runState.includes('error')) {
-    return 'text-red-600 dark:text-red-400';
-  }
-
-  return 'text-muted-foreground';
 }
 
 /**
@@ -899,17 +884,8 @@ export default function ProjectOverviewPanel({
                         className="flex min-w-0 flex-1 flex-col items-start gap-3 text-left"
                         onClick={() => handleProtectedClick(() => onSelectWorkflow(project, workflow))}
                       >
-                        <div className="flex w-full items-start gap-3">
-                          <span className={getWorkflowStatusTone(workflow)}>
-                            {workflow.runState === 'done' ? (
-                              <CheckCircle2 className="h-4 w-4" />
-                            ) : (
-                              <Circle className="h-4 w-4" />
-                            )}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="line-clamp-2 text-sm font-medium text-foreground">{workflow.title}</div>
-                          </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="line-clamp-2 text-sm font-medium text-foreground">{workflow.title}</div>
                         </div>
                         <div className="mt-auto flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           {workflow.favorite === true && (
@@ -924,24 +900,9 @@ export default function ProjectOverviewPanel({
                               待处理
                             </span>
                           )}
-                          <span className="rounded-md bg-muted px-2 py-1">{workflow.stage}</span>
-                          <span className="rounded-md bg-muted px-2 py-1">{workflow.runState}</span>
-                          {workflow.hasUnreadActivity && <span className="inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />}
+                          <WorkflowStageProgress stageStatuses={workflow.stageStatuses} size="md" />
                         </div>
                       </button>
-                      {workflow.hasUnreadActivity && onMarkWorkflowRead && (
-                        <div className="mt-3 flex justify-end">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 px-2 text-xs"
-                            onClick={() => onMarkWorkflowRead(project.name, workflow.id)}
-                          >
-                            标记已读
-                          </Button>
-                        </div>
-                      )}
                     </div>
                   );
                 })

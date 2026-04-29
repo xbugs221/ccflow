@@ -378,12 +378,6 @@ export default function SidebarSessionItem({
 
   return (
     <div className="group relative">
-      {hasUnreadActivity && (
-        <span
-          className="absolute left-1 top-1/2 z-10 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-yellow-400 shadow-sm"
-          title="有未读新消息"
-        />
-      )}
       <div className="md:hidden">
         <div
           data-session-surface="true"
@@ -454,23 +448,26 @@ export default function SidebarSessionItem({
             </div>
           ) : (
             <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-2">
-                {sessionRouteNumber && (
-                  <span className="w-6 flex-shrink-0 text-right text-[11px] font-medium text-muted-foreground">
-                    {sessionRouteNumber}
-                  </span>
-                )}
+              <div className="flex min-w-0 items-start justify-between gap-2">
                 <div className="truncate text-xs font-medium text-foreground">{sessionView.sessionName}</div>
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                {isStarred && <Star className="h-3 w-3 fill-current text-yellow-500" />}
-                {isPending && <Clock className="h-3 w-3 text-amber-500" />}
                 <SessionProviderLogo
                   provider={session.__provider}
                   model={session.model || null}
                   className="h-4 w-4 shrink-0 text-muted-foreground"
                 />
+              </div>
+              <div className="mt-1 text-[11px] text-muted-foreground">
                 <span>{formatTimeAgo(sessionView.sessionTime, currentTime, t)}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                {hasUnreadActivity && (
+                  <span className="inline-flex h-2.5 w-2.5 rounded-full bg-yellow-400 shadow-sm" title="有未读新消息" />
+                )}
+                {sessionRouteNumber && (
+                  <span className="text-[11px] font-medium text-muted-foreground">#{sessionRouteNumber}</span>
+                )}
+                {isStarred && <Star className="h-3 w-3 fill-current text-yellow-500" />}
+                {isPending && <Clock className="h-3 w-3 text-amber-500" />}
                 {sessionView.messageCount > 0 && <span>{sessionView.messageCount} 条</span>}
               </div>
             </div>
@@ -510,23 +507,26 @@ export default function SidebarSessionItem({
                 />
               ) : (
                 <>
-                  <div className="flex min-w-0 items-center gap-2">
-                    {sessionRouteNumber && (
-                      <span className="w-6 flex-shrink-0 text-right text-[11px] font-medium text-muted-foreground">
-                        {sessionRouteNumber}
-                      </span>
-                    )}
+                  <div className="flex min-w-0 items-start justify-between gap-2">
                     <div className="truncate text-xs font-medium text-foreground">{sessionView.sessionName}</div>
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                    {isStarred && <Star className="h-3 w-3 fill-current text-yellow-500" />}
-                    {isPending && <Clock className="h-3 w-3 text-amber-500" />}
                     <SessionProviderLogo
                       provider={session.__provider}
                       model={session.model || null}
                       className="h-4 w-4 shrink-0 text-muted-foreground"
                     />
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
                     <span>{formatTimeAgo(sessionView.sessionTime, currentTime, t)}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                    {hasUnreadActivity && (
+                      <span className="inline-flex h-2.5 w-2.5 rounded-full bg-yellow-400 shadow-sm" title="有未读新消息" />
+                    )}
+                    {sessionRouteNumber && (
+                      <span className="text-[11px] font-medium text-muted-foreground">#{sessionRouteNumber}</span>
+                    )}
+                    {isStarred && <Star className="h-3 w-3 fill-current text-yellow-500" />}
+                    {isPending && <Clock className="h-3 w-3 text-amber-500" />}
                     {sessionView.messageCount > 0 && <span>{sessionView.messageCount} 条</span>}
                   </div>
                 </>

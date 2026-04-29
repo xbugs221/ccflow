@@ -17,6 +17,7 @@ import { cn } from '../../../../lib/utils';
 import type { Project, ProjectWorkflow } from '../../../../types/app';
 import { api } from '../../../../utils/api';
 import { buildProjectWorkflowRoute } from '../../../../utils/projectRoute';
+import WorkflowStageProgress from '../../../workflow/WorkflowStageProgress';
 
 const DEFAULT_VISIBLE_WORKFLOWS = 5;
 const WORKFLOW_ACTION_LONG_PRESS_MS = 450;
@@ -468,13 +469,12 @@ export default function SidebarProjectWorkflows({
         visibleWorkflows.map((workflow) => {
             const isSelected = selectedWorkflow?.id === workflow.id;
             const isActionMenuOpen = workflowActionMenu.isOpen && workflowActionMenu.workflowId === workflow.id;
-            const workflowFinished = isWorkflowFinished(workflow);
             return (
             <div key={workflow.id} className="relative">
               <button
                 type="button"
                 className={cn(
-                  'w-full rounded-md border px-3 py-2 text-left transition-colors',
+                  'flex w-full min-w-0 flex-col items-start rounded-md border px-3 py-2 text-left transition-colors',
                   isSelected ? 'border-primary bg-primary/10' : 'border-border/40 bg-background hover:bg-accent/40',
                 )}
                 onClick={() => handleWorkflowClick(workflow)}
@@ -485,20 +485,13 @@ export default function SidebarProjectWorkflows({
                 onTouchMove={handleWorkflowTouchMove}
                 data-workflow-surface="true"
               >
-                <div className="truncate text-xs font-medium text-foreground">
+                <div className="w-full min-w-0 truncate text-xs font-medium text-foreground">
                   {workflow.title}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                   {workflow.favorite === true && <Star className="h-3 w-3 fill-current text-yellow-500" />}
                   {workflow.pending === true && <Clock className="h-3 w-3 text-amber-500" />}
-                  <span>{workflow.stage}</span>
-                  <span
-                    className={cn(
-                      'inline-flex h-2 w-2 rounded-full',
-                      workflowFinished ? 'bg-emerald-500' : 'bg-amber-500',
-                    )}
-                    title={workflowFinished ? '工作流已结束' : '工作流进行中'}
-                  />
+                  <WorkflowStageProgress stageStatuses={workflow.stageStatuses} size="sm" />
                 </div>
               </button>
               {isActionMenuOpen && (
