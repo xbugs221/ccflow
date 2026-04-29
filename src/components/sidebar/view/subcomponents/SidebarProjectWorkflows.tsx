@@ -21,6 +21,14 @@ import WorkflowStageProgress from '../../../workflow/WorkflowStageProgress';
 
 const DEFAULT_VISIBLE_WORKFLOWS = 5;
 const WORKFLOW_ACTION_LONG_PRESS_MS = 450;
+type WorkflowCardSortMode = 'created' | 'updated' | 'title' | 'provider';
+
+const WORKFLOW_SORT_OPTIONS: Array<{ value: WorkflowCardSortMode; label: string }> = [
+  { value: 'created', label: '创建时间' },
+  { value: 'updated', label: '最近消息' },
+  { value: 'title', label: '标题' },
+  { value: 'provider', label: 'Provider' },
+];
 
 type WorkflowActionMenuState =
   | { isOpen: false; workflowId: null; x: number; y: number }
@@ -63,6 +71,34 @@ function getWorkflowUpdatedAt(workflow: ProjectWorkflow): number {
 }
 
 /**
+ * PURPOSE: Sort workflow cards by the selected visible field without changing route ids.
+ */
+function compareWorkflowBySortMode(
+  left: ProjectWorkflow,
+  right: ProjectWorkflow,
+  mode: WorkflowCardSortMode,
+): number {
+  if (mode === 'updated') {
+    return getWorkflowUpdatedAt(right) - getWorkflowUpdatedAt(left);
+  }
+
+  if (mode === 'title') {
+    return String(left.title || '').localeCompare(String(right.title || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+  }
+
+  if (mode === 'provider') {
+    const leftProvider = String(left.provider || left.ownerProvider || left.childSessions?.[0]?.provider || '');
+    const rightProvider = String(right.provider || right.ownerProvider || right.childSessions?.[0]?.provider || '');
+    return leftProvider.localeCompare(rightProvider) || String(left.title || '').localeCompare(String(right.title || ''));
+  }
+
+  return Number(right.routeIndex || 0) - Number(left.routeIndex || 0);
+}
+
+/**
  * PURPOSE: Render workflow status lights from completion state instead of
  * user-specific unread state.
  */
@@ -90,6 +126,8 @@ export default function SidebarProjectWorkflows({
     x: 0,
     y: 0,
   });
+  /** 工作流卡片排序只影响展示顺序，不改变 wN routeIndex。 */
+  const [sortMode, setSortMode] = useState<WorkflowCardSortMode>('created');
   const [composerOpen, setComposerOpen] = useState(false);
   const [workflowTitleInput, setWorkflowTitleInput] = useState('');
   const [workflowObjectiveInput, setWorkflowObjectiveInput] = useState('');
@@ -110,7 +148,7 @@ export default function SidebarProjectWorkflows({
       if (priority !== 0) {
         return priority;
       }
-      return getWorkflowUpdatedAt(right) - getWorkflowUpdatedAt(left);
+      return compareWorkflowBySortMode(left, right, sortMode);
     });
 
   const hasWorkflows = workflows.length > 0;
@@ -402,15 +440,27 @@ export default function SidebarProjectWorkflows({
           <Workflow className="h-3.5 w-3.5 text-muted-foreground" />
           <h4 className="text-xs font-medium text-foreground">需求工作流</h4>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-[11px]"
-          onClick={() => void openWorkflowComposer()}
-        >
-          <Plus className="h-3 w-3" />
-          新建
-        </Button>
+        <div className="flex items-center gap-1">
+          <select
+            value={sortMode}
+            onChange={(event) => setSortMode(event.target.value as WorkflowCardSortMode)}
+            className="h-7 rounded border border-input bg-transparent px-1.5 text-[11px] text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
+            aria-label="工作流排序"
+          >
+            {WORKFLOW_SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => void openWorkflowComposer()}
+          >
+            <Plus className="h-3 w-3" />
+            新建
+          </Button>
+        </div>
       </div>
 
       {composerOpen && (

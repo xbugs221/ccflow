@@ -88,3 +88,30 @@ test('project-home session cards are wired to production activity rendering', as
   assert.match(actionMenuSource, /<span>\{favoriteLabel\}<\/span>/);
   assert.match(actionMenuSource, /<span>\{labels\.delete\}<\/span>/);
 });
+
+test('project-home and sidebar cards expose business sort choices without changing route numbers', async () => {
+  /**
+   * Sorting must be a card-display concern. The visible #cN/#wN route numbers
+   * remain sourced from routeIndex while users can sort by update time, title,
+   * or provider.
+   */
+  const overviewSource = await readFile(
+    new URL('../../src/components/main-content/view/subcomponents/ProjectOverviewPanel.tsx', import.meta.url),
+    'utf8',
+  );
+  const sidebarSessionsSource = await readFile(
+    new URL('../../src/components/sidebar/view/subcomponents/SidebarProjectSessions.tsx', import.meta.url),
+    'utf8',
+  );
+  const sidebarWorkflowsSource = await readFile(
+    new URL('../../src/components/sidebar/view/subcomponents/SidebarProjectWorkflows.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(overviewSource, /value: 'updated', label: '最近消息'/);
+  assert.match(overviewSource, /value: 'title', label: '标题'/);
+  assert.match(overviewSource, /value: 'provider', label: 'Provider'/);
+  assert.match(overviewSource, /compareSessionsByCardSortMode\(sessionA, sessionB, sessionSortMode, t\)/);
+  assert.match(sidebarSessionsSource, /aria-label="手动会话排序"/);
+  assert.match(sidebarWorkflowsSource, /aria-label="工作流排序"/);
+});

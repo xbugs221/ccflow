@@ -15,6 +15,8 @@ type SessionUiState = {
   hidden?: boolean;
 };
 
+export type SessionCardSortMode = 'created' | 'updated' | 'title' | 'provider';
+
 export const readProjectSortOrder = (): ProjectSortOrder => {
   try {
     const rawSettings = localStorage.getItem('claude-settings');
@@ -66,6 +68,15 @@ const getSessionCreatedTime = (session: SessionWithProvider): number => (
 );
 
 /**
+ * Compare two numbers while keeping invalid timestamps at the end.
+ */
+const compareDescendingNumber = (left: number, right: number): number => {
+  const safeLeft = Number.isFinite(left) ? left : Number.NEGATIVE_INFINITY;
+  const safeRight = Number.isFinite(right) ? right : Number.NEGATIVE_INFINITY;
+  return safeRight - safeLeft;
+};
+
+/**
  * Sort manual sessions by fixed creation number, newest first.
  */
 export const compareSessionsByCreationNumber = (
@@ -80,6 +91,39 @@ export const compareSessionsByCreationNumber = (
   }
 
   return getSessionCreatedTime(sessionB) - getSessionCreatedTime(sessionA);
+};
+
+/**
+ * Sort session cards by the selected business field without changing route ids.
+ */
+export const compareSessionsByCardSortMode = (
+  sessionA: SessionWithProvider,
+  sessionB: SessionWithProvider,
+  mode: SessionCardSortMode,
+  t: TFunction,
+): number => {
+  if (mode === 'updated') {
+    const byActivity = compareDescendingNumber(
+      new Date(getSessionActivityTime(sessionA)).getTime(),
+      new Date(getSessionActivityTime(sessionB)).getTime(),
+    );
+    return byActivity || compareSessionsByCreationNumber(sessionA, sessionB);
+  }
+
+  if (mode === 'title') {
+    const byTitle = getSessionName(sessionA, t).localeCompare(getSessionName(sessionB, t), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+    return byTitle || compareSessionsByCreationNumber(sessionA, sessionB);
+  }
+
+  if (mode === 'provider') {
+    const byProvider = String(sessionA.__provider || '').localeCompare(String(sessionB.__provider || ''));
+    return byProvider || compareSessionsByCreationNumber(sessionA, sessionB);
+  }
+
+  return compareSessionsByCreationNumber(sessionA, sessionB);
 };
 
 export const getSessionName = (session: SessionWithProvider, t: TFunction): string => {
@@ -156,14 +200,18 @@ export const sortSessions = (
   sessions: SessionWithProvider[],
   getSessionMeta: (session: SessionWithProvider, projectName: string) => SessionUiState,
   projectName: string,
+  sortMode: SessionCardSortMode = 'created',
+  t?: TFunction,
 ): SessionWithProvider[] => {
   /**
-   * Route index is primary; flags only break ties for duplicated legacy entries.
+   * The selected card order is primary; flags only break ties for duplicated legacy entries.
    */
   return [...sessions].sort((sessionA, sessionB) => {
-    const byCreationNumber = compareSessionsByCreationNumber(sessionA, sessionB);
-    if (byCreationNumber !== 0) {
-      return byCreationNumber;
+    const bySelectedMode = t
+      ? compareSessionsByCardSortMode(sessionA, sessionB, sortMode, t)
+      : compareSessionsByCreationNumber(sessionA, sessionB);
+    if (bySelectedMode !== 0) {
+      return bySelectedMode;
     }
 
     const metaA = getSessionMeta(sessionA, projectName);

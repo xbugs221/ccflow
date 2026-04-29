@@ -1901,6 +1901,10 @@ async function cleanupDeletedSessionConfig(sessionId, projectPath = '', provider
  * Attach stable, non-recycled route indices to one project's manual sessions.
  */
 function attachSessionRouteIndices(config, projectPath, provider, sessions = []) {
+  /**
+   * Rebuild route numbers from immutable creation time so deleting conf.json
+   * still produces older sessions with smaller cN values.
+   */
   const workflowOwnedRouteSessionIds = getWorkflowOwnedRouteSessionIds(config);
   config.schemaVersion = PROJECT_CONFIG_SCHEMA_VERSION;
   config.chat = config.chat && typeof config.chat === 'object' && !Array.isArray(config.chat) ? config.chat : {};
@@ -1920,9 +1924,15 @@ function attachSessionRouteIndices(config, projectPath, provider, sessions = [])
   const usedRouteIndices = new Set();
   let changed = false;
 
-  const indexedSessions = sessions.map((session) => {
+  const routeIndexBySessionId = new Map();
+  const sessionsByCreation = [...sessions].sort((sessionA, sessionB) => (
+    new Date(sessionA?.createdAt || sessionA?.created_at || sessionA?.lastActivity || 0).getTime()
+    - new Date(sessionB?.createdAt || sessionB?.created_at || sessionB?.lastActivity || 0).getTime()
+  ));
+
+  sessionsByCreation.forEach((session) => {
     if (!session?.id) {
-      return session;
+      return;
     }
 
     const existingRouteEntry = Object.entries(config.chat).find(([, record]) => record?.sessionId === session.id);
@@ -1938,6 +1948,7 @@ function attachSessionRouteIndices(config, projectPath, provider, sessions = [])
       changed = true;
     }
     usedRouteIndices.add(routeIndex);
+    routeIndexBySessionId.set(session.id, routeIndex);
     if (session.id) {
       const nextRecord = {
         ...(config.chat[String(routeIndex)] || {}),
@@ -1950,10 +1961,15 @@ function attachSessionRouteIndices(config, projectPath, provider, sessions = [])
       config.chat[String(routeIndex)] = nextRecord;
       changed = true;
     }
+  });
 
+  const indexedSessions = sessions.map((session) => {
+    if (!session?.id) {
+      return session;
+    }
     return {
       ...session,
-      routeIndex,
+      routeIndex: routeIndexBySessionId.get(session.id),
     };
   });
 
@@ -4130,6 +4146,7 @@ async function buildCodexSessionsIndex() {
         summary: codexSummaryById[sessionData.id] || sessionData.summary || 'Codex Session',
         title: codexSummaryById[sessionData.id] || sessionData.summary || 'Codex Session',
         messageCount: sessionData.messageCount || 0,
+        createdAt: sessionData.createdAt ? new Date(sessionData.createdAt) : undefined,
         lastActivity: sessionData.timestamp ? new Date(sessionData.timestamp) : new Date(),
         cwd: sessionData.cwd,
         model: sessionData.model,
@@ -4363,6 +4380,7 @@ async function parseCodexSessionFile(filePath) {
     });
 
     let sessionMeta = null;
+    let firstTimestamp = null;
     let lastTimestamp = null;
     let firstUserMessage = null;
     let messageCount = 0;
@@ -4375,6 +4393,7 @@ async function parseCodexSessionFile(filePath) {
 
           // Track timestamp
           if (entry.timestamp) {
+            firstTimestamp = firstTimestamp || entry.timestamp;
             lastTimestamp = entry.timestamp;
           }
 
@@ -4418,6 +4437,7 @@ async function parseCodexSessionFile(filePath) {
     if (sessionMeta) {
       return {
         ...sessionMeta,
+        createdAt: sessionMeta.timestamp || firstTimestamp || lastTimestamp,
         timestamp: lastTimestamp || sessionMeta.timestamp,
         summary: firstUserMessage ?
           (firstUserMessage.length > 50 ? firstUserMessage.substring(0, 50) + '...' : firstUserMessage) :
@@ -4435,6 +4455,7 @@ async function parseCodexSessionFile(filePath) {
           id,
           cwd: fallbackCwd,
           model: null,
+          createdAt: firstTimestamp || lastTimestamp || new Date().toISOString(),
           timestamp: lastTimestamp || new Date().toISOString(),
           summary: firstUserMessage
             ? (firstUserMessage.length > 50 ? `${firstUserMessage.substring(0, 50)}...` : firstUserMessage)

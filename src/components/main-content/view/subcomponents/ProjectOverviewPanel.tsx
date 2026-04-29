@@ -11,7 +11,11 @@ import { Button } from '../../../ui/button';
 import { Input } from '../../../ui/input';
 import type { ProjectSession, ProjectWorkflow, SessionProvider } from '../../../../types/app';
 import type { ProjectOverviewPanelProps } from '../../types/types';
-import { compareSessionsByCreationNumber, createSessionViewModel } from '../../../sidebar/utils/utils';
+import {
+  compareSessionsByCardSortMode,
+  createSessionViewModel,
+  type SessionCardSortMode,
+} from '../../../sidebar/utils/utils';
 import { formatTimeAgo } from '../../../../utils/dateUtils';
 import { api } from '../../../../utils/api';
 import { buildProjectWorkflowRoute } from '../../../../utils/projectRoute';
@@ -28,6 +32,14 @@ import {
 } from './sessionActivityState.js';
 
 const ITEM_ACTION_LONG_PRESS_MS = 450;
+type WorkflowCardSortMode = 'created' | 'updated' | 'title' | 'provider';
+
+const CARD_SORT_OPTIONS: Array<{ value: SessionCardSortMode; label: string }> = [
+  { value: 'created', label: '创建时间' },
+  { value: 'updated', label: '最近消息' },
+  { value: 'title', label: '标题' },
+  { value: 'provider', label: 'Provider' },
+];
 
 /**
  * Read the visible session number from the same stable index used by `/cN` URLs.
@@ -139,6 +151,34 @@ function getWorkflowUpdatedAt(workflow: ProjectWorkflow): number {
   return new Date(String(workflow.updatedAt || 0)).getTime();
 }
 
+/**
+ * Sort workflow overview cards by the selected visible field without changing wN ids.
+ */
+function compareWorkflowBySortMode(
+  workflowA: ProjectWorkflow,
+  workflowB: ProjectWorkflow,
+  mode: WorkflowCardSortMode,
+): number {
+  if (mode === 'updated') {
+    return getWorkflowUpdatedAt(workflowB) - getWorkflowUpdatedAt(workflowA);
+  }
+
+  if (mode === 'title') {
+    return String(workflowA.title || '').localeCompare(String(workflowB.title || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+  }
+
+  if (mode === 'provider') {
+    const leftProvider = String(workflowA.provider || workflowA.ownerProvider || workflowA.childSessions?.[0]?.provider || '');
+    const rightProvider = String(workflowB.provider || workflowB.ownerProvider || workflowB.childSessions?.[0]?.provider || '');
+    return leftProvider.localeCompare(rightProvider) || String(workflowA.title || '').localeCompare(String(workflowB.title || ''));
+  }
+
+  return Number(workflowB.routeIndex || 0) - Number(workflowA.routeIndex || 0);
+}
+
 export default function ProjectOverviewPanel({
   project,
   selectedSession,
@@ -154,6 +194,10 @@ export default function ProjectOverviewPanel({
   const { t } = useTranslation(['sidebar', 'common']);
   const currentTime = new Date();
   const [showHiddenItems, setShowHiddenItems] = useState(false);
+  /** 卡片排序只改变展示顺序，不参与 cN/wN 编号。 */
+  const [sessionSortMode, setSessionSortMode] = useState<SessionCardSortMode>('created');
+  /** 卡片排序只改变展示顺序，不参与 cN/wN 编号。 */
+  const [workflowSortMode, setWorkflowSortMode] = useState<WorkflowCardSortMode>('created');
   const workflowEntries = [...(project.workflows || [])]
     .sort((workflowA, workflowB) => {
       const priorityOrder = compareOverviewPriority(
@@ -163,7 +207,7 @@ export default function ProjectOverviewPanel({
       if (priorityOrder !== 0) {
         return priorityOrder;
       }
-      return getWorkflowUpdatedAt(workflowB) - getWorkflowUpdatedAt(workflowA);
+      return compareWorkflowBySortMode(workflowA, workflowB, workflowSortMode);
     });
   const workflows = workflowEntries.filter((workflow) => (
     showHiddenItems || workflow.hidden !== true
@@ -178,7 +222,7 @@ export default function ProjectOverviewPanel({
       }
       return !isWorkflowChildSession(project, session);
     })
-    .sort(compareSessionsByCreationNumber);
+    .sort((sessionA, sessionB) => compareSessionsByCardSortMode(sessionA, sessionB, sessionSortMode, t));
   const visibleSessions = sessionEntries
     .filter((session) => showHiddenItems || session.hidden !== true);
   const hiddenSessionCount = sessionEntries.filter((session) => session.hidden === true).length;
@@ -774,6 +818,16 @@ export default function ProjectOverviewPanel({
               </div>
             </button>
             <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={workflowSortMode}
+                onChange={(event) => setWorkflowSortMode(event.target.value as WorkflowCardSortMode)}
+                className="h-9 rounded-md border border-input bg-transparent px-2 text-sm text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
+                aria-label="工作流排序"
+              >
+                {CARD_SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
               {(hiddenWorkflowCount > 0 || hiddenSessionCount > 0) && (
                 <Button
                   type="button"
@@ -931,6 +985,16 @@ export default function ProjectOverviewPanel({
             </button>
             <div className="flex flex-col items-start gap-2">
               <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={sessionSortMode}
+                  onChange={(event) => setSessionSortMode(event.target.value as SessionCardSortMode)}
+                  className="h-9 rounded-md border border-input bg-transparent px-2 text-sm text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
+                  aria-label="手动会话排序"
+                >
+                  {CARD_SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
                 <Button className="h-9 gap-2 self-start" onClick={() => setProviderPickerOpen((value) => !value)}>
                   <MessageSquarePlus className="h-4 w-4" />
                   {t('sessions.newSession')}

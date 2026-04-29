@@ -100,9 +100,16 @@ async function createClaudeSessionFile(projectName, sessionId) {
 /**
  * Create a minimal Codex session JSONL file that project discovery can index.
  */
-async function createCodexSessionFile(homeDir, projectPath, sessionId) {
+async function createCodexSessionFile(homeDir, projectPath, sessionId, options = {}) {
+  /**
+   * PURPOSE: Allow tests to model creation time separately from latest activity.
+   */
   const sessionDir = path.join(homeDir, '.codex', 'sessions', '2026', '03', '06');
   const sessionPath = path.join(sessionDir, `${sessionId}.jsonl`);
+  const startedAt = options.startedAt || '2026-03-06T08:00:00.000Z';
+  const messageAt = options.messageAt || '2026-03-06T08:00:01.000Z';
+  const finalAt = options.finalAt || null;
+  const message = options.message || '真实 Codex workflow 会话';
 
   await fs.mkdir(sessionDir, { recursive: true });
   await fs.writeFile(
@@ -110,15 +117,22 @@ async function createCodexSessionFile(homeDir, projectPath, sessionId) {
     [
       JSON.stringify({
         type: 'session_meta',
-        timestamp: '2026-03-06T08:00:00.000Z',
+        timestamp: startedAt,
         payload: { id: sessionId, cwd: projectPath, model: 'gpt-5.4' },
       }),
       JSON.stringify({
         type: 'event_msg',
-        timestamp: '2026-03-06T08:00:01.000Z',
-        payload: { type: 'user_message', message: '真实 Codex workflow 会话' },
+        timestamp: messageAt,
+        payload: { type: 'user_message', message },
       }),
-    ].join('\n') + '\n',
+      finalAt
+        ? JSON.stringify({
+          type: 'event_msg',
+          timestamp: finalAt,
+          payload: { type: 'agent_message', message: 'assistant follow-up' },
+        })
+        : null,
+    ].filter(Boolean).join('\n') + '\n',
     'utf8',
   );
 
@@ -266,6 +280,36 @@ test('manual Codex draft sessions are visible before the first provider message'
     assert.equal(sessions[0].id, draftSession.id);
     assert.equal(sessions[0].summary, '会话2');
     assert.equal(sessions[0].status, 'draft');
+  });
+});
+
+test('rebuilt Codex route numbers follow creation time instead of latest activity', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'codex-route-rebuild');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    await addProjectManually(projectPath, 'Codex Route Rebuild');
+    await createCodexSessionFile(tempHome, projectPath, 'older-updated-later', {
+      startedAt: '2026-03-06T08:00:00.000Z',
+      messageAt: '2026-03-06T08:01:00.000Z',
+      finalAt: '2026-03-06T10:00:00.000Z',
+      message: 'older session updated later',
+    });
+    await createCodexSessionFile(tempHome, projectPath, 'newer-updated-earlier', {
+      startedAt: '2026-03-06T09:00:00.000Z',
+      messageAt: '2026-03-06T09:05:00.000Z',
+      message: 'newer session updated earlier',
+    });
+
+    const sessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true });
+    const olderSession = sessions.find((session) => session.id === 'older-updated-later');
+    const newerSession = sessions.find((session) => session.id === 'newer-updated-earlier');
+    assert.equal(olderSession?.routeIndex, 1);
+    assert.equal(newerSession?.routeIndex, 2);
+
+    const config = await loadProjectConfig(projectPath);
+    assert.equal(config.chat?.['1']?.sessionId, 'older-updated-later');
+    assert.equal(config.chat?.['2']?.sessionId, 'newer-updated-earlier');
   });
 });
 
