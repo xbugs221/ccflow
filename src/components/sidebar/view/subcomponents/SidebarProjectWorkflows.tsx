@@ -17,6 +17,7 @@ import { cn } from '../../../../lib/utils';
 import type { Project, ProjectWorkflow } from '../../../../types/app';
 import { api } from '../../../../utils/api';
 import { buildProjectWorkflowRoute } from '../../../../utils/projectRoute';
+import { formatTimeAgo } from '../../../../utils/dateUtils';
 import WorkflowStageProgress from '../../../workflow/WorkflowStageProgress';
 
 const DEFAULT_VISIBLE_WORKFLOWS = 5;
@@ -41,6 +42,7 @@ type SidebarProjectWorkflowsProps = {
   onProjectSelect: (project: Project) => void;
   onWorkflowSelect?: (project: Project, workflow: ProjectWorkflow) => void;
   onNewSession: (project: Project, provider?: 'claude' | 'codex', options?: Record<string, unknown>) => void;
+  currentTime: Date;
   t: TFunction;
 };
 
@@ -116,6 +118,7 @@ export default function SidebarProjectWorkflows({
   onProjectSelect,
   onWorkflowSelect,
   onNewSession: _onNewSession,
+  currentTime,
   t,
 }: SidebarProjectWorkflowsProps) {
   const navigate = useNavigate();
@@ -537,6 +540,11 @@ export default function SidebarProjectWorkflows({
               >
                 <div className="w-full min-w-0 truncate text-xs font-medium text-foreground">
                   {workflow.title}
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {workflow.updatedAt
+                    ? formatTimeAgo(workflow.updatedAt, currentTime, t)
+                    : '未知时间'}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                   {workflow.favorite === true && <Star className="h-3 w-3 fill-current text-yellow-500" />}

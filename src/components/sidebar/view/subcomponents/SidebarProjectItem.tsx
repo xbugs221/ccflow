@@ -505,6 +505,7 @@ export default function SidebarProjectItem({
         onProjectSelect={onProjectSelect}
         onWorkflowSelect={onWorkflowSelect}
         onNewSession={onNewSession}
+        currentTime={currentTime}
         t={t}
       />
 

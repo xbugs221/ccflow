@@ -940,6 +940,11 @@ export default function ProjectOverviewPanel({
                       >
                         <div className="min-w-0 flex-1">
                           <div className="line-clamp-2 text-sm font-medium text-foreground">{workflow.title}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {workflow.updatedAt
+                              ? formatTimeAgo(workflow.updatedAt, currentTime, t)
+                              : '未知时间'}
+                          </div>
                         </div>
                         <div className="mt-auto flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           {workflow.favorite === true && (
