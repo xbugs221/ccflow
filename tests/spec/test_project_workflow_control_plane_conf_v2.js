@@ -28,7 +28,6 @@ test('Scenario: 新建工作流时使用数字 key 推导 wN', async () => {
     await createManualSessionDraft(project.name, projectPath, 'codex', '规划会话', {
       workflowId: 'w1',
       stageKey: 'planning',
-      substageKey: 'planner_output',
     });
 
     const persisted = await readProjectConf(projectPath);
@@ -44,18 +43,14 @@ test('Scenario: 工作流内部会话按流程顺序编号', async () => {
     await createManualSessionDraft(project.name, projectPath, 'codex', '规划会话', {
       workflowId: 'w1',
       stageKey: 'planning',
-      substageKey: 'planner_output',
     });
     await createManualSessionDraft(project.name, projectPath, 'codex', '执行会话', {
       workflowId: 'w1',
       stageKey: 'execution',
-      substageKey: 'node_execution',
     });
     await createManualSessionDraft(project.name, projectPath, 'claude', '审核1', {
       workflowId: 'w1',
-      stageKey: 'verification',
-      substageKey: 'review_1',
-      reviewPassIndex: 1,
+      stageKey: 'review_1',
     });
 
     const workflowChat = (await readProjectConf(projectPath)).workflows['1'].chat;
@@ -74,7 +69,6 @@ test('Scenario: 工作流内部草稿 finalize', async () => {
     const draft = await createManualSessionDraft(project.name, projectPath, 'codex', '执行会话', {
       workflowId: 'w1',
       stageKey: 'execution',
-      substageKey: 'node_execution',
     });
 
     await finalizeManualSessionDraft(project.name, draft.id, 'workflow-child-real-1', 'codex', projectPath);
@@ -92,13 +86,10 @@ test('Scenario: 工作流内部会话不推进手动会话编号', async () => {
     await createManualSessionDraft(project.name, projectPath, 'codex', '执行会话', {
       workflowId: 'w1',
       stageKey: 'execution',
-      substageKey: 'node_execution',
     });
     await createManualSessionDraft(project.name, projectPath, 'claude', '审核1', {
       workflowId: 'w1',
-      stageKey: 'verification',
-      substageKey: 'review_1',
-      reviewPassIndex: 1,
+      stageKey: 'review_1',
     });
 
     const manualDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '会话1');

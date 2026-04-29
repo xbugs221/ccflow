@@ -50,7 +50,7 @@ type SidebarProjectSessionsProps = {
  * group so project expansion only lists sessions that are truly standalone.
  */
 function isWorkflowChildSession(project: Project, session: SessionWithProvider): boolean {
-  if (session.workflowId || session.stageKey || session.substageKey || Number.isInteger(session.reviewPassIndex)) {
+  if (session.workflowId || session.stageKey) {
     return true;
   }
 

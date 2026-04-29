@@ -89,14 +89,11 @@ const resolveWorkflowSessionContext = (
   selectedProject: ChatInterfaceProps['selectedProject'],
   selectedSession: ChatInterfaceProps['selectedSession'],
 ) => {
-  const reviewPassIndex = Number(selectedSession?.reviewPassIndex);
   return {
     projectName: selectedSession?.__projectName || selectedProject?.name || '',
     projectPath: selectedSession?.projectPath || selectedProject?.fullPath || selectedProject?.path || '',
     workflowId: typeof selectedSession?.workflowId === 'string' ? selectedSession.workflowId : '',
     workflowStageKey: typeof selectedSession?.stageKey === 'string' ? selectedSession.stageKey : '',
-    workflowSubstageKey: typeof selectedSession?.substageKey === 'string' ? selectedSession.substageKey : '',
-    workflowReviewPass: Number.isInteger(reviewPassIndex) && reviewPassIndex > 0 ? reviewPassIndex : 0,
   };
 };
 
@@ -613,8 +610,6 @@ function ChatInterface({
     const workflowId = workflowSessionContext.workflowId;
     const routeProjectName = workflowSessionContext.projectName;
     const workflowStageKey = workflowSessionContext.workflowStageKey || undefined;
-    const workflowSubstageKey = workflowSessionContext.workflowSubstageKey || undefined;
-    const workflowReviewPass = workflowSessionContext.workflowReviewPass || undefined;
     const workflowSessionId = selectedSession?.id && !isTemporarySessionId(selectedSession.id)
       ? selectedSession.id
       : currentSessionId;
@@ -634,8 +629,6 @@ function ChatInterface({
       summary: selectedSession?.summary || selectedSession?.title || '子会话',
       provider: selectedSession?.__provider || effectiveProvider,
       stageKey: workflowStageKey,
-      substageKey: workflowSubstageKey,
-      reviewPassIndex: workflowReviewPass,
     }).catch((error) => {
       registeredWorkflowSessionsRef.current.delete(registrationKey);
       console.error('Failed to register workflow child session:', error);
@@ -658,8 +651,6 @@ function ChatInterface({
     const locationState = location.state as {
       workflowAutoPrompt?: string;
       workflowStageKey?: string;
-      workflowSubstageKey?: string;
-      workflowReviewPass?: number;
       workflowReviewProfile?: string;
     } | null;
     let autoStartPrompt = '';
@@ -843,12 +834,12 @@ function ChatInterface({
 
   useEffect(() => {
     const workflowId = workflowSessionContext.workflowId;
-    const workflowSubstageKey = workflowSessionContext.workflowSubstageKey || '';
+    const workflowStageKey = workflowSessionContext.workflowStageKey || '';
     const activeSessionId = reviewLaunchSessionId;
 
     if (
       !workflowId
-      || workflowSubstageKey !== 'node_execution'
+      || workflowStageKey !== 'execution'
       || !activeSessionId
       || reviewLaunchTurnOutcome !== 'failed'
     ) {

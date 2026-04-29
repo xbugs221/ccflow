@@ -78,7 +78,7 @@ function isWorkflowFinished(workflow: ProjectWorkflow): boolean {
  * duplicating them under the manual-session navigation group.
  */
 function isWorkflowChildSession(project: Project, session: SessionWithProvider): boolean {
-  if (session.workflowId || session.stageKey || session.substageKey || Number.isInteger(session.reviewPassIndex)) {
+  if (session.workflowId || session.stageKey) {
     return true;
   }
 

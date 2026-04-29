@@ -29,8 +29,6 @@ export interface WorkflowChildSession {
   workflowId?: string;
   projectPath?: string;
   stageKey?: string;
-  substageKey?: string;
-  reviewPassIndex?: number;
   url?: string;
 }
 
@@ -114,8 +112,6 @@ export interface ProjectSession {
   projectPath?: string;
   workflowId?: string;
   stageKey?: string;
-  substageKey?: string;
-  reviewPassIndex?: number;
   projectPathExists?: boolean;
   visibilityReason?: string;
   __provider?: SessionProvider;

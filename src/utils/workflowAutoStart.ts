@@ -12,8 +12,6 @@ export type NewSessionOptions = {
   workflowTitle?: string;
   workflowChangeName?: string;
   workflowStageKey?: string;
-  workflowSubstageKey?: string;
-  workflowReviewPass?: number;
   workflowRepairPass?: number;
   workflowReviewProfile?: string;
   autoPrompt?: string;
@@ -21,7 +19,7 @@ export type NewSessionOptions = {
 
 type WorkflowDraftSessionResult = Pick<
   ProjectSession,
-  'id' | 'routeIndex' | 'workflowId' | 'projectPath' | 'stageKey' | 'substageKey' | 'reviewPassIndex'
+  'id' | 'routeIndex' | 'workflowId' | 'projectPath' | 'stageKey'
 >;
 
 /**
@@ -48,8 +46,6 @@ export async function createWorkflowAutoStartDraft(
     projectPath: project.fullPath || project.path || '',
     workflowId: options.workflowId,
     stageKey: options.workflowStageKey,
-    substageKey: options.workflowSubstageKey,
-    reviewPassIndex: options.workflowReviewPass,
   });
   if (!draftResponse.ok) {
     throw new Error(`Workflow draft creation failed with status ${draftResponse.status}`);
@@ -68,8 +64,6 @@ export async function createWorkflowAutoStartDraft(
     summary: sessionSummary,
     provider,
     stageKey: options.workflowStageKey,
-    substageKey: options.workflowSubstageKey,
-    reviewPassIndex: options.workflowReviewPass,
   });
   if (!registrationResponse.ok) {
     throw new Error(`Workflow child session registration failed with status ${registrationResponse.status}`);
@@ -85,8 +79,6 @@ export async function createWorkflowAutoStartDraft(
       JSON.stringify({
         prompt: options.autoPrompt,
         stageKey: options.workflowStageKey,
-        substageKey: options.workflowSubstageKey,
-        reviewPass: options.workflowReviewPass,
         repairPass: options.workflowRepairPass,
         reviewProfile: options.workflowReviewProfile,
       }),
@@ -109,12 +101,6 @@ export async function createWorkflowAutoStartDraft(
         : (project.fullPath || project.path || ''),
     stageKey:
       typeof registeredChildSession?.stageKey === 'string' ? registeredChildSession.stageKey : options.workflowStageKey,
-    substageKey:
-      typeof registeredChildSession?.substageKey === 'string' ? registeredChildSession.substageKey : options.workflowSubstageKey,
-    reviewPassIndex:
-      typeof registeredChildSession?.reviewPassIndex === 'number'
-        ? registeredChildSession.reviewPassIndex
-        : options.workflowReviewPass,
   };
 }
 
@@ -131,7 +117,7 @@ export function shouldAutoStartWorkflowPlanning(workflow: ProjectWorkflow | null
   );
   const hasOpenSpecChange = Boolean((workflow as { openspecChangeDetected?: boolean } | null)?.openspecChangeDetected);
   const hasPlanningSession = (workflow.childSessions || []).some(
-    (session) => session.stageKey === 'planning' || session.substageKey === 'planner_output',
+    (session) => session.stageKey === 'planning',
   );
 
   return !hasPlanningArtifact && !hasPlanningSession && !hasOpenSpecChange;

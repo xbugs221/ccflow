@@ -15,6 +15,7 @@ import {
   getReviewPassIndexForSubstage,
   getReviewPassSessions,
 } from './domains/workflows/review-stages.js';
+import { isCodexSessionActive } from './openai-codex.js';
 
 const execFileAsync = promisify(execFile);
 const PROMPT_TEMPLATE_PATHS = {
@@ -409,7 +410,7 @@ async function readWorkflowOpenSpecTaskProgress(projectPath, changeName) {
       ? payload.changes.find((change) => change?.name === changeName)
       : null;
     if (!matchedChange) {
-      return null;
+      return readArchivedWorkflowOpenSpecTaskProgress(projectPath, changeName);
     }
     return {
       name: matchedChange.name,
@@ -419,6 +420,36 @@ async function readWorkflowOpenSpecTaskProgress(projectPath, changeName) {
       lastModified: matchedChange.lastModified || null,
     };
   } catch (error) {
+    return readArchivedWorkflowOpenSpecTaskProgress(projectPath, changeName);
+  }
+}
+
+async function readArchivedWorkflowOpenSpecTaskProgress(projectPath, changeName) {
+  /**
+   * PURPOSE: OpenSpec drops archived changes from `openspec list --json`, so
+   * workflow status repair must read the archived tasks.md directly.
+   */
+  const artifactChangeName = await resolveOpenSpecArtifactChangeName(projectPath, changeName);
+  if (!artifactChangeName || !/^archive[\\/]/.test(artifactChangeName)) {
+    return null;
+  }
+
+  try {
+    const tasksPath = path.join(projectPath, 'openspec', 'changes', artifactChangeName, 'tasks.md');
+    const content = await fs.readFile(tasksPath, 'utf8');
+    const taskLines = content.split(/\r?\n/).filter((line) => /^\s*[-*]\s+\[[ xX]\]/.test(line));
+    if (taskLines.length === 0) {
+      return null;
+    }
+    const completedTasks = taskLines.filter((line) => /^\s*[-*]\s+\[[xX]\]/.test(line)).length;
+    return {
+      name: changeName,
+      status: 'archived',
+      completedTasks,
+      totalTasks: taskLines.length,
+      lastModified: null,
+    };
+  } catch {
     return null;
   }
 }
@@ -869,8 +900,6 @@ async function buildReviewLauncherPayload(workflow, passIndex) {
     workflowChangeName: workflow.openspecChangeName,
     workflowAutoStart: 'review',
     workflowStageKey: buildReviewPassStageKey(passIndex),
-    workflowSubstageKey: buildReviewPassSubstageKey(passIndex),
-    workflowReviewPass: passIndex,
     workflowReviewProfile: reviewProfile,
     sessionSummary: buildLauncherSummary('review', workflow.title, passIndex),
     autoPrompt: [
@@ -903,8 +932,6 @@ async function buildRepairLauncherPayload(workflow, passIndex, reviewResult) {
     workflowChangeName: workflow.openspecChangeName,
     workflowAutoStart: 'repair',
     workflowStageKey: `repair_${passIndex}`,
-    workflowSubstageKey: `repair_${passIndex}`,
-    workflowReviewPass: passIndex,
     workflowRepairPass: passIndex,
     sessionSummary: buildLauncherSummary('repair', workflow.title, passIndex),
     autoPrompt: [
@@ -943,7 +970,6 @@ async function buildArchiveLauncherPayload(workflow) {
     workflowChangeName: workflow.openspecChangeName,
     workflowAutoStart: 'archive',
     workflowStageKey: 'archive',
-    workflowSubstageKey: 'delivery_package',
     sessionSummary: buildLauncherSummary('archive', workflow.title),
     autoPrompt: [
       archiveTemplate.trim(),
@@ -1180,7 +1206,7 @@ function compactArtifactForStore(artifact = {}) {
  */
 function compactChildSessionForStore(session = {}) {
   const compact = {};
-  ['id', 'title', 'summary', 'provider', 'stageKey', 'reviewPassIndex', 'url'].forEach((key) => {
+  ['id', 'title', 'summary', 'provider', 'stageKey', 'url'].forEach((key) => {
     if (session[key] !== undefined && session[key] !== '') compact[key] = session[key];
   });
   return compact;
@@ -1347,6 +1373,10 @@ function resolveWorkflowStageKey(workflow, stageStatuses) {
   const activeStage = stageStatuses.find((stage) => ['active', 'blocked', 'failed', 'running'].includes(stage.status));
   if (activeStage?.key) {
     return normalizeWorkflowStageKey(activeStage.key);
+  }
+  const lastCompletedStage = [...stageStatuses].reverse().find((stage) => isWorkflowPassedStatus(stage.status));
+  if (lastCompletedStage?.key) {
+    return normalizeWorkflowStageKey(lastCompletedStage.key);
   }
   return normalizeWorkflowStageKey(workflow.stage) || 'planning';
 }
@@ -1624,6 +1654,31 @@ function hasReviewPassResultEvidence(passIndex, artifacts = []) {
   return isSubstageArtifactFresh(substageKey, artifacts);
 }
 
+function isArchivedOpenSpecChange(workflow = {}) {
+  /**
+   * PURPOSE: Treat an OpenSpec archive directory as durable evidence that the
+   * execution and archive automation finished after the active change vanished
+   * from `openspec list --json`.
+   */
+  return /^archive[\\/]/.test(String(workflow.openspecArtifactChangeName || ''));
+}
+
+function isWorkflowPassedStatus(status) {
+  /**
+   * PURPOSE: Share the small status vocabulary used by stage repair without
+   * depending on the auto-runner module.
+   */
+  return ['completed', 'skipped'].includes(String(status || '').toLowerCase());
+}
+
+function hasActiveCodexWorkflowSession(session) {
+  /**
+   * PURPOSE: Avoid marking a just-registered workflow child session complete
+   * while its Codex turn is still running in this server process.
+   */
+  return Boolean(session?.id && session.provider === 'codex' && isCodexSessionActive(session.id));
+}
+
 /**
  * Repair legacy child sessions so old discussion/review keys still map onto the
  * consolidated planning and review substages used by the current control plane.
@@ -1642,13 +1697,10 @@ function normalizeWorkflowChildSession(session = {}, fallbackStageKey) {
     || joinedText.match(/\breview\s*pass\s*(\d+)\b/i)
   );
   const normalizedSessionStageKey = normalizeWorkflowStageKey(session.stageKey);
-  const normalizedSessionSubstageKey = normalizeWorkflowStageKey(session.substageKey);
   const stageReviewPassIndex = getReviewPassIndexForSubstage(normalizedSessionStageKey);
-  const substageReviewPassIndex = getReviewPassIndexForSubstage(normalizedSessionSubstageKey);
-  const explicitReviewPassIndex = Number.parseInt(String(session.reviewPassIndex || ''), 10);
   const textReviewPassIndex = reviewPassMatch ? Number.parseInt(reviewPassMatch[1], 10) : null;
-  const reviewPassIndex = Number.isInteger(explicitReviewPassIndex) && explicitReviewPassIndex > 0
-    ? explicitReviewPassIndex
+  const reviewPassIndex = Number.isInteger(stageReviewPassIndex)
+    ? stageReviewPassIndex
     : textReviewPassIndex;
   const repairPassIndex = repairPassMatch
     ? Number.parseInt(repairPassMatch[1] || String(reviewPassIndex || ''), 10)
@@ -1658,14 +1710,12 @@ function normalizeWorkflowChildSession(session = {}, fallbackStageKey) {
     || (!looksLikeRepairSession && /内部审核|审核第|审核\s*\d+|reviewer|review pass/i.test(joinedText));
   const shouldTreatAsReviewRepairSession = Number.isInteger(stageReviewPassIndex)
     && !looksLikeReviewSession
-    && !Number.isInteger(substageReviewPassIndex);
+    && normalizedSessionStageKey !== 'verification';
   const shouldRepairExecutionSession = looksLikeExecutionSession
     && !looksLikeReviewSession
     && (
       !session.stageKey
       || session.stageKey === 'planning'
-      || session.substageKey === 'planner_output'
-      || session.substageKey === 'status_sync'
     );
   const shouldRepairPlanningPrompt = looksLikePlanningPrompt
     && !shouldRepairExecutionSession
@@ -1676,10 +1726,6 @@ function normalizeWorkflowChildSession(session = {}, fallbackStageKey) {
       || session.stageKey === 'execution'
       || session.stageKey === 'verification'
       || Number.isInteger(stageReviewPassIndex)
-      || session.substageKey === 'status_sync'
-      || session.substageKey === 'internal_review'
-      || session.substageKey === 'planner_output'
-      || session.substageKey === 'node_execution'
     );
   const stageKey = shouldRepairPlanningPrompt
     ? 'planning'
@@ -1690,23 +1736,8 @@ function normalizeWorkflowChildSession(session = {}, fallbackStageKey) {
         : shouldRepairReviewSession
           ? (Number.isInteger(reviewPassIndex) ? buildReviewPassStageKey(reviewPassIndex) : 'verification')
           : (normalizedSessionStageKey || fallbackStageKey);
-  const existingReviewPassSubstageKey = Number.isInteger(getReviewPassIndexForSubstage(normalizedSessionSubstageKey))
-    ? normalizedSessionSubstageKey
-    : null;
-  const substageKey = shouldRepairPlanningPrompt
-    ? 'planner_output'
-    : shouldRepairExecutionSession
-      ? 'node_execution'
-      : looksLikeRepairSession
-        ? `repair_${repairPassIndex}`
-        : shouldRepairReviewSession
-          ? (Number.isInteger(reviewPassIndex) ? buildReviewPassSubstageKey(reviewPassIndex) : existingReviewPassSubstageKey || 'internal_review')
-          : shouldTreatAsReviewRepairSession
-            ? 'internal_review'
-            : normalizedSessionSubstageKey;
-
   return {
-    ...session,
+    id: session.id,
     routeIndex: Number.isInteger(Number(session.routeIndex)) ? Number(session.routeIndex) : undefined,
     title,
     summary,
@@ -1714,8 +1745,6 @@ function normalizeWorkflowChildSession(session = {}, fallbackStageKey) {
     workflowId: session.workflowId,
     projectPath: session.projectPath,
     stageKey,
-    substageKey,
-    reviewPassIndex: Number.isInteger(reviewPassIndex) ? reviewPassIndex : session.reviewPassIndex,
     url: session.url,
   };
 }
@@ -1728,13 +1757,10 @@ function repairLegacyReviewPassAssignments(childSessions = []) {
   const verificationSessions = childSessions.filter((session) => (
     session.stageKey === 'verification'
     || Number.isInteger(getReviewPassIndexForSubstage(session.stageKey))
-    || Number.isInteger(getReviewPassIndexForSubstage(session.substageKey))
   ));
   const indexedPasses = new Set(
     verificationSessions
-      .map((session) => (Number.isInteger(session.reviewPassIndex)
-        ? Number(session.reviewPassIndex)
-        : getReviewPassIndexForSubstage(session.substageKey || session.stageKey)))
+      .map((session) => getReviewPassIndexForSubstage(session.stageKey))
       .filter((passIndex) => Number.isInteger(passIndex)),
   );
 
@@ -1743,8 +1769,7 @@ function repairLegacyReviewPassAssignments(childSessions = []) {
   }
 
   const legacyPassSessions = verificationSessions.filter((session) => (
-    !Number.isInteger(session.reviewPassIndex)
-    && getReviewPassIndexForSubstage(session.substageKey) === VERIFICATION_REVIEW_PASSES.length
+    (session.stageKey === 'verification' || Number.isInteger(getReviewPassIndexForSubstage(session.stageKey)))
     && /^# Workflow Reviewer\b/.test(String(session.title || session.summary || '').trim())
   ));
   if (legacyPassSessions.length !== verificationSessions.length) {
@@ -1755,9 +1780,7 @@ function repairLegacyReviewPassAssignments(childSessions = []) {
     legacyPassSessions.map((session, index) => ([
       session.id,
       {
-        reviewPassIndex: index + 1,
         stageKey: buildReviewPassStageKey(index + 1),
-        substageKey: buildReviewPassSubstageKey(index + 1),
       },
     ])),
   );
@@ -1772,37 +1795,15 @@ function getStageOrder(stageKey = '') {
   return STAGE_TEMPLATES.findIndex((stage) => stage.key === stageKey);
 }
 
-function getSubstageOrder(stageKey = '', substageKey = '') {
-  const stageTemplate = STAGE_TEMPLATES.find((stage) => stage.key === stageKey);
-  if (!stageTemplate) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-  const index = stageTemplate.substages.findIndex((substage) => substage.key === substageKey);
-  return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
-}
-
 function compareWorkflowChildSessions(left = {}, right = {}) {
   /**
-   * PURPOSE: Group sessions by workflow stage/substage while preserving the
-   * original insertion order within the same bucket so the newest session stays
-   * the primary navigation target in the UI.
+   * PURPOSE: Group sessions by workflow stage while preserving the original
+   * insertion order within the same bucket so the newest session stays the
+   * primary navigation target in the UI.
    */
   const stageOrderDiff = getStageOrder(left.stageKey) - getStageOrder(right.stageKey);
   if (stageOrderDiff !== 0) {
     return stageOrderDiff;
-  }
-
-  const substageOrderDiff = getSubstageOrder(left.stageKey, left.substageKey) - getSubstageOrder(right.stageKey, right.substageKey);
-  if (substageOrderDiff !== 0) {
-    return substageOrderDiff;
-  }
-
-  if (left.substageKey === 'internal_review' && right.substageKey === 'internal_review') {
-    const leftPass = Number.isInteger(left.reviewPassIndex) ? left.reviewPassIndex : Number.MAX_SAFE_INTEGER;
-    const rightPass = Number.isInteger(right.reviewPassIndex) ? right.reviewPassIndex : Number.MAX_SAFE_INTEGER;
-    if (leftPass !== rightPass) {
-      return leftPass - rightPass;
-    }
   }
 
   return 0;
@@ -1851,12 +1852,10 @@ function prepareWorkflowRecord(workflow = {}) {
     )),
   ).sort(compareWorkflowChildSessions);
   const hasPlanningChildSession = childSessions.some(
-    (session) => session.stageKey === 'planning' || session.substageKey === 'planner_output',
+    (session) => session.stageKey === 'planning',
   );
   const hasVerificationChildSession = childSessions.some(
-    (session) => session.stageKey === 'verification'
-      || session.substageKey === 'internal_review'
-      || /^review_\d+$/.test(String(session.substageKey || '')),
+    (session) => session.stageKey === 'verification' || /^review_\d+$/.test(String(session.stageKey || '')),
   );
   const hasVerificationArtifact = artifacts.some((artifact) => artifact.stage === 'verification');
   const hasDeliveryArtifact = artifacts.some((artifact) => artifact.stage === 'archive' || artifact.stage === 'ready_for_acceptance');
@@ -1896,7 +1895,7 @@ function prepareWorkflowRecord(workflow = {}) {
       };
     }
     const hasStageChildSession = childSessions.some((session) => (
-      session.stageKey === stage.key || session.substageKey === stage.key
+      session.stageKey === stage.key
     ));
     if (hasStageChildSession && ['pending', 'blocked'].includes(stage.status)) {
       return {
@@ -1951,7 +1950,7 @@ function inferCurrentSubstageKey(workflow, currentStageKey, stageKey, artifacts,
 function resolveSubstageProgressKey(workflow, stageKey, artifacts, childSessions, activeStageKey = null) {
   if (stageKey === 'planning') {
     const hasPlanningProposal = Boolean(workflow.openspecChangeDetected) || childSessions.some(
-      (session) => session.stageKey === 'planning' || session.substageKey === 'planner_output',
+      (session) => session.stageKey === 'planning',
     ) || artifacts.some((artifact) => artifact.stage === 'planning' && artifact.substageKey === 'planner_output');
     return hasPlanningProposal || activeStageKey === 'planning' ? 'planner_output' : 'planner_output';
   }
@@ -1961,9 +1960,6 @@ function resolveSubstageProgressKey(workflow, stageKey, artifacts, childSessions
   }
 
   if (getReviewPassIndexForSubstage(stageKey)) {
-    if (childSessions.some((session) => session.stageKey === stageKey && session.substageKey === 'internal_review')) {
-      return 'internal_review';
-    }
     return stageKey;
   }
 
@@ -2078,7 +2074,7 @@ function buildSubstageNote(workflow, substageKey, childSessions, artifacts, stat
   }
 
   if (substageKey === 'node_execution') {
-    const executionSessionCount = childSessions.filter((session) => session.substageKey === 'node_execution').length;
+    const executionSessionCount = childSessions.filter((session) => session.stageKey === 'execution').length;
     if (taskProgress && taskProgress.totalTasks > 0) {
       return {
         summary: `OpenSpec 任务完成 ${taskProgress.completedTasks}/${taskProgress.totalTasks}。`,
@@ -2143,22 +2139,29 @@ function buildEffectiveStageStatuses(stageInspections) {
 function applyOpenSpecTaskAwareStageStatuses(workflow, stageStatuses, childSessions, reviewArtifacts = []) {
   const taskProgress = workflow.openspecTaskProgress || null;
   const hasExecutionSession = childSessions.some((session) => (
-    session.stageKey === 'execution' || session.substageKey === 'node_execution'
+    session.stageKey === 'execution'
   ));
   const hasArchiveSession = childSessions.some((session) => (
-    session.stageKey === 'archive' || session.substageKey === 'delivery_package'
+    session.stageKey === 'archive'
   ));
+  const archiveSession = [...childSessions].reverse().find((session) => session.stageKey === 'archive') || null;
+  const archivedOpenSpecChange = isArchivedOpenSpecChange(workflow);
   const shouldDriveAdoptedOpenSpecExecution = workflow.adoptsExistingOpenSpec === true;
   const executionTasksCompleted = Boolean(
-    taskProgress
-    && taskProgress.totalTasks > 0
-    && taskProgress.completedTasks >= taskProgress.totalTasks,
+    archivedOpenSpecChange
+    || (
+      taskProgress
+      && taskProgress.totalTasks > 0
+      && taskProgress.completedTasks >= taskProgress.totalTasks
+    ),
   );
   const completedReviewPasses = new Set(
     VERIFICATION_REVIEW_PASSES.filter((passIndex) => (
       hasReviewPassResultEvidence(passIndex, reviewArtifacts)
     )),
   );
+  const thirdReviewCompleted = completedReviewPasses.has(VERIFICATION_REVIEW_PASSES.length)
+    || isWorkflowPassedStatus(stageStatuses.find((stage) => stage.key === buildReviewPassStageKey(VERIFICATION_REVIEW_PASSES.length))?.status);
   const hasArchiveArtifact = isSubstageArtifactFresh('delivery_package', reviewArtifacts);
 
   return stageStatuses.map((stage) => {
@@ -2191,8 +2194,11 @@ function applyOpenSpecTaskAwareStageStatuses(workflow, stageStatuses, childSessi
       }
     }
 
-    if (stage.key === 'archive' && completedReviewPasses.has(VERIFICATION_REVIEW_PASSES.length)) {
-      if (workflow.finalReadiness === true) {
+    if (stage.key === 'archive' && thirdReviewCompleted) {
+      if (
+        workflow.finalReadiness === true
+        || (hasArchiveSession && archivedOpenSpecChange && !hasActiveCodexWorkflowSession(archiveSession))
+      ) {
         return { ...stage, status: 'completed' };
       }
       if (hasArchiveSession || hasArchiveArtifact) {
@@ -2202,7 +2208,7 @@ function applyOpenSpecTaskAwareStageStatuses(workflow, stageStatuses, childSessi
     }
 
     const hasStageSession = childSessions.some((session) => (
-      session.stageKey === stage.key || session.substageKey === stage.key
+      session.stageKey === stage.key
     ));
     if (hasStageSession && ['pending', 'blocked'].includes(stage.status)) {
       return { ...stage, status: 'active' };
@@ -2260,14 +2266,7 @@ function buildStageInspections(workflow, currentStageKey, stageStatuses, artifac
       || (!session.stageKey && template.key === currentStageKey)
       || (getReviewPassIndexForSubstage(template.key) && getReviewPassSessions([session], template.key).length > 0)
     ));
-    const hasInternalReviewRepairSession = Number.isInteger(getReviewPassIndexForSubstage(template.key))
-      && stageSessions.some((session) => session.substageKey === 'internal_review');
-    const templateSubstages = hasInternalReviewRepairSession
-      ? [
-        ...template.substages,
-        { key: 'internal_review', title: '内部修复' },
-      ]
-      : template.substages;
+    const templateSubstages = template.substages;
     const lastSubstageKey = templateSubstages[templateSubstages.length - 1]?.key;
     const progressSubstageKey = resolveSubstageProgressKey(workflow, template.key, stageArtifacts, stageSessions, currentStageKey);
     const progressIndex = templateSubstages.findIndex((item) => item.key === progressSubstageKey);
@@ -2336,11 +2335,9 @@ function buildStageInspections(workflow, currentStageKey, stageStatuses, artifac
             status: hint.exists ? 'ready' : 'missing',
           })),
       ];
-      const agentSessions = template.key === 'verification' && getReviewPassIndexForSubstage(substage.key)
+      const agentSessions = getReviewPassIndexForSubstage(substage.key)
         ? getReviewPassSessions(stageSessions, substage.key)
-        : stageSessions.filter(
-          (session) => session.substageKey === substage.key || (!session.substageKey && currentSubstageKey === substage.key),
-        );
+        : stageSessions;
       const files = shouldExposeSubstageFiles(stageStatus, status) || agentSessions.length > 0 ? rawFiles : [];
       const hasReadyFiles = files.some((file) => file.exists === true || file.status === 'ready');
       if (status !== 'skipped' && hasReadyFiles && hasEvidence && ['active', 'blocked'].includes(status)) {
@@ -2550,14 +2547,10 @@ export function findProjectByName(projects, projectName) {
 
 function getLatestWorkflowStageChildSession(workflow = {}, stageKey = '') {
   const normalizedStageKey = normalizeWorkflowStageKey(stageKey);
-  const stageReviewPassIndex = getReviewPassIndexForSubstage(normalizedStageKey);
   const childSessions = Array.isArray(workflow.childSessions) ? workflow.childSessions : [];
-  const matchingSessions = childSessions.filter((session) => {
-    if (Number.isInteger(stageReviewPassIndex)) {
-      return session.stageKey === normalizedStageKey || session.substageKey === normalizedStageKey;
-    }
-    return normalizeWorkflowStageKey(session.stageKey || session.substageKey) === normalizedStageKey;
-  });
+  const matchingSessions = childSessions.filter((session) => (
+    normalizeWorkflowStageKey(session.stageKey) === normalizedStageKey
+  ));
   return matchingSessions.sort((left, right) => Number(right.routeIndex || 0) - Number(left.routeIndex || 0))[0] || null;
 }
 
@@ -2689,9 +2682,9 @@ export async function buildWorkflowLauncherConfig(project, workflowId, stage) {
   }
 
   const modeToStage = {
-    planning: { workflowAutoStart: 'planning', workflowStageKey: 'planning', workflowSubstageKey: 'planner_output' },
-    execution: { workflowAutoStart: 'execution', workflowStageKey: 'execution', workflowSubstageKey: 'node_execution' },
-    archive: { workflowAutoStart: 'archive', workflowStageKey: 'archive', workflowSubstageKey: 'delivery_package' },
+    planning: { workflowAutoStart: 'planning', workflowStageKey: 'planning' },
+    execution: { workflowAutoStart: 'execution', workflowStageKey: 'execution' },
+    archive: { workflowAutoStart: 'archive', workflowStageKey: 'archive' },
   }[normalizedStage];
 
   if (!modeToStage) {
@@ -2956,17 +2949,8 @@ export async function registerWorkflowChildSession(project, workflowId, sessionP
     return null;
   }
 
-  const requestedReviewPassForGate = (() => {
-    const explicit = Number.parseInt(String(sessionPayload.reviewPassIndex || ''), 10);
-    if (Number.isInteger(explicit) && explicit > 0) {
-      return explicit;
-    }
-    return getReviewPassIndexForSubstage(sessionPayload.substageKey || sessionPayload.stageKey);
-  })();
-  const usesCurrentReviewStageAddress = Boolean(
-    getReviewPassIndexForSubstage(sessionPayload.substageKey)
-    || getReviewPassIndexForSubstage(sessionPayload.stageKey),
-  );
+  const requestedReviewPassForGate = getReviewPassIndexForSubstage(sessionPayload.stageKey);
+  const usesCurrentReviewStageAddress = Boolean(requestedReviewPassForGate);
   const targetWorkflow = entry.workflows.find((workflow) => workflow.id === workflowId) || null;
   if (
     usesCurrentReviewStageAddress
@@ -3019,46 +3003,16 @@ export async function registerWorkflowChildSession(project, workflowId, sessionP
       : getWorkflowStages().map((stage) => ({ ...stage, status: 'pending' }));
     const currentStageKey = resolveWorkflowStageKey(workflow, stageStatuses);
     const childSessions = expandWorkflowChatSessions(workflow, workflow.id);
-    const requestedReviewPassIndex = Number.parseInt(String(sessionPayload.reviewPassIndex || ''), 10);
-    const reviewPassIndex = Number.isInteger(requestedReviewPassIndex) && requestedReviewPassIndex > 0
-      ? requestedReviewPassIndex
-      : undefined;
-    const stageKey = sessionPayload.stageKey || (reviewPassIndex
-      ? buildReviewPassStageKey(reviewPassIndex)
-      : currentStageKey);
-    const inferredSubstageKey = inferCurrentSubstageKey(workflow, currentStageKey, stageKey, workflow.artifacts || [], childSessions)
-      || undefined;
-    const substageKey = sessionPayload.substageKey || (reviewPassIndex
-      ? buildReviewPassSubstageKey(reviewPassIndex)
-      : inferredSubstageKey);
+    const stageKey = normalizeWorkflowStageKey(sessionPayload.stageKey) || currentStageKey;
     const nextRouteIndex = childSessions.reduce((maxValue, session) => {
       const parsed = Number(session?.routeIndex);
       return Number.isInteger(parsed) && parsed > maxValue ? parsed : maxValue;
     }, 0) + 1;
     const existingIndex = childSessions.findIndex((session) => session.id === sessionPayload.sessionId);
-    const normalizedReviewPassIndex = Number.isInteger(Number(reviewPassIndex)) && Number(reviewPassIndex) > 0
-      ? Number(reviewPassIndex)
-      : getReviewPassIndexForSubstage(substageKey || stageKey);
-    const matchesReviewPass = (session) => {
-      const existingReviewPassIndex = Number.isInteger(Number(session.reviewPassIndex)) && Number(session.reviewPassIndex) > 0
-        ? Number(session.reviewPassIndex)
-        : getReviewPassIndexForSubstage(session.substageKey || session.stageKey);
-      if (normalizedReviewPassIndex || existingReviewPassIndex) {
-        return existingReviewPassIndex === normalizedReviewPassIndex;
-      }
-      return true;
-    };
-    const matchesSubstageSlot = (session) => (
-      (session.substageKey || '') === (substageKey || '')
-      || !session.substageKey
-      || !substageKey
-    );
     const matchingStageSessionIndex = existingIndex >= 0
       ? -1
       : childSessions.findIndex((session) => (
-        (session.stageKey || '') === (stageKey || '')
-        && matchesSubstageSlot(session)
-        && matchesReviewPass(session)
+        normalizeWorkflowStageKey(session.stageKey) === stageKey
       ));
     const draftReplacementIndex = existingIndex >= 0
       ? -1
@@ -3066,9 +3020,7 @@ export async function registerWorkflowChildSession(project, workflowId, sessionP
         isTemporarySessionId(session.id)
         && !isTemporarySessionId(sessionPayload.sessionId)
         && (session.provider || 'claude') === (sessionPayload.provider || 'claude')
-        && (session.stageKey || '') === (stageKey || '')
-        && matchesSubstageSlot(session)
-        && matchesReviewPass(session)
+        && normalizeWorkflowStageKey(session.stageKey) === stageKey
       ));
     const replacementIndex = existingIndex >= 0
       ? existingIndex
@@ -3086,8 +3038,6 @@ export async function registerWorkflowChildSession(project, workflowId, sessionP
       workflowId: workflow.id,
       projectPath,
       stageKey,
-      substageKey,
-      reviewPassIndex,
       url: sessionPayload.url,
     };
     const nextChildSessions = replacementIndex >= 0

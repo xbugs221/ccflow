@@ -560,7 +560,6 @@ test('finalizing workflow-owned drafts preserves ownership on real provider sess
       const claudeDraft = await createManualSessionDraft(project.name, projectPath, 'claude', '审核会话', {
         workflowId: 'workflow-review',
         stageKey: 'verification',
-        reviewPassIndex: 2,
       });
     await createClaudeSessionFile(project.name, 'claude-workflow-real');
 
@@ -655,7 +654,6 @@ test('finalizing an indexed review draft preserves the existing review child rou
       const reviewDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '评审1：重构精简仓库', {
         workflowId: workflow.id,
         stageKey: 'review_1',
-        reviewPassIndex: 1,
       });
     await registerWorkflowChildSession(project, workflow.id, {
       sessionId: reviewDraft.id,
@@ -679,7 +677,6 @@ test('finalizing an indexed review draft preserves the existing review child rou
     assert.equal(reviewSessions.length, 1);
     assert.equal(reviewSessions[0].id, 'review-real');
     assert.equal(reviewSessions[0].routeIndex, 3);
-    assert.equal(reviewSessions[0].reviewPassIndex, 1);
   });
 });
 

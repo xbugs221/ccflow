@@ -40,7 +40,7 @@ export function getReviewPassIndexForSubstage(substageKey = '') {
 /**
  * Select child sessions that belong to one workflow review pass.
  *
- * @param {Array<{ reviewPassIndex?: number, substageKey?: string, stageKey?: string }>} childSessions
+ * @param {Array<{ stageKey?: string }>} childSessions
  * @param {string} substageKey - Review-pass substage key.
  * @returns {Array<object>} Matching child sessions for the pass.
  */
@@ -50,9 +50,5 @@ export function getReviewPassSessions(childSessions = [], substageKey = '') {
     return [];
   }
   const stageKey = buildReviewPassStageKey(passIndex);
-  return childSessions.filter((session) => (
-    Number(session.reviewPassIndex) === passIndex
-    || session.substageKey === buildReviewPassSubstageKey(passIndex)
-    || session.stageKey === stageKey
-  ));
+  return childSessions.filter((session) => session.stageKey === stageKey);
 }

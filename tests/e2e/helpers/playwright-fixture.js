@@ -209,7 +209,6 @@ function writeWorkflowStoreFixture() {
               workflowId: 'w1',
               projectPath: fixtureProjectPath,
               stageKey: 'planning',
-              substageKey: 'planner_output',
             },
             {
               id: 'fixture-project-execution-session',
@@ -220,7 +219,6 @@ function writeWorkflowStoreFixture() {
               workflowId: 'w1',
               projectPath: fixtureProjectPath,
               stageKey: 'execution',
-              substageKey: 'node_execution',
             },
           ],
         },

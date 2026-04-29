@@ -541,7 +541,6 @@ test('legacy planning session mislabeled as discussion is repaired into planning
       ['ready_for_acceptance', 'pending'],
     ]);
     assert.equal(workflow.childSessions[0].stageKey, 'planning');
-    assert.equal(workflow.childSessions[0].substageKey, 'planner_output');
   });
 });
 
@@ -626,7 +625,6 @@ test('prepareWorkflowRecord repairs planning sessions that were mistakenly store
       ['ready_for_acceptance', 'pending'],
     ]);
     assert.equal(workflow.childSessions[0].stageKey, 'planning');
-    assert.equal(workflow.childSessions[0].substageKey, 'planner_output');
   });
 });
 
@@ -654,7 +652,7 @@ test('advanceWorkflow promotes planning into execution after proposal review', a
   });
 });
 
-test('registerWorkflowChildSession persists verification review pass metadata', async () => {
+test('registerWorkflowChildSession persists review stage metadata', async () => {
   await withTemporaryHome(async (homeDir) => {
     const projectPath = path.join(homeDir, 'fixture-project');
     const { createProjectWorkflow, registerWorkflowChildSession } = await import(`../../server/workflows.js?home=${encodeURIComponent(`${homeDir}-review-registration`)}`);
@@ -669,23 +667,20 @@ test('registerWorkflowChildSession persists verification review pass metadata', 
       { fullPath: projectPath, path: projectPath },
       workflow.id,
       {
-        sessionId: 'workflow-review-2-session',
-        title: '审核2：审核会话注册',
-        summary: '审核2：审核会话注册',
+        sessionId: 'workflow-review-1-session',
+        title: '审核1：审核会话注册',
+        summary: '审核1：审核会话注册',
         provider: 'codex',
-        stageKey: 'verification',
-        substageKey: 'internal_review',
-        reviewPassIndex: 2,
+        stageKey: 'review_1',
       },
     );
 
-    const reviewSession = updatedWorkflow.childSessions.find((session) => session.id === 'workflow-review-2-session');
+    const reviewSession = updatedWorkflow.childSessions.find((session) => session.id === 'workflow-review-1-session');
     const verificationStage = findStageInspection(updatedWorkflow, 'verification');
-    const reviewPass2 = verificationStage?.substages.find((substage) => substage.substageKey === 'review_2');
+    const reviewPass1 = verificationStage?.substages.find((substage) => substage.substageKey === 'review_1');
 
-    assert.equal(reviewSession?.reviewPassIndex, 2);
-    assert.equal(reviewSession?.substageKey, 'review_2');
-    assert.deepEqual(reviewPass2?.agentSessions.map((session) => session.id), ['workflow-review-2-session']);
+    assert.equal(reviewSession?.stageKey, 'review_1');
+    assert.deepEqual(reviewPass1?.agentSessions.map((session) => session.id), ['workflow-review-1-session']);
   });
 });
 
@@ -709,7 +704,6 @@ test('registerWorkflowChildSession replaces a workflow draft session when the re
         summary: 'Workflow Planning Kickoff: 规划草稿替换',
         provider: 'codex',
         stageKey: 'planning',
-        substageKey: 'planner_output',
       },
     );
 
@@ -731,7 +725,6 @@ test('registerWorkflowChildSession replaces a workflow draft session when the re
       ['codex-real-session-123'],
     );
     assert.equal(updatedWorkflow.childSessions[0].stageKey, 'planning');
-    assert.equal(updatedWorkflow.childSessions[0].substageKey, 'planner_output');
   });
 });
 
@@ -755,8 +748,6 @@ test('registerWorkflowChildSession deduplicates repeated draft sessions for the 
         summary: '评审1：重复评审草稿',
         provider: 'codex',
         stageKey: 'review_1',
-        substageKey: 'review_1',
-        reviewPassIndex: 1,
       },
     );
 
@@ -769,8 +760,6 @@ test('registerWorkflowChildSession deduplicates repeated draft sessions for the 
         summary: '评审1：重复评审草稿',
         provider: 'codex',
         stageKey: 'review_1',
-        substageKey: 'review_1',
-        reviewPassIndex: 1,
       },
     );
 
@@ -778,7 +767,6 @@ test('registerWorkflowChildSession deduplicates repeated draft sessions for the 
       updatedWorkflow.childSessions.map((session) => session.id),
       ['c2'],
     );
-    assert.equal(updatedWorkflow.childSessions[0].reviewPassIndex, 1);
   });
 });
 
@@ -802,8 +790,6 @@ test('registerWorkflowChildSession blocks later review sessions until previous r
         summary: '评审2：阻止提前再审',
         provider: 'codex',
         stageKey: 'review_2',
-        substageKey: 'review_2',
-        reviewPassIndex: 2,
       },
     );
 
@@ -852,7 +838,6 @@ test('registerWorkflowChildSession moves one concrete provider session between w
         summary: '规划提案：新工作流',
         provider: 'codex',
         stageKey: 'planning',
-        substageKey: 'planner_output',
       },
     );
 
@@ -1335,7 +1320,6 @@ test('buildWorkflowLauncherConfig keeps planning prompt to explore alias and wor
     );
 
     assert.equal(planningLauncher.workflowStageKey, 'planning');
-    assert.equal(planningLauncher.workflowSubstageKey, 'planner_output');
     assert.equal(planningLauncher.workflowAutoStart, 'planning');
     assert.equal(planningLauncher.autoPrompt, 'EXPLORE TEMPLATE FROM HOME\n拟新建 OpenSpec change 编号前缀：1\n工作流标题：模板读取\n需求正文：验证 launcher prompt 直接来自 alias 文件');
     assert.doesNotMatch(planningLauncher.autoPrompt, /工作流 ID/);
@@ -1356,7 +1340,6 @@ test('buildWorkflowLauncherConfig keeps planning prompt to explore alias and wor
 
     assert.equal(archiveLauncher.workflowAutoStart, 'archive');
     assert.equal(archiveLauncher.workflowStageKey, 'archive');
-    assert.equal(archiveLauncher.workflowSubstageKey, 'delivery_package');
     assert.match(archiveLauncher.autoPrompt, /ARCHIVE TEMPLATE FROM HOME/);
   });
 });
@@ -1379,7 +1362,7 @@ test('buildWorkflowLauncherConfig keeps review prompt compact with focus and out
     );
 
     assert.equal(launcher.workflowAutoStart, 'review');
-    assert.equal(launcher.workflowReviewPass, 2);
+    assert.equal(launcher.workflowStageKey, 'review_2');
     assert.match(launcher.autoPrompt, /实现风险：检查最近变更/);
     assert.match(launcher.autoPrompt, /把审核结果写入/);
     assert.match(launcher.autoPrompt, /"required": \[/);
@@ -1432,7 +1415,7 @@ test('buildWorkflowLauncherConfig continues from blocked review by launching a r
                 ],
                 artifacts: [],
                 childSessions: [
-                  { id: 'review-2-session', title: '评审2：审核回流修复', stageKey: 'verification', substageKey: 'review_2' },
+                  { id: 'review-2-session', title: '评审2：审核回流修复', stageKey: 'review_2' },
                 ],
               },
             ],
@@ -1448,8 +1431,6 @@ test('buildWorkflowLauncherConfig continues from blocked review by launching a r
 
     assert.equal(launcher.workflowAutoStart, 'repair');
     assert.equal(launcher.workflowStageKey, 'repair_2');
-    assert.equal(launcher.workflowSubstageKey, 'repair_2');
-    assert.equal(launcher.workflowReviewPass, 2);
     assert.equal(launcher.workflowRepairPass, 2);
     assert.match(launcher.sessionSummary, /修复2：审核回流修复/);
     assert.match(launcher.autoPrompt, /review-2\.json/);
@@ -1492,7 +1473,7 @@ test('buildWorkflowLauncherConfig treats rejected review results as repair work'
             openspecChangeName: '2030-review-reject',
             stage: 'review_1',
             childSessions: [
-              { id: 'review-1-session', title: '评审1：拒绝后修复', stageKey: 'review_1', substageKey: 'review_1', reviewPassIndex: 1 },
+              { id: 'review-1-session', title: '评审1：拒绝后修复', stageKey: 'review_1' },
             ],
           },
         ],
@@ -1508,7 +1489,6 @@ test('buildWorkflowLauncherConfig treats rejected review results as repair work'
 
     assert.equal(launcher.workflowAutoStart, 'repair');
     assert.equal(launcher.workflowStageKey, 'repair_1');
-    assert.equal(launcher.workflowSubstageKey, 'repair_1');
     assert.equal(launcher.workflowRepairPass, 1);
     assert.match(launcher.sessionSummary, /修复1：拒绝后修复/);
     assert.match(launcher.autoPrompt, /右键菜单缺失/);
@@ -1562,7 +1542,7 @@ test('buildWorkflowLauncherConfig advances stale completed review requests to re
             ],
             artifacts: [],
             childSessions: [
-              { id: 'review-1-session', title: '评审1：陈旧阶段恢复', stageKey: 'review_1', substageKey: 'review_1', reviewPassIndex: 1 },
+              { id: 'review-1-session', title: '评审1：陈旧阶段恢复', stageKey: 'review_1' },
             ],
           },
         ],
@@ -1578,8 +1558,6 @@ test('buildWorkflowLauncherConfig advances stale completed review requests to re
 
     assert.equal(launcher.workflowAutoStart, 'repair');
     assert.equal(launcher.workflowStageKey, 'repair_1');
-    assert.equal(launcher.workflowSubstageKey, 'repair_1');
-    assert.equal(launcher.workflowReviewPass, 1);
     assert.equal(launcher.workflowRepairPass, 1);
     assert.match(launcher.sessionSummary, /修复1：陈旧阶段恢复/);
     assert.match(launcher.autoPrompt, /初审修复项/);
@@ -1625,7 +1603,7 @@ test('buildWorkflowLauncherConfig continues from clean review by advancing to th
                 ],
                 artifacts: [],
                 childSessions: [
-                  { id: 'review-1-session', title: '评审1：审核推进', stageKey: 'verification', substageKey: 'review_1' },
+                  { id: 'review-1-session', title: '评审1：审核推进', stageKey: 'review_1' },
                 ],
               },
             ],
@@ -1641,8 +1619,6 @@ test('buildWorkflowLauncherConfig continues from clean review by advancing to th
 
     assert.equal(launcher.workflowAutoStart, 'review');
     assert.equal(launcher.workflowStageKey, 'review_2');
-    assert.equal(launcher.workflowSubstageKey, 'review_2');
-    assert.equal(launcher.workflowReviewPass, 2);
     assert.match(launcher.sessionSummary, /评审2：审核推进/);
   });
 });
@@ -1665,7 +1641,7 @@ test('buildWorkflowLauncherConfig waits for structured review result before cont
             openspecChangeName: '2032-review-wait',
             stage: 'review_1',
             childSessions: [
-              { id: 'review-1-session', title: '评审1：等待审核结果', stageKey: 'review_1', substageKey: 'review_1', reviewPassIndex: 1 },
+              { id: 'review-1-session', title: '评审1：等待审核结果', stageKey: 'review_1' },
             ],
           },
         ],
@@ -1681,8 +1657,6 @@ test('buildWorkflowLauncherConfig waits for structured review result before cont
 
     assert.equal(launcher.workflowAutoStart, 'review');
     assert.equal(launcher.workflowStageKey, 'review_1');
-    assert.equal(launcher.workflowSubstageKey, 'review_1');
-    assert.equal(launcher.workflowReviewPass, 1);
   });
 });
 
@@ -1719,7 +1693,7 @@ test('buildWorkflowLauncherConfig continues from clean third review by launching
             openspecChangeName: '2031-review-archive',
             stage: 'review_3',
             childSessions: [
-              { id: 'review-3-session', title: '评审3：审核交付', stageKey: 'review_3', substageKey: 'review_3', reviewPassIndex: 3 },
+              { id: 'review-3-session', title: '评审3：审核交付', stageKey: 'review_3' },
             ],
           },
         ],
@@ -1735,7 +1709,6 @@ test('buildWorkflowLauncherConfig continues from clean third review by launching
 
     assert.equal(launcher.workflowAutoStart, 'archive');
     assert.equal(launcher.workflowStageKey, 'archive');
-    assert.equal(launcher.workflowSubstageKey, 'delivery_package');
     assert.match(launcher.sessionSummary, /归档：审核交付/);
     assert.match(launcher.autoPrompt, /ARCHIVE TEMPLATE FROM HOME/);
   });
@@ -1755,6 +1728,11 @@ test('archive stage stays pending until an archive child session exists', async 
         `${JSON.stringify({ summary: `第 ${passIndex} 轮通过`, decision: 'clean', findings: [] }, null, 2)}\n`,
         'utf8',
       );
+      await fs.writeFile(
+        path.join(workflowDir, `repair-${passIndex}-summary.md`),
+        `# repair ${passIndex}\n`,
+        'utf8',
+      );
     }
     await fs.mkdir(path.dirname(workflowStorePath), { recursive: true });
     const workflowRecord = {
@@ -1762,8 +1740,24 @@ test('archive stage stays pending until an archive child session exists', async 
       title: '归档灯状态',
       openspecChangeName: '2032-archive-light',
       stage: 'review_3',
+      stageStatuses: [
+        { key: 'planning', label: '规划提案', status: 'completed' },
+        { key: 'execution', label: '执行', status: 'completed' },
+        { key: 'review_1', label: '初审', status: 'completed' },
+        { key: 'repair_1', label: '初修', status: 'completed' },
+        { key: 'review_2', label: '再审', status: 'completed' },
+        { key: 'repair_2', label: '再修', status: 'completed' },
+        { key: 'review_3', label: '三审', status: 'completed' },
+        { key: 'repair_3', label: '三修', status: 'completed' },
+        { key: 'archive', label: '归档', status: 'pending' },
+      ],
       childSessions: [
-        { id: 'review-3-session', title: '评审3：归档灯状态', stageKey: 'review_3', substageKey: 'review_3', reviewPassIndex: 3 },
+        { id: 'review-1-session', title: '评审1：归档灯状态', stageKey: 'review_1' },
+        { id: 'repair-1-session', title: '修复1：归档灯状态', stageKey: 'repair_1' },
+        { id: 'review-2-session', title: '评审2：归档灯状态', stageKey: 'review_2' },
+        { id: 'repair-2-session', title: '修复2：归档灯状态', stageKey: 'repair_2' },
+        { id: 'review-3-session', title: '评审3：归档灯状态', stageKey: 'review_3' },
+        { id: 'repair-3-session', title: '修复3：归档灯状态', stageKey: 'repair_3' },
       ],
     };
     await fs.writeFile(
@@ -1789,6 +1783,22 @@ test('archive stage stays pending until an archive child session exists', async 
 
     const archivedWorkflow = await getProjectWorkflow({ fullPath: projectPath, path: projectPath }, 'w1');
     assert.equal(archivedWorkflow.stageStatuses.find((stage) => stage.key === 'archive')?.status, 'active');
+
+    const archivedChangePath = path.join(projectPath, 'openspec', 'changes', 'archive', '2032-04-29-2032-archive-light');
+    await fs.mkdir(archivedChangePath, { recursive: true });
+    await fs.writeFile(
+      path.join(archivedChangePath, 'tasks.md'),
+      '- [x] 1.1 执行完成\n- [x] 1.2 验证完成\n',
+      'utf8',
+    );
+
+    const missingSummaryWorkflow = await getProjectWorkflow({ fullPath: projectPath, path: projectPath }, 'w1');
+    assert.equal(missingSummaryWorkflow.stageStatuses.find((stage) => stage.key === 'execution')?.status, 'completed');
+    assert.equal(missingSummaryWorkflow.stageStatuses.find((stage) => stage.key === 'archive')?.status, 'active');
+
+    await fs.writeFile(path.join(workflowDir, 'delivery-summary.md'), '# delivery\n', 'utf8');
+    const completedWorkflow = await getProjectWorkflow({ fullPath: projectPath, path: projectPath }, 'w1');
+    assert.equal(completedWorkflow.stageStatuses.find((stage) => stage.key === 'archive')?.status, 'completed');
   });
 });
 
@@ -1876,14 +1886,12 @@ test('legacy review_pass workflow keeps review links and inserts repair session 
                 title: '规划提案',
                 provider: 'codex',
                 stageKey: 'planning',
-                substageKey: 'planner_output',
               },
               1: {
                 sessionId: 'review-1-session',
                 title: '评审1：审核回流',
                 provider: 'codex',
                 stageKey: 'review_1',
-                reviewPassIndex: 1,
               },
               2: {
                 sessionId: 'repair-after-review-1',
@@ -1986,8 +1994,8 @@ test('legacy internal review sessions stored under execution are repaired into v
     assert.deepEqual(
       workflow.childSessions
         .filter((session) => session.id === 'sess-review-openspec')
-        .map((session) => [session.stageKey, session.substageKey]),
-      [['review_1', 'review_1']],
+        .map((session) => session.stageKey),
+      ['review_1'],
     );
   });
 });
@@ -2044,7 +2052,7 @@ test('completed verification stage is blocked until review sessions are fully re
   });
 });
 
-test('legacy review sessions are repaired into review passes and sorted by pass order', async () => {
+test('review sessions are sorted by review stage key pass order', async () => {
   await withTemporaryHome(async (homeDir) => {
     const projectPath = path.join(homeDir, 'fixture-project');
     const workflowStorePath = getWorkflowStorePath(projectPath);
@@ -2063,7 +2071,7 @@ test('legacy review sessions are repaired into review passes and sorted by pass 
               {
                 id: workflowId,
                 title: '修复 reviewer 排序',
-                objective: '旧 reviewer 会话不应落到 status_sync，且应按 1 2 3 顺序展示',
+                objective: 'reviewer 会话应按 1 2 3 顺序展示',
                 openspecChangeName: '1-review-order-repair',
                 stage: 'execution',
                 runState: 'running',
@@ -2075,10 +2083,10 @@ test('legacy review sessions are repaired into review passes and sorted by pass 
                 ],
                 artifacts: [],
                 childSessions: [
-                  { id: 'workflow-apply-finished', title: '执行会话', stageKey: 'execution', substageKey: 'node_execution' },
-                  { id: 'workflow-review-3', title: '内部审核第 3 轮：最终收敛', stageKey: 'verification', substageKey: 'internal_review' },
-                  { id: 'workflow-review-2', title: '继续进行第 2 轮内部审核，检查回归风险', stageKey: 'execution', substageKey: 'status_sync' },
-                  { id: 'workflow-review-1', title: '对 openspec apply 结果进行第 1 轮内部审核', stageKey: 'execution', substageKey: 'status_sync' },
+                  { id: 'workflow-apply-finished', title: '执行会话', stageKey: 'execution' },
+                  { id: 'workflow-review-3', title: '内部审核第 3 轮：最终收敛', stageKey: 'review_3' },
+                  { id: 'workflow-review-2', title: '继续进行第 2 轮内部审核，检查回归风险', stageKey: 'review_2' },
+                  { id: 'workflow-review-1', title: '对 openspec apply 结果进行第 1 轮内部审核', stageKey: 'review_1' },
                 ],
               },
             ],
@@ -2104,11 +2112,11 @@ test('legacy review sessions are repaired into review passes and sorted by pass 
     assert.deepEqual(
       workflow.childSessions
         .filter((session) => session.id.startsWith('workflow-review-'))
-        .map((session) => [session.id, session.stageKey, session.substageKey]),
+        .map((session) => [session.id, session.stageKey]),
       [
-        ['workflow-review-1', 'review_1', 'review_1'],
-        ['workflow-review-2', 'review_2', 'review_2'],
-        ['workflow-review-3', 'review_3', 'review_3'],
+        ['workflow-review-1', 'review_1'],
+        ['workflow-review-2', 'review_2'],
+        ['workflow-review-3', 'review_3'],
       ],
     );
   });
@@ -2144,9 +2152,9 @@ test('legacy generic reviewer sessions assigned to review_3 are redistributed by
                   { key: 'ready_for_acceptance', label: '交付', status: 'pending' },
                 ],
                 childSessions: [
-                  { id: 'review-generic-1', title: '# Workflow Reviewer', summary: '# Workflow Reviewer', stageKey: 'verification', substageKey: 'review_3' },
-                  { id: 'review-generic-2', title: '# Workflow Reviewer', summary: '# Workflow Reviewer', stageKey: 'verification', substageKey: 'review_3' },
-                  { id: 'review-generic-3', title: '# Workflow Reviewer', summary: '# Workflow Reviewer', stageKey: 'verification', substageKey: 'review_3' },
+                  { id: 'review-generic-1', title: '# Workflow Reviewer', summary: '# Workflow Reviewer', stageKey: 'verification' },
+                  { id: 'review-generic-2', title: '# Workflow Reviewer', summary: '# Workflow Reviewer', stageKey: 'verification' },
+                  { id: 'review-generic-3', title: '# Workflow Reviewer', summary: '# Workflow Reviewer', stageKey: 'verification' },
                 ],
               },
             ],
@@ -2166,11 +2174,11 @@ test('legacy generic reviewer sessions assigned to review_3 are redistributed by
     assert.deepEqual(
       workflow.childSessions
         .filter((session) => session.id.startsWith('review-generic-'))
-        .map((session) => [session.id, session.reviewPassIndex, session.substageKey]),
+        .map((session) => [session.id, session.stageKey]),
       [
-        ['review-generic-1', 1, 'review_1'],
-        ['review-generic-2', 2, 'review_2'],
-        ['review-generic-3', 3, 'review_3'],
+        ['review-generic-1', 'review_1'],
+        ['review-generic-2', 'review_2'],
+        ['review-generic-3', 'review_3'],
       ],
     );
   });

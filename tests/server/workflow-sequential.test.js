@@ -210,7 +210,7 @@ test('auto runner decision matrix starts the next planned stage or waits on acti
       workflow: buildAutoWorkflow({
         statuses: { review_1: 'active' },
         childSessions: [
-          { id: 'execution-session', stageKey: 'execution', substageKey: 'node_execution', routeIndex: 1 },
+          { id: 'execution-session', stageKey: 'execution', routeIndex: 1 },
         ],
       }),
       expectedStage: 'review_1',
@@ -220,7 +220,7 @@ test('auto runner decision matrix starts the next planned stage or waits on acti
       workflow: buildAutoWorkflow({
         statuses: { review_1: 'active' },
         childSessions: [
-          { id: 'review-session', stageKey: 'review_1', substageKey: 'review_1', routeIndex: 2 },
+          { id: 'review-session', stageKey: 'review_1', routeIndex: 2 },
         ],
       }),
       expectedStage: null,
@@ -229,6 +229,16 @@ test('auto runner decision matrix starts the next planned stage or waits on acti
       name: 'archive completed stops',
       workflow: buildAutoWorkflow({
         statuses: { review_1: 'completed', archive: 'completed' },
+      }),
+      expectedStage: null,
+    },
+    {
+      name: 'archive waits on existing archive session',
+      workflow: buildAutoWorkflow({
+        statuses: { review_1: 'completed', archive: 'pending' },
+        childSessions: [
+          { id: 'archive-session', stageKey: 'archive', routeIndex: 3 },
+        ],
       }),
       expectedStage: null,
     },

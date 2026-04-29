@@ -63,8 +63,6 @@ export type MainContentProps = {
       projectPath?: string;
       workflowId?: string;
       workflowStageKey?: string;
-      workflowSubstageKey?: string;
-      workflowReviewPass?: number;
       routeSearch?: Record<string, string>;
     },
   ) => void;

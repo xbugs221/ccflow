@@ -109,8 +109,6 @@ export default function AppContent() {
           projectPath?: string;
           workflowId?: string;
           workflowStageKey?: string;
-          workflowSubstageKey?: string;
-          workflowReviewPass?: number;
           routeSearch?: Record<string, string>;
         },
       ) => {
@@ -155,8 +153,6 @@ export default function AppContent() {
               ...fallbackSelectedSession,
               workflowId: targetWorkflow.id,
               stageKey: options?.workflowStageKey || fallbackSelectedSession.stageKey,
-              substageKey: options?.workflowSubstageKey || fallbackSelectedSession.substageKey,
-              reviewPassIndex: options?.workflowReviewPass || fallbackSelectedSession.reviewPassIndex,
             }
           : null;
         const workflowRouteSession = childSession || workflowDraftSession;

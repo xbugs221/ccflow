@@ -27,7 +27,6 @@ test('Scenario: 保存项目配置时写入 v2 分组结构', async () => {
     await createManualSessionDraft(project.name, projectPath, 'codex', '执行会话', {
       workflowId: 'w1',
       stageKey: 'execution',
-      substageKey: 'node_execution',
     });
 
     const persisted = await readProjectConf(projectPath);

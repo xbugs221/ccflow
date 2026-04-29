@@ -3,7 +3,7 @@
  * Routes the selected project/session into chat, files, shell, git, tasks, and editor panels.
  */
 import React, { useEffect } from 'react';
-import { ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Move } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import ChatInterface from '../../chat/view/ChatInterface';
@@ -40,6 +40,44 @@ type TasksSettingsContextValue = {
   isTaskMasterInstalled: boolean | null;
   isTaskMasterReady: boolean | null;
 };
+
+type WorkflowMiniMapPosition = {
+  x: number;
+  y: number;
+};
+
+const WORKFLOW_MINIMAP_MARGIN = 16;
+
+/**
+ * PURPOSE: Keep the workflow minimap inside the visible main-content panel while users drag it.
+ */
+function clampWorkflowMiniMapPosition(
+  position: WorkflowMiniMapPosition,
+  containerRect: DOMRect,
+  panelRect: DOMRect,
+): WorkflowMiniMapPosition {
+  const maxX = Math.max(WORKFLOW_MINIMAP_MARGIN, containerRect.width - panelRect.width - WORKFLOW_MINIMAP_MARGIN);
+  const maxY = Math.max(WORKFLOW_MINIMAP_MARGIN, containerRect.height - panelRect.height - WORKFLOW_MINIMAP_MARGIN);
+
+  return {
+    x: Math.min(Math.max(position.x, WORKFLOW_MINIMAP_MARGIN), maxX),
+    y: Math.min(Math.max(position.y, WORKFLOW_MINIMAP_MARGIN), maxY),
+  };
+}
+
+/**
+ * PURPOSE: Convert the default top-right workflow minimap placement into draggable coordinates.
+ */
+function getDefaultWorkflowMiniMapPosition(containerRect: DOMRect, panelRect: DOMRect): WorkflowMiniMapPosition {
+  return clampWorkflowMiniMapPosition(
+    {
+      x: containerRect.width - panelRect.width - WORKFLOW_MINIMAP_MARGIN,
+      y: WORKFLOW_MINIMAP_MARGIN,
+    },
+    containerRect,
+    panelRect,
+  );
+}
 
 /**
  * PURPOSE: Map a workflow CTA click to the backend launcher stage that should
@@ -96,6 +134,15 @@ function MainContent({
   const projectSessions = selectedProject ? getAllSessions(selectedProject, {}, true) : [];
   const [revealDirectoryRequest, setRevealDirectoryRequest] = React.useState<{ path: string; requestId: number } | null>(null);
   const [isWorkflowMiniMapCollapsed, setIsWorkflowMiniMapCollapsed] = React.useState(false);
+  const [workflowMiniMapPosition, setWorkflowMiniMapPosition] = React.useState<WorkflowMiniMapPosition | null>(null);
+  const workflowMiniMapContainerRef = React.useRef<HTMLDivElement | null>(null);
+  const workflowMiniMapPanelRef = React.useRef<HTMLDivElement | null>(null);
+  const workflowMiniMapDragRef = React.useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    origin: WorkflowMiniMapPosition;
+  } | null>(null);
   const workflowSessionWorkflow = React.useMemo(() => {
     if (selectedWorkflow) {
       return selectedWorkflow;
@@ -120,6 +167,87 @@ function MainContent({
     selectedProject,
     isMobile,
   });
+
+  const resolveWorkflowMiniMapPosition = React.useCallback(() => {
+    /**
+     * Read live DOM sizes so drag math follows collapse/expand and responsive layout changes.
+     */
+    const container = workflowMiniMapContainerRef.current;
+    const panel = workflowMiniMapPanelRef.current;
+    if (!container || !panel) {
+      return null;
+    }
+    const containerRect = container.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+    return workflowMiniMapPosition
+      ? clampWorkflowMiniMapPosition(workflowMiniMapPosition, containerRect, panelRect)
+      : getDefaultWorkflowMiniMapPosition(containerRect, panelRect);
+  }, [workflowMiniMapPosition]);
+
+  const handleWorkflowMiniMapDragStart = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    /**
+     * Start a pointer-captured drag from the visible minimap handle.
+     */
+    const origin = resolveWorkflowMiniMapPosition();
+    if (!origin) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    workflowMiniMapDragRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      origin,
+    };
+    setWorkflowMiniMapPosition(origin);
+  }, [resolveWorkflowMiniMapPosition]);
+
+  const handleWorkflowMiniMapDragMove = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    /**
+     * Move the minimap by pointer delta and clamp it inside the main-content viewport.
+     */
+    const drag = workflowMiniMapDragRef.current;
+    const container = workflowMiniMapContainerRef.current;
+    const panel = workflowMiniMapPanelRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !container || !panel) {
+      return;
+    }
+    const containerRect = container.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+    setWorkflowMiniMapPosition(clampWorkflowMiniMapPosition(
+      {
+        x: drag.origin.x + event.clientX - drag.startClientX,
+        y: drag.origin.y + event.clientY - drag.startClientY,
+      },
+      containerRect,
+      panelRect,
+    ));
+  }, []);
+
+  const handleWorkflowMiniMapDragEnd = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    /**
+     * Release pointer capture once the user stops repositioning the minimap.
+     */
+    if (workflowMiniMapDragRef.current?.pointerId !== event.pointerId) {
+      return;
+    }
+    workflowMiniMapDragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }, []);
+
+  React.useLayoutEffect(() => {
+    /**
+     * Keep a dragged minimap visible when the panel resizes or the tree is collapsed.
+     */
+    if (!workflowMiniMapPosition) {
+      return;
+    }
+    const nextPosition = resolveWorkflowMiniMapPosition();
+    if (nextPosition && (nextPosition.x !== workflowMiniMapPosition.x || nextPosition.y !== workflowMiniMapPosition.y)) {
+      setWorkflowMiniMapPosition(nextPosition);
+    }
+  }, [isWorkflowMiniMapCollapsed, resolveWorkflowMiniMapPosition, workflowMiniMapPosition]);
 
   useEffect(() => {
     if (selectedProject && selectedProject !== currentProject) {
@@ -220,7 +348,11 @@ function MainContent({
                 if (!response.ok) {
                   return;
                 }
+                const payload = await response.json().catch(() => null);
                 await window.refreshProjects?.();
+                if (payload?.workflow) {
+                  onSelectWorkflow(selectedProject, payload.workflow);
+                }
               }}
               onDeleteWorkflow={async (workflow) => {
                 if (!window.confirm(`确定删除工作流“${workflow.title}”吗？此操作无法撤销。`)) {
@@ -236,8 +368,6 @@ function MainContent({
               onContinueWorkflow={async (workflow) => {
                 const hasReviewProgress = workflow.childSessions.some((session) => (
                   /^review_\d+$/.test(String(session.stageKey || ''))
-                  || /^review_\d+$/.test(String(session.substageKey || ''))
-                  || Number.isInteger(session.reviewPassIndex)
                 ));
 
                 if (workflow.stage === 'planning' && !hasReviewProgress) {
@@ -257,8 +387,6 @@ function MainContent({
 
                   const planningSession = workflow.childSessions.find((session) => (
                     session.stageKey === 'planning'
-                    || session.substageKey === 'planning'
-                    || session.substageKey === 'planner_output'
                   ));
                   if (planningSession) {
                     onNavigateToSession(planningSession.id, {
@@ -267,8 +395,6 @@ function MainContent({
                       projectPath: selectedProject.fullPath || selectedProject.path || '',
                       workflowId: workflow.id,
                       workflowStageKey: planningSession.stageKey,
-                      workflowSubstageKey: planningSession.substageKey,
-                      workflowReviewPass: planningSession.reviewPassIndex,
                     });
                     return;
                   }
@@ -355,12 +481,18 @@ function MainContent({
         leadingContent={headerLeadingContent}
       />
 
-      <div className="relative flex-1 flex min-h-0 overflow-hidden">
+      <div ref={workflowMiniMapContainerRef} className="relative flex-1 flex min-h-0 overflow-hidden">
         {workflowSessionWorkflow && (
-          <div className={[
-            'pointer-events-none absolute right-4 top-4 z-20 hidden xl:block',
-            isWorkflowMiniMapCollapsed ? 'w-auto' : 'w-[22rem]',
-          ].join(' ')}
+          <div
+            ref={workflowMiniMapPanelRef}
+            className={[
+              'pointer-events-none absolute z-20 hidden xl:block',
+              isWorkflowMiniMapCollapsed ? 'w-auto' : 'w-[22rem]',
+            ].join(' ')}
+            style={workflowMiniMapPosition
+              ? { left: `${workflowMiniMapPosition.x}px`, top: `${workflowMiniMapPosition.y}px` }
+              : { right: `${WORKFLOW_MINIMAP_MARGIN}px`, top: `${WORKFLOW_MINIMAP_MARGIN}px` }}
+            data-testid="workflow-minimap"
           >
             {isWorkflowMiniMapCollapsed ? (
               <button
@@ -375,7 +507,20 @@ function MainContent({
               </button>
             ) : (
               <div className="pointer-events-auto space-y-1">
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between gap-2">
+                  <div
+                    className="inline-flex cursor-move touch-none select-none items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm"
+                    title="拖动流程图"
+                    aria-label="拖动流程图"
+                    data-testid="workflow-minimap-drag-handle"
+                    onPointerDown={handleWorkflowMiniMapDragStart}
+                    onPointerMove={handleWorkflowMiniMapDragMove}
+                    onPointerUp={handleWorkflowMiniMapDragEnd}
+                    onPointerCancel={handleWorkflowMiniMapDragEnd}
+                  >
+                    <Move className="h-3.5 w-3.5" aria-hidden="true" />
+                    流程图
+                  </div>
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm hover:bg-muted/70"

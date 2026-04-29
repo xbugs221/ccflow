@@ -1433,10 +1433,6 @@ function applySessionWorkflowMetadata(session, workflowMetadataById) {
     ...session,
     workflowId: typeof metadata.workflowId === 'string' ? metadata.workflowId : session.workflowId,
     stageKey: typeof metadata.stageKey === 'string' ? metadata.stageKey : session.stageKey,
-    substageKey: typeof metadata.substageKey === 'string' ? metadata.substageKey : session.substageKey,
-    reviewPassIndex: Number.isInteger(metadata.reviewPassIndex)
-      ? metadata.reviewPassIndex
-      : session.reviewPassIndex,
   };
 }
 
@@ -1477,8 +1473,6 @@ function buildManualDraftSession(draft) {
     providerSessionId: typeof draft?.pendingProviderSessionId === 'string' ? draft.pendingProviderSessionId : undefined,
     workflowId: typeof draft?.workflowId === 'string' ? draft.workflowId : undefined,
     stageKey: typeof draft?.stageKey === 'string' ? draft.stageKey : undefined,
-    substageKey: typeof draft?.substageKey === 'string' ? draft.substageKey : undefined,
-    reviewPassIndex: Number.isInteger(draft?.reviewPassIndex) ? draft.reviewPassIndex : undefined,
   };
 }
 
@@ -3606,11 +3600,6 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'cl
 
   const workflowId = typeof options?.workflowId === 'string' ? options.workflowId.trim() : '';
   const stageKey = typeof options?.stageKey === 'string' ? options.stageKey.trim() : '';
-  const substageKey = typeof options?.substageKey === 'string' ? options.substageKey.trim() : '';
-  const requestedReviewPassIndex = Number.parseInt(String(options?.reviewPassIndex || ''), 10);
-  const reviewPassIndex = Number.isInteger(requestedReviewPassIndex) && requestedReviewPassIndex > 0
-    ? requestedReviewPassIndex
-    : undefined;
 
   let config = await loadProjectConfig(projectPath);
   let currentStandaloneSessionCount = null;
@@ -3661,9 +3650,7 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'cl
       updatedAt: createdAt,
       workflowId: workflowId || undefined,
       stageKey: stageKey || undefined,
-      substageKey: substageKey || undefined,
       routeIndex: workflowId ? nextWorkflowRouteIndex : undefined,
-      reviewPassIndex,
     },
   };
 
@@ -3854,7 +3841,6 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
       [actualSessionId]: {
         workflowId: draft.workflowId,
         stageKey: typeof draft.stageKey === 'string' ? draft.stageKey : undefined,
-        reviewPassIndex: Number.isInteger(draft.reviewPassIndex) ? draft.reviewPassIndex : undefined,
       },
     };
     workflowRegistrationPayload = {
@@ -3865,10 +3851,6 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
         summary: draft.label,
         provider,
         stageKey: typeof draft.stageKey === 'string' ? draft.stageKey : undefined,
-        substageKey: typeof draft.substageKey === 'string'
-          ? draft.substageKey
-          : (draft.stageKey === 'planning' ? 'planner_output' : undefined),
-        reviewPassIndex: Number.isInteger(draft.reviewPassIndex) ? draft.reviewPassIndex : undefined,
       },
     };
   }

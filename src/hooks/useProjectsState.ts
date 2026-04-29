@@ -159,8 +159,6 @@ const hasPlanningChildSession = (workflow: ProjectWorkflow | null): boolean => {
    */
   return Boolean((workflow?.childSessions || []).some((session) => (
     session.stageKey === 'planning'
-    || session.substageKey === 'planning'
-    || session.substageKey === 'planner_output'
   )));
 };
 
@@ -288,8 +286,6 @@ const resolveRouteSelection = (
             workflowId: childSession?.workflowId || projectSession?.workflowId || workflow.id,
             projectPath: childSession?.projectPath || projectSession?.projectPath || matchedProject.fullPath || matchedProject.path,
             stageKey: childSession?.stageKey || projectSession?.stageKey,
-            substageKey: childSession?.substageKey || projectSession?.substageKey,
-            reviewPassIndex: childSession?.reviewPassIndex || projectSession?.reviewPassIndex,
             __provider: sessionProvider,
             __projectName: matchedProject.name,
           };
@@ -876,8 +872,6 @@ export function useProjectsState({
           summary: sessionSummary,
           workflowId: draftSession.workflowId || options.workflowId,
           stageKey: draftSession.stageKey || options.workflowStageKey,
-          substageKey: draftSession.substageKey || options.workflowSubstageKey,
-          reviewPassIndex: draftSession.reviewPassIndex || options.workflowReviewPass,
           projectPath: draftSession.projectPath || navigationProject.fullPath || navigationProject.path || '',
         },
         navigationProject,
@@ -909,8 +903,6 @@ export function useProjectsState({
           JSON.stringify({
             prompt: options.autoPrompt,
             stageKey: options.workflowStageKey,
-            substageKey: options.workflowSubstageKey,
-            reviewPass: options.workflowReviewPass,
             repairPass: options.workflowRepairPass,
             reviewProfile: options.workflowReviewProfile,
           }),
@@ -925,8 +917,6 @@ export function useProjectsState({
             ? {
                 workflowAutoPrompt: options.autoPrompt,
                 workflowStageKey: options.workflowStageKey,
-                workflowSubstageKey: options.workflowSubstageKey,
-                workflowReviewPass: options.workflowReviewPass,
                 workflowRepairPass: options.workflowRepairPass,
                 workflowReviewProfile: options.workflowReviewProfile,
               }

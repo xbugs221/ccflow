@@ -64,7 +64,7 @@ function writeSyntheticClaudeSession(projectPath, sessionId, sessionTitle, times
  * exercise the matching control-plane CTA with real persisted state.
  *
  * @param {string} workflowId
- * @param {{ stage: string, runState: string, stageStatuses: Array<{ key: string, label: string, status: string }>, openspecChangeDetected?: boolean, gateDecision?: string, finalReadiness?: boolean }} nextState
+ * @param {{ stage: string, runState: string, stageStatuses: Array<{ key: string, label: string, status: string }>, openspecChangeDetected?: boolean, openspecChangeName?: string, adoptsExistingOpenSpec?: boolean, gateDecision?: string, finalReadiness?: boolean }} nextState
  */
 function rewriteFixtureWorkflowState(workflowId, nextState) {
   const projectConfPath = path.join(
@@ -79,15 +79,22 @@ function rewriteFixtureWorkflowState(workflowId, nextState) {
   const workflow = config.workflows?.[workflowIndex];
 
   if (workflow) {
-      config.workflows[workflowIndex] = {
-        ...workflow,
-        stage: nextState.stage,
-        runState: nextState.runState,
-        stageStatuses: nextState.stageStatuses,
-        openspecChangeDetected: nextState.openspecChangeDetected,
-        gateDecision: nextState.gateDecision,
-        finalReadiness: nextState.finalReadiness,
-      };
+    const nextWorkflow = {
+      ...workflow,
+      stage: nextState.stage,
+      runState: nextState.runState,
+      stageStatuses: nextState.stageStatuses,
+      openspecChangeDetected: nextState.openspecChangeDetected,
+      gateDecision: nextState.gateDecision,
+      finalReadiness: nextState.finalReadiness,
+    };
+    if ('openspecChangeName' in nextState) {
+      nextWorkflow.openspecChangeName = nextState.openspecChangeName;
+    }
+    if ('adoptsExistingOpenSpec' in nextState) {
+      nextWorkflow.adoptsExistingOpenSpec = nextState.adoptsExistingOpenSpec;
+    }
+    config.workflows[workflowIndex] = nextWorkflow;
   }
 
   fs.writeFileSync(projectConfPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
@@ -113,9 +120,20 @@ function rewriteFixtureWorkflowChildSessions(workflowId, childSessions) {
   const workflow = config.workflows?.[workflowIndex];
 
   if (workflow) {
+    const chat = Object.fromEntries(childSessions.map((session, index) => ([
+      String(session.routeIndex || index + 1),
+      {
+        title: session.title,
+        summary: session.summary,
+        provider: session.provider,
+        stageKey: session.stageKey,
+        sessionId: session.id,
+      },
+    ])));
     config.workflows[workflowIndex] = {
       ...workflow,
       childSessions,
+      chat,
     };
   }
 
@@ -265,7 +283,7 @@ test.describe('项目内需求工作流控制面', () => {
     );
   });
 
-  test('规划产物就绪后开始执行会新建执行子会话', async ({ page }) => {
+  test('指定 OpenSpec 变更后不显示手动开始执行入口', async ({ page }) => {
     rewriteFixtureWorkflowState('w1', {
       stage: 'planning',
       runState: 'planning',
@@ -282,19 +300,8 @@ test.describe('项目内需求工作流控制面', () => {
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
 
-    const launcherRequest = page.waitForRequest((request) => (
-      request.method() === 'POST'
-      && request.url().includes('/api/projects/fixture-project/workflows/w1/launcher-config')
-      && request.postDataJSON()?.stage === 'execution'
-    ));
-
-    await page.getByRole('button', { name: '开始执行' }).click();
-    await launcherRequest;
-
-    await expect(page).toHaveURL(/\/session\/new-session-/);
-    await expect(page).toHaveURL(/workflowId=w1/);
-    await expect(page).toHaveURL(/workflowStageKey=execution/);
-    await expect(page).toHaveURL(/workflowSubstageKey=node_execution/);
+    await expect(page.getByRole('button', { name: '开始执行' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '继续推进' })).toHaveCount(0);
   });
 
   test('新建工作流后会直接进入 planning 子会话并显示只读流程图预览', async ({ page }) => {
@@ -362,9 +369,7 @@ test.describe('项目内需求工作流控制面', () => {
           title: '内部审核第 1 轮：需求与范围覆盖',
           summary: '人工审核已完成第 1 轮',
           provider: 'codex',
-          stageKey: 'verification',
-          substageKey: 'review_1',
-          reviewPassIndex: 1,
+          stageKey: 'review_1',
           url: '/session/workflow-review-1',
         },
       },
@@ -384,9 +389,7 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(page).toHaveURL(/\/session\/new-session-/);
     await expect(page).toHaveURL(/workflowId=w1/);
     await expect(page).toHaveURL(new RegExp(`projectPath=${encodeURIComponent(project.fullPath)}`));
-    await expect(page).toHaveURL(/workflowStageKey=verification/);
-    await expect(page).toHaveURL(/workflowSubstageKey=review_2/);
-    await expect(page).toHaveURL(/workflowReviewPass=2/);
+    await expect(page).toHaveURL(/workflowStageKey=review_2/);
   });
 
   test('工作流详情里的三轮审核链接会打开各自对应的内部会话', async ({ page }) => {
@@ -397,7 +400,6 @@ test.describe('项目内需求工作流控制面', () => {
         summary: '需求分解与计划确认',
         provider: 'claude',
         stageKey: 'planning',
-        substageKey: 'planner_output',
       },
       {
         id: 'fixture-project-execution-session',
@@ -405,34 +407,27 @@ test.describe('项目内需求工作流控制面', () => {
         summary: '实现与运行状态同步',
         provider: 'claude',
         stageKey: 'execution',
-        substageKey: 'node_execution',
       },
       {
         id: 'workflow-review-1',
         title: '内部审核第 1 轮：范围覆盖',
         summary: '审核第 1 轮',
         provider: 'codex',
-        stageKey: 'verification',
-        substageKey: 'review_1',
-        reviewPassIndex: 1,
+        stageKey: 'review_1',
       },
       {
         id: 'workflow-review-2',
         title: '内部审核第 2 轮：风险回归',
         summary: '审核第 2 轮',
         provider: 'codex',
-        stageKey: 'verification',
-        substageKey: 'review_2',
-        reviewPassIndex: 2,
+        stageKey: 'review_2',
       },
       {
         id: 'workflow-review-3',
         title: '内部审核第 3 轮：最终收敛',
         summary: '审核第 3 轮',
         provider: 'codex',
-        stageKey: 'verification',
-        substageKey: 'review_3',
-        reviewPassIndex: 3,
+        stageKey: 'review_3',
       },
     ]);
 
@@ -486,7 +481,7 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(page.getByText('delivery-summary.md 尚未生成。')).toBeVisible();
   });
 
-  test('收尾工作流只显示一个归档入口并允许选择验收状态', async ({ page }) => {
+  test('收尾工作流只显示一个归档入口并允许选择验收决策', async ({ page }) => {
     await openFixtureProject(page);
 
     rewriteFixtureWorkflowState('w1', {
@@ -497,8 +492,13 @@ test.describe('项目内需求工作流控制面', () => {
       stageStatuses: [
         { key: 'planning', label: 'Planning', status: 'completed' },
         { key: 'execution', label: 'Execution', status: 'completed' },
-        { key: 'verification', label: 'Verification', status: 'completed' },
-        { key: 'ready_for_acceptance', label: 'Ready for acceptance', status: 'active' },
+        { key: 'review_1', label: '初审', status: 'completed' },
+        { key: 'repair_1', label: '初修', status: 'completed' },
+        { key: 'review_2', label: '再审', status: 'completed' },
+        { key: 'repair_2', label: '再修', status: 'completed' },
+        { key: 'review_3', label: '三审', status: 'completed' },
+        { key: 'repair_3', label: '三修', status: 'completed' },
+        { key: 'archive', label: '归档', status: 'active' },
       ],
     });
     rewriteFixtureWorkflowChildSessions('w1', [
@@ -509,7 +509,6 @@ test.describe('项目内需求工作流控制面', () => {
         summary: '旧归档会话',
         provider: 'codex',
         stageKey: 'archive',
-        substageKey: 'delivery_package',
       },
       {
         id: 'archive-session-new',
@@ -518,7 +517,6 @@ test.describe('项目内需求工作流控制面', () => {
         summary: '最新归档会话',
         provider: 'codex',
         stageKey: 'archive',
-        substageKey: 'delivery_package',
       },
     ]);
 
@@ -526,7 +524,9 @@ test.describe('项目内需求工作流控制面', () => {
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
 
-    await expect(page.getByTestId('workflow-stage-archive').getByRole('button', { name: '归档会话' })).toHaveCount(1);
+    await expect(page.getByTestId('workflow-stage-archive').getByRole('button', { name: '归档' })).toHaveCount(1);
+    await expect(page.getByText('验收状态')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '继续推进' })).toHaveCount(0);
     await expect(page.getByTestId('workflow-gate-decision-pass')).toHaveAttribute('aria-pressed', 'false');
     await page.getByTestId('workflow-gate-decision-pass').click();
     await expect(page.getByTestId('workflow-gate-decision-pass')).toHaveAttribute('aria-pressed', 'true');

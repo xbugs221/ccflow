@@ -960,8 +960,6 @@ app.post('/api/projects/:projectName/workflows/:workflowId/child-sessions', auth
             summary: req.body?.summary,
             provider: req.body?.provider,
             stageKey: req.body?.stageKey,
-            substageKey: req.body?.substageKey,
-            reviewPassIndex: req.body?.reviewPassIndex,
             url: req.body?.url,
         });
         if (!workflow) {
@@ -1195,11 +1193,6 @@ app.post('/api/projects/:projectName/manual-sessions', authenticateToken, async 
         const projectPath = typeof req.body?.projectPath === 'string' ? req.body.projectPath : '';
         const workflowId = typeof req.body?.workflowId === 'string' ? req.body.workflowId : '';
         const stageKey = typeof req.body?.stageKey === 'string' ? req.body.stageKey : '';
-        const substageKey = typeof req.body?.substageKey === 'string' ? req.body.substageKey : '';
-        const requestedReviewPassIndex = Number.parseInt(String(req.body?.reviewPassIndex || ''), 10);
-        const reviewPassIndex = Number.isInteger(requestedReviewPassIndex) && requestedReviewPassIndex > 0
-            ? requestedReviewPassIndex
-            : undefined;
 
         if (!label.trim()) {
             return res.status(400).json({ error: 'Session label is required' });
@@ -1208,8 +1201,6 @@ app.post('/api/projects/:projectName/manual-sessions', authenticateToken, async 
         const session = await createManualSessionDraft(req.params.projectName, projectPath, provider, label, {
             workflowId,
             stageKey,
-            substageKey,
-            reviewPassIndex,
         });
         res.json({ success: true, session });
     } catch (error) {

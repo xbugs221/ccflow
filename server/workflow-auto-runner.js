@@ -4,7 +4,7 @@
  * per-action idempotency, and event-triggered wakeups.
  */
 import { getProjects, renameCodexSession } from './projects.js';
-import { queryCodex } from './openai-codex.js';
+import { isCodexSessionActive, queryCodex } from './openai-codex.js';
 import {
   attachWorkflowMetadata,
   buildWorkflowLauncherConfig,
@@ -56,7 +56,7 @@ function isWorkflowPassedStatus(status) {
  */
 function getLatestWorkflowStageSession(workflow, stageKey) {
   const sessions = (workflow.childSessions || []).filter((session) => (
-    session.stageKey === stageKey || session.substageKey === stageKey
+    session.stageKey === stageKey
   ));
   return sessions.reduce((selected, session) => {
     if (!selected) {
@@ -74,9 +74,7 @@ function getLatestWorkflowStageSession(workflow, stageKey) {
 function getLatestWorkflowReviewSession(workflow, passIndex) {
   const stageKey = `review_${passIndex}`;
   const sessions = (workflow.childSessions || []).filter((session) => (
-    Number(session.reviewPassIndex) === passIndex
-    || session.stageKey === stageKey
-    || session.substageKey === stageKey
+    session.stageKey === stageKey
   ));
   return sessions.reduce((selected, session) => {
     if (!selected) {
@@ -93,11 +91,8 @@ function getLatestWorkflowReviewSession(workflow, passIndex) {
  */
 function getLatestWorkflowCycleSession(workflow, passIndex) {
   const sessions = (workflow.childSessions || []).filter((session) => (
-    Number(session.reviewPassIndex) === passIndex
-    || session.stageKey === `review_${passIndex}`
-    || session.substageKey === `review_${passIndex}`
+    session.stageKey === `review_${passIndex}`
     || session.stageKey === `repair_${passIndex}`
-    || session.substageKey === `repair_${passIndex}`
   ));
   return sessions.reduce((selected, session) => {
     if (!selected) {
@@ -132,6 +127,17 @@ function hasCompletedExecutionTasks(workflow) {
     && typeof taskProgress.completedTasks === 'number'
     && taskProgress.completedTasks >= taskProgress.totalTasks,
   );
+}
+
+/**
+ * PURPOSE: Keep downstream review from racing a Codex execution turn that has
+ * completed OpenSpec tasks but has not closed its internal session yet.
+ */
+function hasActiveCodexWorkflowSession(session) {
+  if (!session?.id || session.provider !== 'codex') {
+    return false;
+  }
+  return isCodexSessionActive(session.id);
 }
 
 /**
@@ -177,7 +183,10 @@ function isRepairReviewResult(reviewResult) {
 export async function resolveWorkflowAutoAction(project, workflow) {
   const planningStatus = getWorkflowStageStatus(workflow, 'planning');
   const executionStatus = getWorkflowStageStatus(workflow, 'execution');
-  const executionDone = isWorkflowPassedStatus(executionStatus) && hasCompletedExecutionTasks(workflow);
+  const executionSession = getLatestWorkflowStageSession(workflow, 'execution');
+  const executionDone = isWorkflowPassedStatus(executionStatus)
+    && hasCompletedExecutionTasks(workflow)
+    && !hasActiveCodexWorkflowSession(executionSession);
   const finalAcceptanceDone = getWorkflowStageStatus(workflow, 'verification') === 'completed';
 
   if (finalAcceptanceDone) {
@@ -206,16 +215,16 @@ export async function resolveWorkflowAutoAction(project, workflow) {
     if (executionStatus !== 'active' && executionStatus !== 'ready') {
       return null;
     }
-    const existingSession = getLatestWorkflowStageSession(workflow, 'execution');
     return {
       stage: 'execution',
-      sessionId: existingSession?.id,
-      routeIndex: existingSession?.routeIndex,
-      checkpoint: existingSession?.id || `execution:${executionStatus}`,
+      sessionId: executionSession?.id,
+      routeIndex: executionSession?.routeIndex,
+      checkpoint: executionSession?.id || `execution:${executionStatus}`,
     };
   }
 
-  if (isWorkflowPassedStatus(getWorkflowStageStatus(workflow, 'archive'))) {
+  const archiveStatus = getWorkflowStageStatus(workflow, 'archive');
+  if (isWorkflowPassedStatus(archiveStatus)) {
     return null;
   }
 
@@ -223,7 +232,7 @@ export async function resolveWorkflowAutoAction(project, workflow) {
     const reviewStatus = getWorkflowStageStatus(workflow, `review_${passIndex}`);
     const repairStatus = getWorkflowStageStatus(workflow, `repair_${passIndex}`);
     const latestCycleSession = getLatestWorkflowCycleSession(workflow, passIndex);
-    const latestCycleStage = latestCycleSession?.stageKey || latestCycleSession?.substageKey || '';
+    const latestCycleStage = latestCycleSession?.stageKey || '';
 
     if (repairStatus === 'completed') {
       if (passIndex < REVIEW_PASSES.length) {
@@ -238,6 +247,10 @@ export async function resolveWorkflowAutoAction(project, workflow) {
           routeIndex: nextReviewSession?.routeIndex,
           checkpoint: nextReviewSession?.id || `after-repair:${latestCycleSession?.id || latestCycleSession?.routeIndex || passIndex}`,
         };
+      }
+      const archiveSession = getLatestWorkflowStageSession(workflow, 'archive');
+      if (archiveSession) {
+        return null;
       }
       return {
         stage: 'archive',
@@ -280,13 +293,14 @@ export async function resolveWorkflowAutoAction(project, workflow) {
         continue;
       }
 
-      if (getWorkflowStageStatus(workflow, 'archive') === 'pending') {
+      if (archiveStatus === 'pending') {
         const archiveSession = getLatestWorkflowStageSession(workflow, 'archive');
+        if (archiveSession) {
+          return null;
+        }
         return {
           stage: 'archive',
-          sessionId: archiveSession?.id,
-          routeIndex: archiveSession?.routeIndex,
-          checkpoint: archiveSession?.id || `after-review:${latestCycleSession?.id || latestCycleSession?.routeIndex || passIndex}`,
+          checkpoint: `after-review:${latestCycleSession?.id || latestCycleSession?.routeIndex || passIndex}`,
         };
       }
       continue;
@@ -314,9 +328,10 @@ export const resolveWorkflowAutoLauncher = resolveWorkflowAutoAction;
  * PURPOSE: Capture the real Codex thread id emitted by queryCodex without a
  * browser WebSocket.
  */
-function createWorkflowAutoRunWriter(onSessionCreated) {
+function createWorkflowAutoRunWriter(onSessionCreated, onTurnFinished) {
   let sessionId = null;
   let sessionCreatedNotified = false;
+  let turnFinishedNotified = false;
   const notifySessionCreated = (nextSessionId) => {
     if (!nextSessionId || sessionCreatedNotified) {
       return;
@@ -333,6 +348,16 @@ function createWorkflowAutoRunWriter(onSessionCreated) {
       if (nextSessionId) {
         sessionId = nextSessionId;
         notifySessionCreated(nextSessionId);
+      }
+      if (
+        data?.type === 'codex-response'
+        && ['turn_complete', 'turn_failed'].includes(data?.data?.type)
+        && !turnFinishedNotified
+      ) {
+        turnFinishedNotified = true;
+        Promise.resolve(onTurnFinished?.(data.data.type)).catch(() => {
+          turnFinishedNotified = false;
+        });
       }
     },
     setSessionId(nextSessionId) {
@@ -372,8 +397,6 @@ async function launchWorkflowAction(project, workflow, action, logger) {
       summary,
       provider: 'codex',
       stageKey: launcher.workflowStageKey || action.stage,
-      substageKey: launcher.workflowSubstageKey || action.stage,
-      reviewPassIndex: launcher.workflowReviewPass,
       repairPassIndex: launcher.workflowRepairPass,
       routeIndex: Number.isInteger(Number(action.routeIndex))
         ? Number(action.routeIndex)
@@ -382,7 +405,9 @@ async function launchWorkflowAction(project, workflow, action, logger) {
     return registrationPromise;
   };
 
-  const writer = createWorkflowAutoRunWriter(registerLaunchedSession);
+  const writer = createWorkflowAutoRunWriter(registerLaunchedSession, () => {
+    scheduleWorkflowAutoRun('codex-turn-event', { logger });
+  });
   const sessionId = await queryCodex(
     launcher.autoPrompt,
     {
@@ -442,6 +467,7 @@ export async function runWorkflowAutoOnce(options = {}) {
           if (launched) {
             runnerState.completedKeys.add(actionKey);
             stats.launched += 1;
+            scheduleWorkflowAutoRun('codex-turn-complete', { logger });
           }
         } catch (error) {
           logger.error(`[WorkflowAutoRunner] Failed ${project.name}/${workflow.id}:`, error);

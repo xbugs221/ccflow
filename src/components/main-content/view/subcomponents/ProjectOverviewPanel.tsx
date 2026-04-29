@@ -134,7 +134,7 @@ function isWorkflowChildSession(
   project: { workflows?: ProjectWorkflow[] | null | undefined },
   session: ProjectSession & { __provider?: SessionProvider },
 ): boolean {
-  if (session.workflowId || session.stageKey || session.substageKey || Number.isInteger(session.reviewPassIndex)) {
+  if (session.workflowId || session.stageKey) {
     return true;
   }
 

@@ -65,8 +65,6 @@ interface UseChatRealtimeHandlersArgs {
       projectPath?: string;
       workflowId?: string;
       workflowStageKey?: string;
-      workflowSubstageKey?: string;
-      workflowReviewPass?: number;
     },
   ) => void;
   codexModelSwitchSessionId: string | null;
@@ -122,8 +120,6 @@ const buildWorkflowNavigationOptions = (
     projectPath: selectedSession.projectPath || selectedProject?.fullPath || selectedProject?.path || '',
     workflowId: selectedSession.workflowId,
     workflowStageKey: selectedSession.stageKey,
-    workflowSubstageKey: selectedSession.substageKey,
-    workflowReviewPass: selectedSession.reviewPassIndex,
   };
 };
 
@@ -135,6 +131,43 @@ const markPendingUserMessagesDelivered = (
       ? { ...msg, deliveryStatus: 'sent' as const }
       : msg,
   );
+
+/**
+ * Mark the accepted user send as sent, falling back to the newest pending user row.
+ */
+const markAcceptedUserMessageSent = (
+  msgs: ChatMessage[],
+  clientRequestId?: string,
+): ChatMessage[] => {
+  const exactIndex = clientRequestId
+    ? msgs.findIndex((msg) =>
+      msg.type === 'user'
+      && msg.deliveryStatus === 'pending'
+      && msg.clientRequestId === clientRequestId)
+    : -1;
+
+  const acceptedIndex = exactIndex >= 0
+    ? exactIndex
+    : (() => {
+      for (let index = msgs.length - 1; index >= 0; index -= 1) {
+        const msg = msgs[index];
+        if (msg.type === 'user' && msg.deliveryStatus === 'pending') {
+          return index;
+        }
+      }
+      return -1;
+    })();
+
+  if (acceptedIndex < 0) {
+    return msgs;
+  }
+
+  return msgs.map((msg, index) =>
+    index === acceptedIndex
+      ? { ...msg, deliveryStatus: 'sent' as const }
+      : msg,
+  );
+};
 
 /**
  * Mark optimistic user sends as persisted once the backend reports the agent turn is complete.
@@ -446,14 +479,7 @@ export function useChatRealtimeHandlers({
       switch (latestMessage.type) {
       case 'message-accepted':
         setChatMessages((previous) =>
-          previous.map((message) => (
-            message.type === 'user'
-            && message.clientRequestId
-            && message.clientRequestId === latestMessage.clientRequestId
-              ? { ...message, deliveryStatus: 'sent' }
-              : message
-          )),
-        );
+          markAcceptedUserMessageSent(previous, latestMessage.clientRequestId));
         break;
       case 'session-created':
         if (

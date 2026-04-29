@@ -26,8 +26,6 @@ type WorkflowDetailViewProps = {
       projectPath?: string;
       workflowId?: string;
       workflowStageKey?: string;
-      workflowSubstageKey?: string;
-      workflowReviewPass?: number;
       routeSearch?: Record<string, string>;
     },
   ) => void;
@@ -71,8 +69,6 @@ function buildWorkflowSessionRouteOptions(
   projectPath: string;
   workflowId: string;
   workflowStageKey?: string;
-  workflowSubstageKey?: string;
-  workflowReviewPass?: number;
 } {
   const normalizedProvider: SessionProvider = (project.codexSessions || []).some((candidate) => candidate.id === session.id)
     ? 'codex'
@@ -83,8 +79,6 @@ function buildWorkflowSessionRouteOptions(
     projectPath: project.fullPath || project.path || '',
     workflowId: workflow.id,
     workflowStageKey: session.stageKey,
-    workflowSubstageKey: session.substageKey,
-    workflowReviewPass: session.reviewPassIndex,
   };
 }
 
@@ -287,21 +281,10 @@ function isWorkflowReviewStageKey(stageKey: string | null | undefined): boolean 
 
 function getExactSubstageSessions(substage: WorkflowSubstageInspection): WorkflowChildSession[] {
   /**
-   * Only treat sessions explicitly tagged for the current substage as direct
-   * navigation targets so cross-stage or legacy noise cannot hijack links.
+   * Workflow sessions are stage-owned. Each current stage has one internal
+   * conversation; review pass identity is derived from stageKey.
    */
-  const reviewPassMatch = String(substage.substageKey || '').match(/^review_(\d+)$/);
-  const reviewPassIndex = reviewPassMatch ? Number.parseInt(reviewPassMatch[1], 10) : null;
-
-  return (substage.agentSessions || []).filter((session) => {
-    if (session.substageKey === substage.substageKey) {
-      return true;
-    }
-    if (Number.isInteger(reviewPassIndex) && Number(session.reviewPassIndex) === reviewPassIndex) {
-      return true;
-    }
-    return false;
-  });
+  return (substage.agentSessions || []).filter((session) => session.stageKey === substage.stageKey);
 }
 
 function getRenderableSubstageSessions(substage: WorkflowSubstageInspection, hiddenSessionId?: string | null): WorkflowChildSession[] {
@@ -452,56 +435,27 @@ function resolveContinueState(workflow: ProjectWorkflow, stageInspections: Workf
   disabled: boolean;
   label: string;
 } {
-  const hasReviewProgress = workflow.childSessions.some((session) => (
-    isWorkflowReviewStageKey(session.stageKey)
-    || /^review_\d+$/.test(String(session.substageKey || ''))
-    || Number.isInteger(session.reviewPassIndex)
-  ));
-  const activeStage = stageInspections.find((stage) => isFollowCandidate(stage.status))
-    || stageInspections.find((stage) => stage.stageKey === workflow.stage)
-    || [...stageInspections].reverse().find((stage) => stage.status === 'completed')
-    || stageInspections[0]
-    || null;
-  if (!activeStage) {
-    return { canContinue: false, disabled: true, label: '继续推进' };
-  }
-  const activeSubstage = activeStage.substages.find((substage) => isFollowCandidate(substage.status))
-    || [...activeStage.substages].reverse().find((substage) => substage.status === 'completed')
-    || activeStage.substages[0]
-    || null;
+  /**
+   * The workflow is backend-driven after execution starts. Keep the manual
+   * continue affordance only for legacy/no-proposal planning handoff.
+   */
+  const getStageStatus = (stageKey: string): string => {
+    const persistedStatus = workflow.stageStatuses.find((stage) => stage.key === stageKey)?.status;
+    const inspectionStatus = stageInspections.find((stage) => stage.stageKey === stageKey)?.status;
+    return String(persistedStatus || inspectionStatus || '').toLowerCase();
+  };
+  const hasOpenSpecChange = Boolean(
+    workflow.openspecChangeName
+    || workflow.openspecChangeDetected
+    || workflow.adoptsExistingOpenSpec,
+  );
+  const executionStatus = getStageStatus('execution');
+  const executionStarted = Boolean(
+    workflow.childSessions.some((session) => session.stageKey === 'execution')
+    || ['active', 'running', 'completed', 'blocked', 'failed', 'skipped'].includes(executionStatus),
+  );
 
-  if (activeStage.stageKey === 'planning') {
-    if (workflow.openspecChangeDetected === true) {
-      return {
-        canContinue: true,
-        disabled: false,
-        label: '开始执行',
-      };
-    }
-
-    return {
-      canContinue: true,
-      disabled: true,
-      label: '规划生成中',
-    };
-  }
-
-  if (
-    (
-      isWorkflowReviewStageKey(activeStage.stageKey)
-      && activeSubstage
-      && /^review_\d+$/.test(activeSubstage.substageKey)
-    )
-    || hasReviewProgress
-  ) {
-    return {
-      canContinue: true,
-      disabled: false,
-      label: '继续推进',
-    };
-  }
-
-  if (activeStage.stageKey === 'archive') {
+  if (!hasOpenSpecChange && isCompletedStatus(getStageStatus('planning')) && !executionStarted) {
     return {
       canContinue: true,
       disabled: false,
@@ -821,7 +775,13 @@ export default function WorkflowDetailView({
 
             {collapsedSubstage ? (
               <div className="relative z-10 space-y-1 pl-5">
-                {renderSubstageSessions(project, workflow, collapsedSubstage, onNavigateToSession, stageSession?.id)}
+                {renderSubstageSessions(
+                  project,
+                  workflow,
+                  collapsedSubstage,
+                  onNavigateToSession,
+                  stageSession?.id,
+                )}
                 {renderSubstageFiles(
                   project,
                   stage.stageKey,
@@ -883,7 +843,6 @@ export default function WorkflowDetailView({
             <div className="flex items-center gap-2">
               {onUpdateWorkflowGateDecision && (
                 <div className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background p-1">
-                  <span className="px-2 text-xs text-muted-foreground">验收状态</span>
                   {([
                     ['pass', '通过'],
                     ['needs_repair', '待完善'],
