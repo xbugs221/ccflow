@@ -67,6 +67,52 @@ test('Scenario: 重复保存相同项目配置不会刷新 conf.json', async () 
   });
 });
 
+test('Scenario: 保存普通会话配置不会清空已有 workflow 配置', async () => {
+  await withIsolatedProject(async ({ projectPath }) => {
+    await saveProjectConfig({
+      schemaVersion: 2,
+      workflows: {
+        1: {
+          title: '清理技术债',
+          stage: 'execution',
+          runState: 'running',
+          providers: {
+            planning: 'claude',
+            execution: 'claude',
+          },
+          chat: {
+            1: {
+              sessionId: 'workflow-execution-session',
+              title: '执行阶段',
+            },
+          },
+        },
+      },
+    }, projectPath);
+
+    await saveProjectConfig({
+      schemaVersion: 2,
+      chat: {
+        1: {
+          sessionId: 'codex-terminal-1',
+          title: '普通会话',
+        },
+      },
+    }, projectPath);
+
+    const persisted = await readProjectConf(projectPath);
+
+    assert.ok(persisted.workflows?.['1']);
+    assert.equal(persisted.workflows['1'].title, '清理技术债');
+    assert.deepEqual(persisted.workflows['1'].providers, {
+      planning: 'claude',
+      execution: 'claude',
+    });
+    assert.equal(persisted.workflows['1'].chat['1'].sessionId, 'workflow-execution-session');
+    assert.equal(persisted.chat['1'].sessionId, 'codex-terminal-1');
+  });
+});
+
 test('Scenario: workflow 归一化精简派生字段', async () => {
   await withIsolatedProject(async ({ projectPath }) => {
     await saveProjectConfig({

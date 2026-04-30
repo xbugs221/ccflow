@@ -1,3 +1,7 @@
+/**
+ * PURPOSE: Define shared application read-model types used by project,
+ * workflow, and session UI components.
+ */
 export type SessionProvider = 'claude' | 'codex';
 
 export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'preview';
@@ -53,7 +57,18 @@ export interface WorkflowStageInspection {
   status: string;
   provider?: SessionProvider;
   note?: string;
+  warnings?: WorkflowControllerEvent[];
+  recoveryEvents?: WorkflowControllerEvent[];
   substages: WorkflowSubstageInspection[];
+}
+
+export interface WorkflowControllerEvent {
+  type: string;
+  stageKey?: string;
+  provider?: SessionProvider | string;
+  sessionId?: string;
+  message?: string;
+  createdAt?: string;
 }
 
 export interface ProjectWorkflow {
@@ -83,6 +98,8 @@ export interface ProjectWorkflow {
     lastModified?: string | null;
   };
   stageInspections?: WorkflowStageInspection[];
+  controllerEvents?: WorkflowControllerEvent[];
+  controlPlaneReadModel?: unknown;
   recommendedActions?: string[];
   failureReason?: string;
   activeStep?: string;

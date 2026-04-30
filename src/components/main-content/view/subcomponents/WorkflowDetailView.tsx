@@ -3,7 +3,7 @@
  * artifact, and child-session inspection data.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { FileText, Play, Trash2 } from 'lucide-react';
+import { AlertTriangle, FileText, Play, Trash2 } from 'lucide-react';
 import ClaudeLogo from '../../../llm-logo-provider/ClaudeLogo';
 import CodexLogo from '../../../llm-logo-provider/CodexLogo';
 import type {
@@ -606,6 +606,40 @@ function renderSubstageSessions(
   );
 }
 
+function renderStageControlPlaneEvents(stage: WorkflowStageInspection) {
+  /**
+   * Render workflow controller warnings and recovery records beside the stage
+   * that owns the affected child-session index.
+   */
+  const warnings = Array.isArray(stage.warnings) ? stage.warnings : [];
+  const recoveryEvents = Array.isArray(stage.recoveryEvents) ? stage.recoveryEvents : [];
+  if (warnings.length === 0 && recoveryEvents.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-1 pl-8" data-testid={`workflow-stage-control-plane-events-${stage.stageKey}`}>
+      {warnings.map((event, index) => (
+        <div
+          key={`warning-${event.type}-${event.createdAt || index}`}
+          className="flex items-start gap-2 rounded-md border border-amber-300/60 bg-amber-50 px-2 py-1 text-xs text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-200"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-none" />
+          <span>{event.message || event.type}</span>
+        </div>
+      ))}
+      {recoveryEvents.map((event, index) => (
+        <div
+          key={`recovery-${event.type}-${event.createdAt || index}`}
+          className="rounded-md border border-emerald-300/60 bg-emerald-50 px-2 py-1 text-xs text-emerald-900 dark:border-emerald-800/70 dark:bg-emerald-950/30 dark:text-emerald-200"
+        >
+          {event.message || event.type}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function WorkflowDetailView({
   project,
   workflow,
@@ -938,6 +972,7 @@ export default function WorkflowDetailView({
                 {providerUpdateError.message}
               </div>
             ) : null}
+            {renderStageControlPlaneEvents(stage)}
 
             {collapsedSubstage ? (
               <div className="relative z-10 space-y-1 pl-5">

@@ -46,6 +46,12 @@ import { getActiveCodexSessions } from './openai-codex.js';
 import { getCodexSessionTokenUsageFromFile } from './session-token-usage.js';
 import { listProjectWorkflows, registerWorkflowChildSession } from './workflows.js';
 import {
+  getProjectLocalConfigPath as resolveProjectLocalConfigPath,
+  readProjectLocalConfig,
+  readProjectLocalConfigFile,
+  writeProjectLocalConfig,
+} from './project-config-store.js';
+import {
   normalizeCodexFunctionCall,
   normalizeCodexRealtimeItem,
   normalizeCodexToolOutput,
@@ -828,21 +834,18 @@ function filterHiddenArchivedSessions(sessions) {
 }
 
 function getProjectLocalConfigPath(projectPath) {
-  return projectPath
-    ? path.join(path.resolve(projectPath), '.ccflow', 'conf.json')
-    : path.join(os.homedir(), '.ccflow', 'conf.json');
+  return resolveProjectLocalConfigPath(projectPath);
 }
 
 // Load project configuration file
 async function loadProjectConfig(projectPath = '') {
-  const configPath = getProjectLocalConfigPath(projectPath);
   try {
-    const configData = await fs.readFile(configPath, 'utf8');
-    const normalizedConfig = normalizeProjectConfigForRead(JSON.parse(configData), projectPath);
-    const normalizedData = `${JSON.stringify(normalizedConfig, null, 2)}\n`;
-    if (configData !== normalizedData && configData !== normalizedData.trimEnd()) {
-      await fs.writeFile(configPath, normalizedData, 'utf8');
+    const { config: parsedConfig, exists } = await readProjectLocalConfigFile(projectPath);
+    if (!exists) {
+      return {};
     }
+    const normalizedConfig = normalizeProjectConfigForRead(parsedConfig, projectPath);
+    await writeProjectLocalConfig(projectPath, normalizedConfig);
     return normalizedConfig;
   } catch (error) {
     // Return empty config if file doesn't exist
@@ -1249,33 +1252,72 @@ function normalizeProjectConfigForSave(config, projectPath = '') {
   return normalized;
 }
 
-// Save project configuration file
-async function saveProjectConfig(config, projectPath = '') {
-  const configPath = getProjectLocalConfigPath(projectPath);
-  const configDir = path.dirname(configPath);
-
-  // Ensure the config directory exists
-  try {
-    await fs.mkdir(configDir, { recursive: true });
-  } catch (error) {
-    if (error.code !== 'EEXIST') {
-      throw error;
-    }
+/**
+ * PURPOSE: Keep workflow control-plane records from being erased by generic
+ * project config saves that only intended to update normal chat/session data.
+ */
+function mergeCurrentWorkflowConfig(currentConfig, nextConfig) {
+  const currentWorkflows = currentConfig?.workflows && typeof currentConfig.workflows === 'object' && !Array.isArray(currentConfig.workflows)
+    ? currentConfig.workflows
+    : {};
+  if (Object.keys(currentWorkflows).length === 0) {
+    return nextConfig;
   }
 
-  const nextConfigJson = JSON.stringify(normalizeProjectConfigForSave(config, projectPath), null, 2);
-  const nextConfigData = `${nextConfigJson}\n`;
-  try {
-    const currentConfigData = await fs.readFile(configPath, 'utf8');
-    if (currentConfigData === nextConfigData || currentConfigData === nextConfigJson) {
+  const nextWorkflows = nextConfig.workflows && typeof nextConfig.workflows === 'object' && !Array.isArray(nextConfig.workflows)
+    ? nextConfig.workflows
+    : {};
+  const mergedWorkflows = { ...nextWorkflows };
+
+  Object.entries(currentWorkflows).forEach(([workflowIndex, currentWorkflow]) => {
+    const nextWorkflow = mergedWorkflows[workflowIndex];
+    if (!nextWorkflow || typeof nextWorkflow !== 'object' || Array.isArray(nextWorkflow)) {
+      mergedWorkflows[workflowIndex] = currentWorkflow;
       return;
     }
+
+    if (!currentWorkflow || typeof currentWorkflow !== 'object' || Array.isArray(currentWorkflow)) {
+      return;
+    }
+
+    const currentChat = currentWorkflow.chat && typeof currentWorkflow.chat === 'object' && !Array.isArray(currentWorkflow.chat)
+      ? currentWorkflow.chat
+      : {};
+    const nextChat = nextWorkflow.chat && typeof nextWorkflow.chat === 'object' && !Array.isArray(nextWorkflow.chat)
+      ? nextWorkflow.chat
+      : {};
+    mergedWorkflows[workflowIndex] = {
+      ...nextWorkflow,
+      ...currentWorkflow,
+      chat: {
+        ...currentChat,
+        ...nextChat,
+      },
+    };
+    if (Object.keys(mergedWorkflows[workflowIndex].chat).length === 0) {
+      delete mergedWorkflows[workflowIndex].chat;
+    }
+  });
+
+  if (Object.keys(mergedWorkflows).length > 0) {
+    nextConfig.workflows = mergedWorkflows;
+  }
+  return nextConfig;
+}
+
+// Save project configuration file
+async function saveProjectConfig(config, projectPath = '') {
+  let nextConfig = normalizeProjectConfigForSave(config, projectPath);
+  try {
+    const currentConfig = await readProjectLocalConfig(projectPath);
+    nextConfig = mergeCurrentWorkflowConfig(currentConfig, nextConfig);
   } catch (error) {
     if (error.code !== 'ENOENT') {
       throw error;
     }
   }
-  await fs.writeFile(configPath, nextConfigData, 'utf8');
+
+  await writeProjectLocalConfig(projectPath, nextConfig);
 }
 
 /**

@@ -16,6 +16,11 @@ import {
   getReviewPassSessions,
 } from './domains/workflows/review-stages.js';
 import { isCodexSessionActive } from './openai-codex.js';
+import {
+  getProjectLocalConfigPath,
+  readProjectLocalConfig,
+  writeProjectLocalConfig,
+} from './project-config-store.js';
 
 const execFileAsync = promisify(execFile);
 const PROMPT_TEMPLATE_PATHS = {
@@ -462,43 +467,21 @@ function createEmptyStore() {
 }
 
 function getProjectConfigPath(projectPath) {
-  return path.join(path.resolve(String(projectPath || '')), '.ccflow', 'conf.json');
+  return getProjectLocalConfigPath(projectPath);
 }
 
 /**
  * Read the project-local conf.json without importing project services.
  */
 async function readProjectConfig(projectPath) {
-  try {
-    const raw = await fs.readFile(getProjectConfigPath(projectPath), 'utf8');
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return {};
-    }
-    throw error;
-  }
+  return readProjectLocalConfig(projectPath);
 }
 
 /**
  * Persist project-local config after workflow state has been merged.
  */
 async function writeProjectConfig(projectPath, config) {
-  const configPath = getProjectConfigPath(projectPath);
-  const nextConfigData = `${JSON.stringify(config, null, 2)}\n`;
-  await fs.mkdir(path.dirname(configPath), { recursive: true });
-  try {
-    const currentConfigData = await fs.readFile(configPath, 'utf8');
-    if (currentConfigData === nextConfigData) {
-      return;
-    }
-  } catch (error) {
-    if (error?.code !== 'ENOENT') {
-      throw error;
-    }
-  }
-  await fs.writeFile(configPath, nextConfigData, 'utf8');
+  await writeProjectLocalConfig(projectPath, config);
 }
 
 /**
@@ -1068,7 +1051,7 @@ async function writeWorkflowStore(projectPath, store, options = {}) {
   const previousWorkflows = config.workflows && typeof config.workflows === 'object' && !Array.isArray(config.workflows)
     ? config.workflows
     : {};
-  const nextWorkflows = {};
+  const nextWorkflows = { ...previousWorkflows };
 
   for (const workflow of Array.isArray(store?.workflows) ? store.workflows : []) {
     const routeIndex = parseWorkflowRouteIndex(workflow?.id) || Number(workflow?.routeIndex);
@@ -1085,6 +1068,13 @@ async function writeWorkflowStore(projectPath, store, options = {}) {
     };
     delete nextWorkflows[key].id;
     delete nextWorkflows[key].routeIndex;
+  }
+
+  if (options.deletedWorkflowId) {
+    const deletedRouteIndex = parseWorkflowRouteIndex(options.deletedWorkflowId);
+    if (Number.isInteger(deletedRouteIndex) && deletedRouteIndex > 0) {
+      delete nextWorkflows[String(deletedRouteIndex)];
+    }
   }
 
   if (Object.keys(nextWorkflows).length > 0) {
@@ -1132,6 +1122,7 @@ function expandWorkflowFromStore(workflow = {}) {
       ? workflow.chat
       : compactChildSessionsToWorkflowChat(childSessions),
     childSessions,
+    controllerEvents: Array.isArray(workflow.controllerEvents) ? workflow.controllerEvents : [],
   };
 }
 
@@ -1174,6 +1165,9 @@ function compactWorkflowForStore(workflow = {}) {
   const workflowChat = compactChildSessionsToWorkflowChat(workflow.childSessions);
   if (Object.keys(workflowChat).length > 0) {
     compact.chat = workflowChat;
+  }
+  if (Array.isArray(workflow.controllerEvents) && workflow.controllerEvents.length > 0) {
+    compact.controllerEvents = workflow.controllerEvents;
   }
 
   return compact;
@@ -2103,6 +2097,7 @@ function prepareWorkflowRecord(workflow = {}) {
     stageStatuses: repairedStageStatuses,
     artifacts,
     childSessions,
+    controllerEvents: Array.isArray(workflow.controllerEvents) ? workflow.controllerEvents : [],
   };
 }
 
@@ -2647,13 +2642,22 @@ async function normalizeWorkflow(projectPath, workflow) {
     reviewArtifacts,
   );
   const taskAwareCurrentStageKey = resolveWorkflowStageKey(normalizedWorkflow, taskAwareStageStatuses);
-  const stageInspections = buildStageInspections(
+  const baseStageInspections = buildStageInspections(
     normalizedWorkflow,
     taskAwareCurrentStageKey,
     taskAwareStageStatuses,
     reviewArtifacts,
     childSessions,
     substageFileHints,
+  );
+  const controlPlaneReadModel = buildWorkflowControlPlaneReadModel({
+    ...normalizedWorkflow,
+    childSessions,
+    stageStatuses: taskAwareStageStatuses,
+  });
+  const stageInspections = mergeControlPlaneEventsIntoStageInspections(
+    baseStageInspections,
+    controlPlaneReadModel,
   );
   const effectiveStageStatuses = buildEffectiveStageStatuses(stageInspections);
   const effectiveStageKey = resolveWorkflowStageKey(normalizedWorkflow, effectiveStageStatuses);
@@ -2666,6 +2670,8 @@ async function normalizeWorkflow(projectPath, workflow) {
     artifacts,
     childSessions,
     stageInspections,
+    controlPlaneReadModel,
+    controllerEvents: normalizedWorkflow.controllerEvents || [],
     recommendedActions: buildRecommendedActions(workflow, stageInspections),
   };
 }
@@ -3395,4 +3401,139 @@ export async function advanceWorkflow(project, workflowId) {
   store.workflows = entry.workflows;
   await writeWorkflowStore(projectPath, store);
   return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
+}
+
+/**
+ * PURPOSE: Append a controller event to a workflow in memory.
+ * Events describe index health and recovery actions so the control plane
+ * remains observable.
+ */
+export function appendWorkflowControllerEvent(workflow, event) {
+  const nextEvent = {
+    type: event.type,
+    stageKey: event.stageKey,
+    provider: event.provider,
+    message: event.message,
+    createdAt: event.createdAt || new Date().toISOString(),
+    ...(event.sessionId ? { sessionId: event.sessionId } : {}),
+  };
+  return {
+    ...workflow,
+    controllerEvents: [...(workflow.controllerEvents || []), nextEvent],
+  };
+}
+
+/**
+ * PURPOSE: Persist one workflow controller event to the project workflow store.
+ * Auto-runner recovery decisions must survive process restarts and be visible
+ * in the workflow control-plane read model.
+ */
+export async function appendWorkflowControllerEventForProject(project, workflowId, event) {
+  const projectPath = project?.fullPath || project?.path || '';
+  if (!projectPath || !workflowId || !event?.type) {
+    return null;
+  }
+
+  const store = await readWorkflowStore(projectPath);
+  if (!Array.isArray(store.workflows)) {
+    return null;
+  }
+
+  let updatedWorkflow = null;
+  store.workflows = store.workflows.map((workflow) => {
+    if (workflow.id !== workflowId) {
+      return workflow;
+    }
+    updatedWorkflow = appendWorkflowControllerEvent(workflow, event);
+    return {
+      ...updatedWorkflow,
+      updatedAt: new Date().toISOString(),
+    };
+  });
+
+  if (!updatedWorkflow) {
+    return null;
+  }
+
+  await writeWorkflowStore(projectPath, store);
+  return normalizeWorkflow(projectPath, updatedWorkflow);
+}
+
+/**
+ * PURPOSE: Build a control-plane read model that exposes stage tree,
+ * child session links, and controller events/warnings for UI consumption.
+ */
+export function buildWorkflowControlPlaneReadModel(workflow) {
+  const stages = getWorkflowStages();
+  const childSessions = workflow.childSessions || [];
+  const controllerEvents = workflow.controllerEvents || [];
+
+  const stageTree = stages.map((stage) => {
+    const stageSessions = childSessions.filter((session) => session.stageKey === stage.key);
+    const latestSession = stageSessions.reduce((selected, session) => {
+      if (!selected) return session;
+      return (session.routeIndex || 0) >= (selected.routeIndex || 0) ? session : selected;
+    }, null);
+
+    const warnings = controllerEvents
+      .filter((event) => event.stageKey === stage.key)
+      .filter((event) => ['index_missing', 'index_stale', 'orphan_ambiguous', 'orphan_quarantined'].includes(event.type))
+      .map((event) => ({
+        type: event.type,
+        provider: event.provider,
+        message: event.message,
+        createdAt: event.createdAt,
+      }));
+
+    const recoveryEvents = controllerEvents
+      .filter((event) => event.stageKey === stage.key)
+      .filter((event) => ['orphan_recovered', 'session_rebuilt', 'session_rebuild_allowed'].includes(event.type));
+
+    let status = (workflow.stageStatuses || []).find((s) => s.key === stage.key)?.status || 'pending';
+    if (warnings.some((w) => w.type === 'index_missing' || w.type === 'index_stale')) {
+      if (status === 'completed') {
+        status = 'active';
+      }
+    }
+
+    const duplicateAutoStartAllowed = !recoveryEvents.some((e) => e.type === 'orphan_recovered');
+
+    return {
+      key: stage.key,
+      title: stage.label,
+      status,
+      childSessionId: latestSession?.id || null,
+      openSessionUrl: latestSession?.id ? `/${latestSession.provider || 'codex'}?session=${latestSession.id}` : null,
+      warnings,
+      recoveryEvents,
+      duplicateAutoStartAllowed,
+    };
+  });
+
+  return { stageTree };
+}
+
+/**
+ * PURPOSE: Attach controller warning/recovery events to the existing workflow
+ * detail stage inspections so API and UI consumers receive one read model.
+ */
+function mergeControlPlaneEventsIntoStageInspections(stageInspections, controlPlaneReadModel) {
+  const controlStagesByKey = new Map(
+    (controlPlaneReadModel?.stageTree || []).map((stage) => [stage.key, stage]),
+  );
+
+  return stageInspections.map((stage) => {
+    const controlStage = controlStagesByKey.get(stage.stageKey);
+    if (!controlStage) {
+      return stage;
+    }
+
+    return {
+      ...stage,
+      status: controlStage.status || stage.status,
+      warnings: controlStage.warnings || [],
+      recoveryEvents: controlStage.recoveryEvents || [],
+      duplicateAutoStartAllowed: controlStage.duplicateAutoStartAllowed,
+    };
+  });
 }

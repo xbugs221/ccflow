@@ -17,15 +17,29 @@
 
 ### Requirement: 需求工作流详情必须展示控制面阶段与子会话入口
 
-系统 MUST 在正文区域为需求工作流提供独立详情页，展示至少 intake、planning、execution、verification、ready_for_acceptance/finalized 等阶段信息，并提供打开具体子会话的入口。工作流详情页自身的规范地址 MUST 使用 `/<project>/wN` 形式，工作流内子会话入口 MUST 打开 `/<project>/wN/cN` 形式的规范地址，而不是暴露真实子会话 ID 或依赖查询参数恢复工作流上下文。
+系统 MUST 把需求工作流详情页作为控制面展示：包含工作流标题、目标、阶段状态、阶段产物、内部会话入口，以及内部会话索引异常和恢复状态。
 
 #### Scenario: 控制面工作流详情展示阶段与子会话入口
-- **WHEN** 用户点击项目中的某个需求工作流
-- **THEN** 正文区显示该需求的目标、当前阶段和阶段进度
-- **AND** 页面展示该需求关联的 artifact、验收结论或待处理状态
-- **AND** 页面列出该需求派生的子会话入口
-- **AND** 当前工作流详情地址使用 `/<project>/wN`
-- **AND** 用户点击某个子会话入口后进入 `/<project>/wN/cN` 对应会话内容
+
+- **WHEN** 用户查看某工作流详情页
+- **THEN** 系统展示阶段树
+- **AND** 每个阶段展示状态、关键产物、是否已关联内部会话
+- **AND** 已有关联内部会话的阶段提供进入该会话的入口
+- **AND** 尚未开始的阶段展示下一步动作提示
+
+#### Scenario: 控制面展示内部会话索引异常
+
+- **WHEN** auto-runner 检测到某阶段存在内存 action key 但 workflow 内部会话索引缺失
+- **THEN** 工作流详情 read model MUST 展示该阶段的索引异常提示
+- **AND** 提示 MUST 区分 `index_missing`、`index_stale`、`orphan_ambiguous`、`orphan_quarantined`
+- **AND** 提示 MUST 不得伪装成阶段已完成
+
+#### Scenario: 控制面展示恢复后的内部会话
+
+- **WHEN** 系统从 provider orphan 会话恢复出 workflow 内部会话索引
+- **THEN** 工作流详情 read model MUST 展示恢复后的内部会话入口
+- **AND** 该阶段 MUST 展示 `orphan_recovered` 恢复记录
+- **AND** 系统 MUST 不得再为同一 action 自动创建第二个内部会话
 
 ### Requirement: 需求工作流阶段缩略图必须支持跳转或高亮阶段
 

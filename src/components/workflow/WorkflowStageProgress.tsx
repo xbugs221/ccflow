@@ -1,7 +1,7 @@
 /**
  * PURPOSE: Render a horizontal icon sequence showing workflow stage progress.
  * Each stage is mapped to a lucide icon and colored by its status:
- * green for completed, blue for active, gray for pending.
+ * green for completed, blue for currently running, gray for not started.
  */
 import { Archive, Circle, Eye, FileText, Play, Wrench } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -19,9 +19,12 @@ const STAGE_ICON_MAP: Record<string, React.ComponentType<any>> = {
   archive: Archive,
 };
 
+/**
+ * Map workflow stage execution state to the progress icon color.
+ */
 function getStageTone(status: string): string {
   const normalized = String(status || '').toLowerCase();
-  if (normalized === 'completed' || normalized === 'ready' || normalized === 'skipped') {
+  if (normalized === 'completed') {
     return 'text-green-500';
   }
   if (normalized === 'active' || normalized === 'running' || normalized === 'blocked' || normalized === 'failed') {
