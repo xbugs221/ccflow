@@ -17,6 +17,11 @@ import type { Project, ProjectSession } from '../../../types/app';
 import { safeLocalStorage } from '../utils/chatStorage';
 import { dedupeAdjacentChatMessages } from '../utils/messageDedup';
 import {
+  dedupeSessionMessagesByIdentity,
+  getSessionMessageIdentity,
+  getUniqueIncomingSessionMessages,
+} from '../utils/sessionMessageDedup';
+import {
   convertSessionMessages,
   createCachedDiffCalculator,
   type DiffCalculator,
@@ -71,6 +76,25 @@ function isPersistedAttachmentNoteMatch(optimisticMessage: ChatMessage, persiste
 }
 
 /**
+ * Detect stale local user bubbles that contain only provider-facing upload notes.
+ */
+function isUploadNoteOnlyUserMessage(message: ChatMessage): boolean {
+  if (message.type !== 'user') {
+    return false;
+  }
+
+  const content = typeof message.content === 'string' ? message.content : '';
+  const markerIndex = content.indexOf(USER_UPLOAD_NOTE_MARKER);
+  if (markerIndex < 0) {
+    return false;
+  }
+
+  const visibleText = content.slice(0, markerIndex).trim();
+  const hasAttachments = Array.isArray(message.attachments) && message.attachments.length > 0;
+  return !visibleText && !hasAttachments;
+}
+
+/**
  * Check whether a persisted transcript entry confirms an optimistic user send.
  */
 function isPersistedUserMessageMatch(optimisticMessage: ChatMessage, persistedMessage: ChatMessage): boolean {
@@ -100,10 +124,38 @@ function isPersistedUserMessageMatch(optimisticMessage: ChatMessage, persistedMe
 /**
  * Preserve local user sends until session history confirms or times them out.
  */
+interface MessageMergeOptions {
+  preservePreviousMessages?: boolean;
+}
+
+/**
+ * Keep local realtime messages visible while the persisted history catches up.
+ */
+function shouldPreserveLocalMessage(message: ChatMessage): boolean {
+  if (message.type === 'user') {
+    if (isUploadNoteOnlyUserMessage(message)) {
+      return false;
+    }
+    return Boolean(message.deliveryStatus);
+  }
+
+  return Boolean(
+    message.isStreaming ||
+    message.isInteractivePrompt ||
+    message.source === 'codex-realtime' ||
+    message.source === 'claude-realtime'
+  );
+}
+
+/**
+ * Merge persisted history with local in-flight messages from the same session.
+ */
 function mergePersistedAndOptimisticMessages(
   persistedMessages: ChatMessage[],
   previousMessages: ChatMessage[],
+  options: MessageMergeOptions = {},
 ): ChatMessage[] {
+  const { preservePreviousMessages = true } = options;
   const mergedMessages = [...persistedMessages];
   const matchedPersistedIndexes = new Set<number>();
 
@@ -123,63 +175,58 @@ function mergePersistedAndOptimisticMessages(
 
       if (matchIndex >= 0) {
         matchedPersistedIndexes.add(matchIndex);
+        const optimisticAttachments = Array.isArray(optimisticMessage.attachments)
+          && optimisticMessage.attachments.length > 0
+          ? optimisticMessage.attachments
+          : undefined;
+        const optimisticContent = typeof optimisticMessage.submittedContent === 'string'
+          ? optimisticMessage.submittedContent
+          : (typeof optimisticMessage.content === 'string' ? optimisticMessage.content : '');
         mergedMessages[matchIndex] = {
           ...mergedMessages[matchIndex],
           clientRequestId: optimisticMessage.clientRequestId || mergedMessages[matchIndex].clientRequestId,
+          content: optimisticContent || mergedMessages[matchIndex].content,
+          submittedContent: optimisticMessage.submittedContent || mergedMessages[matchIndex].submittedContent,
+          attachments: optimisticAttachments || mergedMessages[matchIndex].attachments,
           deliveryStatus: 'persisted',
         };
         return;
       }
 
-      if (optimisticMessage.deliveryStatus !== 'persisted') {
-        mergedMessages.push(optimisticMessage);
-      }
-    });
-
-  return dedupeAdjacentChatMessages(mergedMessages) as ChatMessage[];
-}
-
-/**
- * Build the stable transcript identity used by top-pagination merge dedupe.
- */
-function getSessionMessageIdentity(message: any): string | null {
-  if (!message || typeof message !== 'object') {
-    return null;
-  }
-
-  if (typeof message.messageKey === 'string' && message.messageKey) {
-    return message.messageKey;
-  }
-
-  if (Number.isFinite(Number(message.__lineNumber))) {
-    const provider = typeof message.__provider === 'string' ? message.__provider : 'session';
-    const sessionId = typeof message.sessionId === 'string' ? message.sessionId : '';
-    return `${provider}:${sessionId}:line:${Number(message.__lineNumber)}`;
-  }
-
-  return null;
-}
-
-/**
- * Remove repeated raw transcript rows before they are converted into UI messages.
- */
-function dedupeSessionMessagesByIdentity(messages: any[]): any[] {
-  const seen = new Set<string>();
-  const dedupedMessages: any[] = [];
-
-  messages.forEach((message) => {
-    const identity = getSessionMessageIdentity(message);
-    if (identity) {
-      if (seen.has(identity)) {
+      if (
+        !preservePreviousMessages
+        || isUploadNoteOnlyUserMessage(optimisticMessage)
+      ) {
         return;
       }
-      seen.add(identity);
+
+      mergedMessages.push(optimisticMessage);
+    });
+
+  // Preserve transient assistant messages (streaming, interactive prompts, etc.)
+  // that have not yet been persisted to session history.
+  const persistedKeys = new Set(
+    persistedMessages.map((m) => getIntrinsicMessageKey(m)).filter((k): k is string => Boolean(k)),
+  );
+
+  previousMessages.forEach((message) => {
+    if (message.type === 'user' && message.deliveryStatus) {
+      return;
     }
 
-    dedupedMessages.push(message);
+    if (!preservePreviousMessages || !shouldPreserveLocalMessage(message)) {
+      return;
+    }
+
+    const key = getIntrinsicMessageKey(message);
+    if (key && persistedKeys.has(key)) {
+      return;
+    }
+
+    mergedMessages.push(message);
   });
 
-  return dedupedMessages;
+  return dedupeAdjacentChatMessages(mergedMessages) as ChatMessage[];
 }
 
 type PendingViewSession = {
@@ -330,6 +377,7 @@ export function useChatSessionState({
   const totalMessagesRef = useRef(totalMessages);
   const isUserScrolledUpRef = useRef(isUserScrolledUp);
   const lastHydratedSessionIdRef = useRef<string | null>(null);
+  const chatMergeSessionKeyRef = useRef<string | null>(null);
   const previousSelectedSessionIdRef = useRef<string | null>(null);
   const frozenTailMessageKeyRef = useRef<string | null>(null);
   const latestTouchYRef = useRef<number | null>(null);
@@ -478,6 +526,7 @@ export function useChatSessionState({
   const resetSessionViewState = useCallback(() => {
     resetStreamingState();
     pendingViewSessionRef.current = null;
+    chatMergeSessionKeyRef.current = null;
     setChatMessages([]);
     setSessionMessages([]);
     setIsLoading(false);
@@ -580,26 +629,12 @@ export function useChatSessionState({
           return false;
         }
 
-        const previousIdentities = new Set(
-          sessionMessagesRef.current
-            .map(getSessionMessageIdentity)
-            .filter((identity): identity is string => Boolean(identity)),
+        const uniqueMoreMessages = getUniqueIncomingSessionMessages(
+          sessionMessagesRef.current,
+          moreMessages,
         );
-        const newPageIdentities = new Set<string>();
-        const uniqueMoreMessages = moreMessages.filter((message: any) => {
-          const identity = getSessionMessageIdentity(message);
-          if (!identity) {
-            return true;
-          }
-          if (previousIdentities.has(identity) || newPageIdentities.has(identity)) {
-            return false;
-          }
-          newPageIdentities.add(identity);
-          return true;
-        });
 
         if (uniqueMoreMessages.length === 0) {
-          messagesOffsetRef.current = sessionMessagesRef.current.length;
           setHasMoreMessages(totalMessagesRef.current > messagesOffsetRef.current);
           return false;
         }
@@ -608,7 +643,6 @@ export function useChatSessionState({
           height: previousScrollHeight,
           top: previousScrollTop,
         };
-        messagesOffsetRef.current = sessionMessagesRef.current.length + uniqueMoreMessages.length;
         setHasMoreMessages(totalMessagesRef.current > messagesOffsetRef.current);
         setSessionMessages((previous) => dedupeSessionMessagesByIdentity([
           ...uniqueMoreMessages,
@@ -955,17 +989,28 @@ export function useChatSessionState({
         setTokenBudget(result.tokenUsage);
       }
 
-      // 直接 append，不需要对比合并
       if (newMessages.length > 0) {
         if (frozenTailMessageKeyRef.current || isUserScrolledUpRef.current) {
           return;
         }
 
-        setSessionMessages((previous) => [...previous, ...newMessages]);
-        messagesOffsetRef.current += newMessages.length;
+        const uniqueNewMessages = getUniqueIncomingSessionMessages(
+          sessionMessagesRef.current,
+          newMessages,
+        );
+        if (uniqueNewMessages.length === 0) {
+          setTotalMessages(newTotal);
+          return;
+        }
+
+        setSessionMessages((previous) => dedupeSessionMessagesByIdentity([
+          ...previous,
+          ...uniqueNewMessages,
+        ]));
+        messagesOffsetRef.current += uniqueNewMessages.length;
         if (!frozenTailMessageKeyRef.current) {
           setVisibleMessageCount((previousCount) =>
-            Number.isFinite(previousCount) ? previousCount + newMessages.length : previousCount,
+            Number.isFinite(previousCount) ? previousCount + uniqueNewMessages.length : previousCount,
           );
         }
       }
@@ -1008,14 +1053,47 @@ export function useChatSessionState({
   ]);
 
   useEffect(() => {
-    if (selectedSession?.id) {
+    if (selectedSession?.id && !isTemporarySessionId(selectedSession.id)) {
       pendingViewSessionRef.current = null;
     }
   }, [pendingViewSessionRef, selectedSession?.id]);
 
   useEffect(() => {
-    setChatMessages((previous) => mergePersistedAndOptimisticMessages(convertedMessages, previous));
-  }, [convertedMessages, selectedSession?.__provider]);
+    const activeSessionId = selectedSession?.id ?? currentSessionId;
+    const activeSessionKey = activeSessionId
+      ? [
+        getSessionProjectName(selectedProject, selectedSession),
+        resolveSessionProvider(selectedProject, selectedSession) || 'claude',
+        activeSessionId,
+      ].join(':')
+      : null;
+
+    if (
+      selectedSession?.id &&
+      !isTemporarySessionId(selectedSession.id) &&
+      lastHydratedSessionIdRef.current !== selectedSession.id
+    ) {
+      chatMergeSessionKeyRef.current = null;
+      setChatMessages([]);
+      return;
+    }
+
+    const preservePreviousMessages =
+      Boolean(activeSessionKey) &&
+      chatMergeSessionKeyRef.current === activeSessionKey;
+    chatMergeSessionKeyRef.current = activeSessionKey;
+
+    setChatMessages((previous) => mergePersistedAndOptimisticMessages(
+      convertedMessages,
+      previous,
+      { preservePreviousMessages },
+    ));
+  }, [
+    convertedMessages,
+    currentSessionId,
+    selectedProject,
+    selectedSession,
+  ]);
 
   useEffect(() => {
     if (selectedProject && chatMessages.length > 0) {
@@ -1058,13 +1136,14 @@ export function useChatSessionState({
   }, [selectedProject, selectedSession?.id, selectedSession?.__projectName, selectedSession?.__provider, selectedSession?.provider]);
 
   const visibleMessages = useMemo(() => {
+    const displayMessages = dedupeAdjacentChatMessages(chatMessages) as ChatMessage[];
     const visibleCount = Number.isFinite(visibleMessageCount)
       ? Math.max(0, visibleMessageCount)
-      : chatMessages.length;
-    let endIndex = chatMessages.length;
+      : displayMessages.length;
+    let endIndex = displayMessages.length;
 
     if (frozenTailMessageKey) {
-      const frozenIndex = chatMessages.findIndex((message, index) =>
+      const frozenIndex = displayMessages.findIndex((message, index) =>
         getViewMessageKey(message, index) === frozenTailMessageKey,
       );
       if (frozenIndex >= 0) {
@@ -1073,9 +1152,9 @@ export function useChatSessionState({
     }
 
     if (endIndex <= visibleCount) {
-      return chatMessages.slice(0, endIndex);
+      return displayMessages.slice(0, endIndex);
     }
-    return chatMessages.slice(endIndex - visibleCount, endIndex);
+    return displayMessages.slice(endIndex - visibleCount, endIndex);
   }, [chatMessages, frozenTailMessageKey, visibleMessageCount]);
 
   useEffect(() => {

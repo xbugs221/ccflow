@@ -875,6 +875,12 @@ function buildProjectChatRecord(sessionId, title, modelState = {}, uiState = {},
   if (typeof metadata.stageKey === 'string' && metadata.stageKey.trim()) {
     record.stageKey = metadata.stageKey.trim();
   }
+  if (typeof metadata.summary === 'string' && metadata.summary.trim()) {
+    record.summary = metadata.summary.trim();
+  }
+  if (record.summary && record.summary === record.title) {
+    delete record.summary;
+  }
   if (typeof metadata.startRequestId === 'string' && metadata.startRequestId.trim()) {
     record.startRequestId = metadata.startRequestId.trim();
   }
@@ -918,6 +924,9 @@ function normalizeProjectChatBucket(chat = {}) {
       if (nextRecord.ui && typeof nextRecord.ui === 'object' && !Array.isArray(nextRecord.ui) && Object.keys(nextRecord.ui).length === 0) {
         delete nextRecord.ui;
       }
+      if (nextRecord.summary && nextRecord.summary === nextRecord.title) {
+        delete nextRecord.summary;
+      }
       bucket[routeIndex] = nextRecord;
       return bucket;
     }, {});
@@ -960,15 +969,156 @@ function getWorkflowConfigIndex(config, workflowId) {
   if (matched) {
     return matched[1];
   }
-  const existing = Object.entries(config.workflows || {}).find(([, workflow]) => workflow?.legacyWorkflowId === workflowId);
-  if (existing) {
-    return existing[0];
-  }
   const maxIndex = Object.keys(config.workflows || {}).reduce((maxValue, key) => {
     const parsed = Number(key);
     return Number.isInteger(parsed) && parsed > maxValue ? parsed : maxValue;
   }, 0);
   return String(maxIndex + 1);
+}
+
+const PROJECT_WORKFLOW_STAGE_KEYS = [
+  'planning',
+  'execution',
+  'review_1',
+  'repair_1',
+  'review_2',
+  'repair_2',
+  'review_3',
+  'repair_3',
+  'archive',
+];
+
+function normalizeProjectWorkflowStageKey(stageKey) {
+  /**
+   * PURPOSE: Keep project config workflow stage keys aligned with workflow store
+   * routing without importing workflow internals into this config module.
+   */
+  if (stageKey === 'ready_for_acceptance') return 'archive';
+  if (stageKey === 'verification') return 'review_1';
+  const normalizedStageKey = String(stageKey || '').trim();
+  return PROJECT_WORKFLOW_STAGE_KEYS.includes(normalizedStageKey) ? normalizedStageKey : '';
+}
+
+function normalizeProjectWorkflowProvider(provider) {
+  /**
+   * PURPOSE: Persist only supported workflow provider engines.
+   */
+  return provider === 'claude' ? 'claude' : 'codex';
+}
+
+function normalizeProjectWorkflowProviderMap(providerMap = {}) {
+  /**
+   * PURPOSE: Convert provider maps into canonical stage keys and omit codex
+   * defaults from persisted config.
+   */
+  if (!providerMap || typeof providerMap !== 'object' || Array.isArray(providerMap)) {
+    return {};
+  }
+  return Object.entries(providerMap).reduce((providers, [stageKey, provider]) => {
+    const normalizedStageKey = normalizeProjectWorkflowStageKey(stageKey);
+    const normalizedProvider = normalizeProjectWorkflowProvider(provider);
+    if (normalizedStageKey && normalizedProvider !== 'codex') {
+      providers[normalizedStageKey] = normalizedProvider;
+    }
+    return providers;
+  }, {});
+}
+
+function buildProjectWorkflowProviderMap(workflow = {}) {
+  /**
+   * PURPOSE: Migrate old provider locations into the compact providers map.
+   */
+  const providers = {
+    ...normalizeProjectWorkflowProviderMap(workflow.providers),
+    ...normalizeProjectWorkflowProviderMap(workflow.stageProviders),
+  };
+  if (Array.isArray(workflow.stageStatuses)) {
+    workflow.stageStatuses.forEach((stage) => {
+      const stageKey = normalizeProjectWorkflowStageKey(stage?.key);
+      const provider = normalizeProjectWorkflowProvider(stage?.provider);
+      if (stageKey && provider !== 'codex') {
+        providers[stageKey] = provider;
+      }
+    });
+  }
+  return providers;
+}
+
+function buildProjectWorkflowDerivedStageState(stage = 'planning') {
+  /**
+   * PURPOSE: Derive linear stage progress from the current workflow stage.
+   */
+  const stageKey = normalizeProjectWorkflowStageKey(stage) || 'planning';
+  const activeIndex = Math.max(PROJECT_WORKFLOW_STAGE_KEYS.indexOf(stageKey), 0);
+  return Object.fromEntries(PROJECT_WORKFLOW_STAGE_KEYS.map((key, index) => [
+    key,
+    index < activeIndex ? 'completed' : (index === activeIndex ? 'active' : 'pending'),
+  ]));
+}
+
+function buildProjectWorkflowStageState(workflow = {}) {
+  /**
+   * PURPOSE: Persist only stage status overrides that differ from the current
+   * stage-derived state.
+   */
+  const derived = buildProjectWorkflowDerivedStageState(workflow.stage || 'planning');
+  const state = {};
+  if (workflow.stageState && typeof workflow.stageState === 'object' && !Array.isArray(workflow.stageState)) {
+    Object.entries(workflow.stageState).forEach(([stageKey, status]) => {
+      const normalizedStageKey = normalizeProjectWorkflowStageKey(stageKey);
+      const normalizedStatus = String(status || '').trim();
+      if (normalizedStageKey && normalizedStatus && normalizedStatus !== derived[normalizedStageKey]) {
+        state[normalizedStageKey] = normalizedStatus;
+      }
+    });
+  }
+  if (Array.isArray(workflow.stageStatuses)) {
+    workflow.stageStatuses.forEach((stage) => {
+      const stageKey = normalizeProjectWorkflowStageKey(stage?.key);
+      const status = String(stage?.status || '').trim();
+      if (stageKey && status && status !== derived[stageKey]) {
+        state[stageKey] = status;
+      }
+    });
+  }
+  return state;
+}
+
+function normalizeProjectWorkflowRecord(workflow = {}) {
+  /**
+   * PURPOSE: Keep conf.json workflow records canonical when generic project
+   * config save paths touch workflow data.
+   */
+  const normalized = {
+    ...(workflow && typeof workflow === 'object' && !Array.isArray(workflow) ? workflow : {}),
+    chat: normalizeProjectChatBucket(workflow?.chat),
+  };
+  const providers = buildProjectWorkflowProviderMap(workflow);
+  const stageState = buildProjectWorkflowStageState(workflow);
+  delete normalized.id;
+  delete normalized.routeIndex;
+  delete normalized.legacyId;
+  delete normalized.legacyWorkflowId;
+  delete normalized.childSessions;
+  delete normalized.stageProviders;
+  delete normalized.stageStatuses;
+  delete normalized.providers;
+  delete normalized.stageState;
+  delete normalized.openspecChangeDetected;
+  delete normalized.openspecTaskProgress;
+  if (normalized.openspecChangeName) {
+    delete normalized.openspecChangePrefix;
+  }
+  if (Object.keys(providers).length > 0) {
+    normalized.providers = providers;
+  }
+  if (Object.keys(stageState).length > 0) {
+    normalized.stageState = stageState;
+  }
+  if (Object.keys(normalized.chat).length === 0) {
+    delete normalized.chat;
+  }
+  return normalized;
 }
 
 /**
@@ -996,13 +1146,7 @@ function normalizeProjectConfigForSave(config, projectPath = '') {
   normalized.workflows = Object.entries(config.workflows && typeof config.workflows === 'object' && !Array.isArray(config.workflows)
     ? config.workflows
     : {}).reduce((workflows, [workflowIndex, workflow]) => {
-    workflows[workflowIndex] = {
-      ...(workflow && typeof workflow === 'object' && !Array.isArray(workflow) ? workflow : {}),
-      chat: normalizeProjectChatBucket(workflow?.chat),
-    };
-    if (Object.keys(workflows[workflowIndex].chat).length === 0) {
-      delete workflows[workflowIndex].chat;
-    }
+    workflows[workflowIndex] = normalizeProjectWorkflowRecord(workflow);
     return workflows;
   }, {});
 
@@ -1046,7 +1190,6 @@ function normalizeProjectConfigForSave(config, projectPath = '') {
       const workflow = {
         ...(normalized.workflows[workflowIndex] || {}),
         title: normalized.workflows[workflowIndex]?.title || `工作流${workflowIndex}`,
-        legacyWorkflowId: normalized.workflows[workflowIndex]?.legacyWorkflowId || draft.workflowId,
         chat: { ...(normalized.workflows[workflowIndex]?.chat || {}) },
       };
       const workflowRouteIndex = Object.values(workflow.chat).some((record) => record?.sessionId === draftId)
@@ -1293,7 +1436,7 @@ function getSessionWorkflowMetadataMap(config) {
       Object.values(workflow?.chat || {}).forEach((record) => {
         if (record?.sessionId) {
           metadataById[record.sessionId] = {
-              workflowId: workflow.legacyWorkflowId || `w${workflowIndex}`,
+            workflowId: `w${workflowIndex}`,
             provider: record.provider,
             stageKey: record.stageKey,
           };
@@ -1340,7 +1483,8 @@ function getManualSessionDraftMap(config) {
             id: record.sessionId,
             provider: record.provider || 'codex',
             label: record.title,
-            workflowId: workflow.legacyWorkflowId || `w${workflowIndex}`,
+            summary: record.summary,
+            workflowId: `w${workflowIndex}`,
             routeIndex: Number(routeIndex),
             stageKey: record.stageKey,
             startRequestId: record.startRequestId,
@@ -1958,8 +2102,10 @@ function attachSessionRouteIndices(config, projectPath, provider, sessions = [])
       if (config.chat[String(routeIndex)]?.ui && Object.keys(config.chat[String(routeIndex)].ui).length > 0) {
         nextRecord.ui = config.chat[String(routeIndex)].ui;
       }
-      config.chat[String(routeIndex)] = nextRecord;
-      changed = true;
+      if (JSON.stringify(config.chat[String(routeIndex)] || {}) !== JSON.stringify(nextRecord)) {
+        config.chat[String(routeIndex)] = nextRecord;
+        changed = true;
+      }
     }
   });
 
@@ -3226,6 +3372,7 @@ async function getSessionMessages(projectName, sessionId, limit = null, offset =
 
   try {
     const messages = [];
+    let fallbackTotal = null;
 
     // 优先直接读 sessionId 对应的文件，跳过全量 readdir + 遍历
     const directFile = path.join(projectDir, `${sessionId}.jsonl`);
@@ -3337,16 +3484,27 @@ async function getSessionMessages(projectName, sessionId, limit = null, offset =
       // Fallback: 扫描所有 JSONL 文件（兼容文件名不等于 sessionId 的情况）
       const files = await fs.readdir(projectDir);
       const jsonlFiles = files.filter(file => file.endsWith('.jsonl') && !file.startsWith('agent-'));
+      fallbackTotal = 0;
 
       for (const file of jsonlFiles) {
         const jsonlFile = path.join(projectDir, file);
         const fileStream = fsSync.createReadStream(jsonlFile);
         const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+        let lineNumber = 0;
         for await (const line of rl) {
           if (line.trim()) {
+            lineNumber += 1;
             try {
               const entry = JSON.parse(line);
               if (entry.sessionId === sessionId) {
+                fallbackTotal += 1;
+                if (afterLine !== null && afterLine >= 0 && lineNumber <= afterLine) {
+                  continue;
+                }
+                entry.messageKey = entry.messageKey || buildClaudeMessageKey(sessionId, lineNumber);
+                entry.__lineNumber = Number.isFinite(Number(entry.__lineNumber))
+                  ? Number(entry.__lineNumber)
+                  : lineNumber;
                 messages.push(entry);
               }
             } catch (parseError) {
@@ -3358,7 +3516,10 @@ async function getSessionMessages(projectName, sessionId, limit = null, offset =
     }
 
     if (messages.length === 0) {
-      return limit === null ? [] : { messages: [], total: 0, hasMore: false };
+      const total = fallbackTotal ?? 0;
+      return (limit === null && afterLine === null)
+        ? []
+        : { messages: [], total, hasMore: false, offset, limit };
     }
 
     // 加载 subagent 工具信息（并行读取）
@@ -3390,15 +3551,24 @@ async function getSessionMessages(projectName, sessionId, limit = null, offset =
       }
     }
 
-    // Sort messages by timestamp
-    const sortedMessages = messages.sort((a, b) =>
-      new Date(a.timestamp || 0) - new Date(b.timestamp || 0)
-    );
+    // Sort by JSONL line when available so pagination cursors stay stable.
+    const sortedMessages = messages.sort((a, b) => {
+      const lineA = Number(a.__lineNumber);
+      const lineB = Number(b.__lineNumber);
+      if (Number.isFinite(lineA) && Number.isFinite(lineB)) {
+        return lineA - lineB;
+      }
+      return new Date(a.timestamp || 0) - new Date(b.timestamp || 0);
+    });
 
-    const total = sortedMessages.length;
+    const total = fallbackTotal ?? sortedMessages.length;
 
-    if (limit === null) {
+    if (limit === null && afterLine === null) {
       return sortedMessages;
+    }
+
+    if (afterLine !== null && afterLine >= 0) {
+      return { messages: sortedMessages, total, hasMore: false, offset, limit };
     }
 
     const startIndex = Math.max(0, total - offset - limit);
@@ -3695,7 +3865,7 @@ async function startManualSessionDraft(projectName, projectPath, draftSessionId,
   const resolvedProjectPath = projectPath || await extractProjectDirectory(projectName);
   const config = await loadProjectConfig(resolvedProjectPath);
   const draftRecord = findProjectChatRecord(config, draftSessionId);
-  if (!draftRecord?.record || draftRecord.scope !== 'chat') {
+  if (!draftRecord?.record) {
     return { started: false, reason: 'missing-draft' };
   }
   const existingStartRequestId = typeof draftRecord.record.startRequestId === 'string'
@@ -3705,12 +3875,20 @@ async function startManualSessionDraft(projectName, projectPath, draftSessionId,
     return { started: false, reason: 'already-started', startRequestId: existingStartRequestId };
   }
 
-  draftRecord.record.provider = provider;
-  draftRecord.record.startRequestId = startRequestId;
-  delete draftRecord.record.cancelRequested;
+  const updatedRecord = {
+    ...draftRecord.record,
+    provider,
+    startRequestId,
+  };
+  delete updatedRecord.cancelRequested;
+  if (draftRecord.scope === 'workflow') {
+    config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex] = updatedRecord;
+  } else {
+    config.chat[draftRecord.routeIndex] = updatedRecord;
+  }
   await saveProjectConfig(config, resolvedProjectPath);
   clearProjectDirectoryCache();
-  return { started: true, record: draftRecord.record };
+  return { started: true, record: updatedRecord };
 }
 
 /**
@@ -3724,7 +3902,7 @@ async function bindManualSessionDraftProviderSession(projectName, projectPath, d
   const resolvedProjectPath = projectPath || await extractProjectDirectory(projectName);
   const config = await loadProjectConfig(resolvedProjectPath);
   const draftRecord = findProjectChatRecord(config, draftSessionId);
-  if (!draftRecord?.record || draftRecord.scope !== 'chat') {
+  if (!draftRecord?.record) {
     return false;
   }
   const existingStartRequestId = typeof draftRecord.record.startRequestId === 'string'
@@ -3734,7 +3912,15 @@ async function bindManualSessionDraftProviderSession(projectName, projectPath, d
     throw new Error('Manual session start request mismatch');
   }
 
-  draftRecord.record.pendingProviderSessionId = providerSessionId;
+  const updatedRecord = {
+    ...draftRecord.record,
+    pendingProviderSessionId: providerSessionId,
+  };
+  if (draftRecord.scope === 'workflow') {
+    config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex] = updatedRecord;
+  } else {
+    config.chat[draftRecord.routeIndex] = updatedRecord;
+  }
   await saveProjectConfig(config, resolvedProjectPath);
   clearProjectDirectoryCache();
   return true;
@@ -3751,7 +3937,7 @@ async function markManualSessionDraftCancelRequested(projectName, projectPath, d
   const resolvedProjectPath = projectPath || await extractProjectDirectory(projectName);
   const config = await loadProjectConfig(resolvedProjectPath);
   const draftRecord = findProjectChatRecord(config, draftSessionId);
-  if (!draftRecord?.record || draftRecord.scope !== 'chat') {
+  if (!draftRecord?.record) {
     return false;
   }
   const existingStartRequestId = typeof draftRecord.record.startRequestId === 'string'
@@ -3761,7 +3947,15 @@ async function markManualSessionDraftCancelRequested(projectName, projectPath, d
     return false;
   }
 
-  draftRecord.record.cancelRequested = true;
+  const updatedRecord = {
+    ...draftRecord.record,
+    cancelRequested: true,
+  };
+  if (draftRecord.scope === 'workflow') {
+    config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex] = updatedRecord;
+  } else {
+    config.chat[draftRecord.routeIndex] = updatedRecord;
+  }
   await saveProjectConfig(config, resolvedProjectPath);
   clearProjectDirectoryCache();
   return true;
@@ -3778,7 +3972,7 @@ async function getManualSessionDraftRuntime(projectName, projectPath, draftSessi
   const resolvedProjectPath = projectPath || await extractProjectDirectory(projectName);
   const config = await loadProjectConfig(resolvedProjectPath);
   const draftRecord = findProjectChatRecord(config, draftSessionId);
-  if (!draftRecord?.record || draftRecord.scope !== 'chat') {
+  if (!draftRecord?.record) {
     return null;
   }
   const record = draftRecord.record;
@@ -3804,6 +3998,9 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
   if (typeof actualSessionId !== 'string' || !actualSessionId.trim()) {
     throw new Error('Actual session ID is required');
   }
+  if (actualSessionId.trim() === draftSessionId.trim()) {
+    return false;
+  }
 
   const resolvedProjectPath = projectPath || await extractProjectDirectory(projectName);
   const config = await loadProjectConfig(resolvedProjectPath);
@@ -3811,40 +4008,59 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
     ...getManualSessionDraftMap(config),
   };
   const draft = manualDraftMap[draftSessionId];
-  if (!draft) {
+  const draftRecord = findProjectChatRecord(config, draftSessionId);
+  if (!draft && !draftRecord?.record) {
     return false;
   }
-  const workflowOwnedDraft = typeof draft.workflowId === 'string' && draft.workflowId.trim();
+  const workflowId = typeof draft?.workflowId === 'string' && draft.workflowId.trim()
+    ? draft.workflowId.trim()
+    : draftRecord?.scope === 'workflow'
+      ? `w${draftRecord.workflowIndex}`
+      : '';
+  const stageKey = typeof draft?.stageKey === 'string' && draft.stageKey.trim()
+    ? draft.stageKey.trim()
+    : typeof draftRecord?.record?.stageKey === 'string'
+      ? draftRecord.record.stageKey
+      : undefined;
+  const workflowOwnedDraft = Boolean(workflowId);
   let workflowRegistrationPayload = null;
+  const expectedProvider = typeof draft?.provider === 'string' && draft.provider
+    ? draft.provider
+    : draftRecord?.record?.provider;
 
-  if (draft.provider !== provider) {
-    throw new Error(`Draft session provider mismatch: expected ${draft.provider}, received ${provider}`);
+  if (expectedProvider && expectedProvider !== provider) {
+    throw new Error(`Draft session provider mismatch: expected ${expectedProvider}, received ${provider}`);
   }
-  if (provider === 'claude' && draft.projectName && draft.projectName !== projectName) {
+  if (provider === 'claude' && draft?.projectName && draft.projectName !== projectName) {
     throw new Error(`Draft session project mismatch: expected ${draft.projectName}, received ${projectName}`);
   }
 
-  const trimmedLabel = typeof draft.label === 'string' ? draft.label.trim() : '';
+  const trimmedLabel = typeof draft?.label === 'string' && draft.label.trim()
+    ? draft.label.trim()
+    : typeof draftRecord?.record?.title === 'string'
+      ? draftRecord.record.title.trim()
+      : '';
   if (trimmedLabel) {
     writeSessionSummaryOverride(config, actualSessionId, trimmedLabel);
   }
-  const draftRecord = findProjectChatRecord(config, draftSessionId);
   if (draftRecord?.scope === 'chat') {
     config.chat[draftRecord.routeIndex] = {
       ...draftRecord.record,
       sessionId: actualSessionId,
       title: trimmedLabel || draftRecord.record.title,
+      provider,
+      stageKey,
     };
     delete config.chat[draftRecord.routeIndex].startRequestId;
     delete config.chat[draftRecord.routeIndex].pendingProviderSessionId;
     delete config.chat[draftRecord.routeIndex].cancelRequested;
-  } else if (draftRecord?.scope === 'workflow' && !workflowOwnedDraft) {
+  } else if (draftRecord?.scope === 'workflow') {
     config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex] = {
       ...draftRecord.record,
       sessionId: actualSessionId,
       title: trimmedLabel || draftRecord.record.title,
       provider,
-      stageKey: typeof draft.stageKey === 'string' ? draft.stageKey : draftRecord.record.stageKey,
+      stageKey,
     };
     delete config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex].startRequestId;
     delete config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex].pendingProviderSessionId;
@@ -3855,27 +4071,29 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
     config[SESSION_WORKFLOW_METADATA_BY_ID_KEY] = {
       ...getSessionWorkflowMetadataMap(config),
       [actualSessionId]: {
-        workflowId: draft.workflowId,
-        stageKey: typeof draft.stageKey === 'string' ? draft.stageKey : undefined,
+        workflowId,
+        stageKey,
       },
     };
     workflowRegistrationPayload = {
-      workflowId: draft.workflowId,
+      workflowId,
       sessionPayload: {
         sessionId: actualSessionId,
-        title: draft.label,
-        summary: draft.label,
+        title: trimmedLabel || draftRecord?.record?.title || '子会话',
+        summary: trimmedLabel || draftRecord?.record?.summary || draftRecord?.record?.title || '子会话',
         provider,
-        stageKey: typeof draft.stageKey === 'string' ? draft.stageKey : undefined,
+        stageKey,
       },
     };
   }
 
-  delete manualDraftMap[draftSessionId];
-  if (Object.keys(manualDraftMap).length === 0) {
-    delete config[MANUAL_SESSION_DRAFTS_KEY];
-  } else {
-    config[MANUAL_SESSION_DRAFTS_KEY] = manualDraftMap;
+  if (draft) {
+    delete manualDraftMap[draftSessionId];
+    if (Object.keys(manualDraftMap).length === 0) {
+      delete config[MANUAL_SESSION_DRAFTS_KEY];
+    } else {
+      config[MANUAL_SESSION_DRAFTS_KEY] = manualDraftMap;
+    }
   }
 
   await saveProjectConfig(config, resolvedProjectPath);
@@ -4711,6 +4929,48 @@ function mapCodexEntryToMessages(entry) {
 }
 
 /**
+ * Remove duplicated Codex user echoes emitted as both response_item and event_msg.
+ * @param {Array<Record<string, unknown>>} messages - Mapped Codex UI messages.
+ * @returns {Array<Record<string, unknown>>} Messages with same-turn user echoes collapsed.
+ */
+function dedupeCodexUserEchoMessages(messages) {
+  const seenUserTurns = new Set();
+  const recentUserTurnTimestamps = new Map();
+  return messages.filter((message) => {
+    if (message?.type !== 'user') {
+      return true;
+    }
+
+    const textContent = normalizeSearchableText(message.message?.content || message.content || '');
+    if (!textContent.trim()) {
+      return true;
+    }
+
+    const timestamp = new Date(message.timestamp || 0).getTime();
+    const timeKey = Number.isFinite(timestamp) ? String(timestamp) : String(message.timestamp || '');
+    const key = `${timeKey}:${textContent}`;
+    if (seenUserTurns.has(key)) {
+      return false;
+    }
+
+    const recentTimestamp = recentUserTurnTimestamps.get(textContent);
+    if (
+      Number.isFinite(timestamp)
+      && Number.isFinite(recentTimestamp)
+      && Math.abs(timestamp - recentTimestamp) <= 1000
+    ) {
+      return false;
+    }
+
+    seenUserTurns.add(key);
+    if (Number.isFinite(timestamp)) {
+      recentUserTurnTimestamps.set(textContent, timestamp);
+    }
+    return true;
+  });
+}
+
+/**
  * Map selected Codex JSONL lines into UI messages while preserving raw line keys.
  * @param {Array<{ line: string, lineNumber: number }>} entries - Raw JSONL line records.
  * @param {string} sessionId - Codex session id used for stable message keys.
@@ -4730,7 +4990,7 @@ function mapCodexTranscriptLineEntries(entries, sessionId) {
     }
   }
 
-  return messages;
+  return dedupeCodexUserEchoMessages(messages);
 }
 
 /**
@@ -4790,7 +5050,7 @@ async function readCodexTranscriptByLineCursor(sessionFilePath, sessionId, limit
     } catch { /* Skip malformed lines while still advancing the raw line cursor. */ }
   }
 
-  return { messages, total: lineNumber, tokenUsage };
+  return { messages: dedupeCodexUserEchoMessages(messages), total: lineNumber, tokenUsage };
 }
 
 // Get messages for a specific Codex session

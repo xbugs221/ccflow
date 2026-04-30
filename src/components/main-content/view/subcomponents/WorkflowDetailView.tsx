@@ -2,8 +2,10 @@
  * PURPOSE: Render a workflow control-plane detail tree with stage, substage,
  * artifact, and child-session inspection data.
  */
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Play, Trash2 } from 'lucide-react';
+import ClaudeLogo from '../../../llm-logo-provider/ClaudeLogo';
+import CodexLogo from '../../../llm-logo-provider/CodexLogo';
 import type {
   Project,
   ProjectWorkflow,
@@ -13,6 +15,7 @@ import type {
   WorkflowStageInspection,
   WorkflowSubstageInspection,
 } from '../../../../types/app';
+import { api } from '../../../../utils/api';
 
 type WorkflowDetailViewProps = {
   project: Project;
@@ -133,6 +136,34 @@ function getLinkTone(status: string): string {
     return 'text-indigo-600 hover:text-violet-700 dark:text-violet-300 dark:hover:text-violet-200';
   }
   return 'text-indigo-600 hover:text-violet-700 dark:text-violet-300 dark:hover:text-violet-200';
+}
+
+function getWorkflowStageProvider(
+  workflow: ProjectWorkflow,
+  stageKey: string,
+  stageSession?: WorkflowChildSession | null,
+): SessionProvider {
+  /**
+   * PURPOSE: Read the stage provider from normalized status data or persisted map.
+   */
+  if (stageSession?.provider === 'claude') {
+    return 'claude';
+  }
+  if (stageSession?.provider === 'codex') {
+    return 'codex';
+  }
+  const stageProvider = workflow.stageStatuses.find((stage) => stage.key === stageKey)?.provider;
+  return stageProvider === 'claude' ? 'claude' : 'codex';
+}
+
+function isStageProviderLocked(stage: WorkflowStageInspection, stageSession: WorkflowChildSession | null): boolean {
+  /**
+   * PURPOSE: Prevent provider changes after a stage has started or produced a session.
+   */
+  if (stageSession) {
+    return true;
+  }
+  return ['active', 'running', 'blocked', 'failed', 'completed'].includes(normalizeLampStatus(stage.status));
 }
 
 function renderTodoMarker(status: string) {
@@ -266,6 +297,7 @@ function buildFallbackStageInspections(workflow: ProjectWorkflow): WorkflowStage
     stageKey: stage.key,
     title: stage.label,
     status: stage.status,
+    provider: stage.provider,
     note: undefined,
     substages: [],
   }));
@@ -444,18 +476,19 @@ function resolveContinueState(workflow: ProjectWorkflow, stageInspections: Workf
     const inspectionStatus = stageInspections.find((stage) => stage.stageKey === stageKey)?.status;
     return String(persistedStatus || inspectionStatus || '').toLowerCase();
   };
+  const executionStatus = getStageStatus('execution');
+  const executionStarted = Boolean(
+    workflow.childSessions.some((session) => session.stageKey === 'execution')
+    || ['completed', 'skipped'].includes(executionStatus),
+  );
   const hasOpenSpecChange = Boolean(
     workflow.openspecChangeName
     || workflow.openspecChangeDetected
     || workflow.adoptsExistingOpenSpec,
   );
-  const executionStatus = getStageStatus('execution');
-  const executionStarted = Boolean(
-    workflow.childSessions.some((session) => session.stageKey === 'execution')
-    || ['active', 'running', 'completed', 'blocked', 'failed', 'skipped'].includes(executionStatus),
-  );
+  const hasPlanningSession = workflow.childSessions.some((session) => session.stageKey === 'planning');
 
-  if (!hasOpenSpecChange && isCompletedStatus(getStageStatus('planning')) && !executionStarted) {
+  if ((isCompletedStatus(getStageStatus('planning')) || hasPlanningSession || hasOpenSpecChange) && !executionStarted) {
     return {
       canContinue: true,
       disabled: false,
@@ -584,21 +617,90 @@ export default function WorkflowDetailView({
   onDeleteWorkflow,
   onUpdateWorkflowGateDecision,
 }: WorkflowDetailViewProps) {
+  const [freshWorkflow, setFreshWorkflow] = useState<ProjectWorkflow | null>(null);
   const [graphPaths, setGraphPaths] = useState<WorkflowGraphPath[]>([]);
+  const [updatingProviderStage, setUpdatingProviderStage] = useState<string | null>(null);
+  const [providerUpdateError, setProviderUpdateError] = useState<{ stageKey: string; message: string } | null>(null);
+  const [openProviderDropdown, setOpenProviderDropdown] = useState<string | null>(null);
   const treeContainerRef = useRef<HTMLDivElement | null>(null);
   const nodeAnchorRefs = useRef<Record<string, HTMLSpanElement | null>>({});
+  const currentWorkflow = freshWorkflow || workflow;
+  useEffect(() => {
+    /**
+     * PURPOSE: Re-read workflow detail from the backend so route-selected views
+     * reflect external conf.json edits and cross-tab provider changes.
+     */
+    let cancelled = false;
+    setFreshWorkflow(null);
+    api.projectWorkflow(project.name, workflow.id)
+      .then(async (response) => {
+        if (!response.ok || cancelled) {
+          return;
+        }
+        setFreshWorkflow(await response.json());
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [project.name, workflow.id, workflow.updatedAt, workflow.gateDecision, workflow.runState]);
+  useEffect(() => {
+    /**
+     * PURPOSE: Close provider dropdown when clicking outside.
+     */
+    if (!openProviderDropdown) {
+      return undefined;
+    }
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('[data-provider-dropdown]')) {
+        setOpenProviderDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+    };
+  }, [openProviderDropdown]);
   const stageInspections = useMemo(
-    () => (workflow.stageInspections && workflow.stageInspections.length > 0
-      ? workflow.stageInspections
-      : buildFallbackStageInspections(workflow)),
-    [workflow],
+    () => (currentWorkflow.stageInspections && currentWorkflow.stageInspections.length > 0
+      ? currentWorkflow.stageInspections
+      : buildFallbackStageInspections(currentWorkflow)),
+    [currentWorkflow],
   );
   const visualProgress = useMemo(() => buildVisualProgress(stageInspections), [stageInspections]);
   const getStageVisualStatus = (stage: WorkflowStageInspection) => visualProgress.stageStatuses[stage.stageKey] || normalizeLampStatus(stage.status);
   const getSubstageVisualStatus = (stage: WorkflowStageInspection, substage: WorkflowSubstageInspection) => (
     visualProgress.substageStatuses[buildSubstageStatusKey(stage.stageKey, substage.substageKey)] || normalizeLampStatus(substage.status)
   );
-  const continueState = useMemo(() => resolveContinueState(workflow, stageInspections), [stageInspections, workflow]);
+  const continueState = useMemo(
+    () => (freshWorkflow
+      ? resolveContinueState(currentWorkflow, stageInspections)
+      : { canContinue: false, disabled: true, label: '继续推进' }),
+    [currentWorkflow, freshWorkflow, stageInspections],
+  );
+  const handleStageProviderChange = async (stageKey: string, provider: SessionProvider) => {
+    /**
+     * PURPOSE: Persist provider choices without altering stage progress.
+     */
+    setUpdatingProviderStage(stageKey);
+    setProviderUpdateError(null);
+    try {
+      const response = await api.updateWorkflowStageProviders(project.name, currentWorkflow.id, {
+        [stageKey]: provider,
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to update workflow stage provider: ${response.status}`);
+      }
+      await window.refreshProjects?.();
+    } catch (error) {
+      console.error('Error updating workflow stage provider:', error);
+      setProviderUpdateError({ stageKey, message: '阶段已启动，无法修改 provider。' });
+      await window.refreshProjects?.();
+    } finally {
+      setUpdatingProviderStage(null);
+    }
+  };
   const visibleGraphEdges = useMemo(() => {
     /**
      * Build the visible parent-child graph for the current expanded tree so the
@@ -702,7 +804,7 @@ export default function WorkflowDetailView({
       window.cancelAnimationFrame(frame);
       resizeObserver.disconnect();
     };
-  }, [stageInspections, visibleGraphEdges, workflow.updatedAt]);
+  }, [currentWorkflow.updatedAt, stageInspections, visibleGraphEdges]);
 
   const registerNodeAnchor = (nodeId: string) => (element: HTMLSpanElement | null) => {
     nodeAnchorRefs.current[nodeId] = element;
@@ -742,6 +844,8 @@ export default function WorkflowDetailView({
         const collapsedSubstage = getSingleStageSubstage(stage);
         const stageSession = getPrimaryStageSession(stage);
         const stageVisualStatus = getStageVisualStatus(stage);
+        const stageProvider = getWorkflowStageProvider(currentWorkflow, stage.stageKey, stageSession);
+        const providerLocked = isStageProviderLocked(stage, stageSession);
         const collapsedSubstageVisualStatus = collapsedSubstage
           ? getSubstageVisualStatus(stage, collapsedSubstage)
           : null;
@@ -760,7 +864,7 @@ export default function WorkflowDetailView({
                   onClick={() => {
                     onNavigateToSession(
                       stageSession.id,
-                      buildWorkflowSessionRouteOptions(project, workflow, stageSession),
+                      buildWorkflowSessionRouteOptions(project, currentWorkflow, stageSession),
                     );
                   }}
                 >
@@ -771,13 +875,75 @@ export default function WorkflowDetailView({
                   {stage.title}
                 </span>
               )}
+              <div className="ml-auto">
+                {providerLocked ? (
+                  <span
+                    data-testid="workflow-stage-provider-badge"
+                    className="inline-flex h-6 items-center rounded-md border border-border/60 px-2"
+                  >
+                    {stageProvider === 'claude' ? (
+                      <ClaudeLogo className="h-4 w-4" />
+                    ) : (
+                      <CodexLogo className="h-4 w-4" />
+                    )}
+                  </span>
+                ) : (
+                  <div className="relative" data-provider-dropdown>
+                    <button
+                      type="button"
+                      className="inline-flex h-7 items-center rounded-md border border-input bg-transparent px-2 outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                      disabled={updatingProviderStage === stage.stageKey}
+                      onClick={() => {
+                        setOpenProviderDropdown(
+                          openProviderDropdown === stage.stageKey ? null : stage.stageKey,
+                        );
+                      }}
+                    >
+                      {stageProvider === 'claude' ? (
+                        <ClaudeLogo className="h-4 w-4" />
+                      ) : (
+                        <CodexLogo className="h-4 w-4" />
+                      )}
+                    </button>
+                    {openProviderDropdown === stage.stageKey && (
+                      <div className="absolute right-0 z-50 mt-1 w-16 rounded-md border border-border bg-popover shadow-md">
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-center px-2 py-1.5 hover:bg-accent"
+                          onClick={() => {
+                            void handleStageProviderChange(stage.stageKey, 'claude');
+                            setOpenProviderDropdown(null);
+                          }}
+                        >
+                          <ClaudeLogo className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-center px-2 py-1.5 hover:bg-accent"
+                          onClick={() => {
+                            void handleStageProviderChange(stage.stageKey, 'codex');
+                            setOpenProviderDropdown(null);
+                          }}
+                        >
+                          <CodexLogo className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
+            {providerUpdateError?.stageKey === stage.stageKey ? (
+              <div className="pl-8 text-xs text-destructive">
+                {providerUpdateError.message}
+              </div>
+            ) : null}
 
             {collapsedSubstage ? (
               <div className="relative z-10 space-y-1 pl-5">
                 {renderSubstageSessions(
                   project,
-                  workflow,
+                  currentWorkflow,
                   collapsedSubstage,
                   onNavigateToSession,
                   stageSession?.id,
@@ -803,7 +969,7 @@ export default function WorkflowDetailView({
                           {substage.title}
                         </span>
                       </div>
-                      {renderSubstageSessions(project, workflow, substage, onNavigateToSession, stageSession?.id)}
+                      {renderSubstageSessions(project, currentWorkflow, substage, onNavigateToSession, stageSession?.id)}
                       {renderSubstageFiles(
                         project,
                         stage.stageKey,
@@ -837,7 +1003,7 @@ export default function WorkflowDetailView({
         <div className="rounded-lg border border-border/50 bg-card p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="text-xl font-semibold text-foreground">{workflow.title}</h2>
+              <h2 className="text-xl font-semibold text-foreground">{currentWorkflow.title}</h2>
             </div>
 
             <div className="flex items-center gap-2">
@@ -847,7 +1013,7 @@ export default function WorkflowDetailView({
                     ['pass', '通过'],
                     ['needs_repair', '待完善'],
                   ] as const).map(([decision, label]) => {
-                    const active = workflow.gateDecision === decision;
+                    const active = currentWorkflow.gateDecision === decision;
                     return (
                       <button
                         key={decision}
@@ -858,7 +1024,7 @@ export default function WorkflowDetailView({
                           active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted',
                         ].join(' ')}
                         aria-pressed={active}
-                        onClick={() => onUpdateWorkflowGateDecision(workflow, decision)}
+                        onClick={() => onUpdateWorkflowGateDecision(currentWorkflow, decision)}
                       >
                         {label}
                       </button>
@@ -870,7 +1036,7 @@ export default function WorkflowDetailView({
                 <button
                   type="button"
                   className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-background px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-900/20"
-                  onClick={() => onDeleteWorkflow(workflow)}
+                  onClick={() => onDeleteWorkflow(currentWorkflow)}
                 >
                   <Trash2 className="h-4 w-4" />
                   删除工作流
@@ -886,7 +1052,7 @@ export default function WorkflowDetailView({
                       ? 'cursor-not-allowed border-border bg-background text-muted-foreground opacity-70'
                       : 'border-primary/40 bg-primary/10 text-foreground',
                   ].join(' ')}
-                  onClick={() => onContinueWorkflow?.(workflow)}
+                  onClick={() => onContinueWorkflow?.(currentWorkflow)}
                 >
                   <Play className="h-4 w-4 fill-current" />
                   {continueState.label}

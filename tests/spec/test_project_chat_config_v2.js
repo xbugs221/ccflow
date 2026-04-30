@@ -19,6 +19,11 @@ import {
   readProjectConf,
   withIsolatedProject,
 } from './helpers/conf-v2-fixtures.js';
+import {
+  advanceWorkflow,
+  buildWorkflowLauncherConfig,
+  createProjectWorkflow,
+} from '../../server/workflows.js';
 
 test('Scenario: 保存项目配置时写入 v2 分组结构', async () => {
   await withIsolatedProject(async ({ projectPath }) => {
@@ -59,6 +64,116 @@ test('Scenario: 重复保存相同项目配置不会刷新 conf.json', async () 
 
     assert.equal(persisted.endsWith('\n'), true);
     assert.equal(secondStat.mtimeMs, firstStat.mtimeMs);
+  });
+});
+
+test('Scenario: workflow 归一化精简派生字段', async () => {
+  await withIsolatedProject(async ({ projectPath }) => {
+    await saveProjectConfig({
+      schemaVersion: 2,
+      workflows: {
+        2: {
+          title: '清理技术债',
+          legacyWorkflowId: 'w2',
+          routeIndex: 2,
+          openspecChangePrefix: '1',
+          openspecChangeName: '1-clean-debt',
+          stage: 'archive',
+          openspecChangeDetected: true,
+          openspecTaskProgress: { completedTasks: 1, totalTasks: 1 },
+          stageStatuses: [
+            { key: 'planning', label: '规划提案', status: 'completed', provider: 'codex' },
+            { key: 'execution', label: '执行', status: 'completed', provider: 'claude' },
+            { key: 'review_1', label: '初审', status: 'completed', provider: 'codex' },
+            { key: 'repair_1', label: '初修', status: 'completed', provider: 'codex' },
+            { key: 'review_2', label: '再审', status: 'completed', provider: 'codex' },
+            { key: 'repair_2', label: '再修', status: 'completed', provider: 'codex' },
+            { key: 'review_3', label: '三审', status: 'completed', provider: 'codex' },
+            { key: 'repair_3', label: '三修', status: 'pending', provider: 'codex' },
+            { key: 'archive', label: '归档', status: 'active', provider: 'claude' },
+          ],
+          chat: {
+            1: {
+              sessionId: 'c1',
+              title: '提案落地：清理技术债',
+              summary: '提案落地：清理技术债',
+              provider: 'claude',
+              stageKey: 'execution',
+            },
+          },
+        },
+      },
+    }, projectPath);
+
+    const confPath = new URL(`file://${projectPath}/.ccflow/conf.json`);
+    const firstStat = await fs.stat(confPath);
+    await saveProjectConfig(await loadProjectConfig(projectPath), projectPath);
+    const secondStat = await fs.stat(confPath);
+    const persisted = await readProjectConf(projectPath);
+
+    assert.equal('legacyWorkflowId' in persisted.workflows['2'], false);
+    assert.equal('routeIndex' in persisted.workflows['2'], false);
+    assert.equal('stageStatuses' in persisted.workflows['2'], false);
+    assert.equal('openspecChangeDetected' in persisted.workflows['2'], false);
+    assert.equal('openspecTaskProgress' in persisted.workflows['2'], false);
+    assert.equal('openspecChangePrefix' in persisted.workflows['2'], false);
+    assert.deepEqual(persisted.workflows['2'].providers, {
+      execution: 'claude',
+      archive: 'claude',
+    });
+    assert.deepEqual(persisted.workflows['2'].stageState, {
+      repair_3: 'pending',
+    });
+    assert.equal('summary' in persisted.workflows['2'].chat['1'], false);
+    assert.equal(secondStat.mtimeMs, firstStat.mtimeMs);
+  });
+});
+
+test('Scenario: workflow 推进时保留已选 provider', async () => {
+  await withIsolatedProject(async ({ projectPath }) => {
+    const project = await addProjectManually(projectPath, 'Conf V2 Workflow Provider Demo');
+    const workflow = await createProjectWorkflow(project, {
+      title: '多 Claude 阶段',
+      objective: '验证推进后 provider 不回落为 codex',
+      stageProviders: {
+        planning: 'claude',
+        execution: 'claude',
+        archive: 'claude',
+      },
+    });
+
+    const advanced = await advanceWorkflow(project, workflow.id);
+    const persisted = await readProjectConf(projectPath);
+
+    assert.equal(advanced.stageStatuses.find((stage) => stage.key === 'execution').provider, 'claude');
+    assert.deepEqual(persisted.workflows['1'].providers, {
+      planning: 'claude',
+      execution: 'claude',
+      archive: 'claude',
+    });
+    assert.equal('stageStatuses' in persisted.workflows['1'], false);
+  });
+});
+
+test('Scenario: workflow 归档启动提示词要求 delivery summary', async () => {
+  await withIsolatedProject(async ({ projectPath }) => {
+    const project = await addProjectManually(projectPath, 'Conf V2 Archive Prompt Demo');
+    await saveProjectConfig({
+      schemaVersion: 2,
+      workflows: {
+        1: {
+          title: '清理技术债',
+          openspecChangeName: '1-clean-debt',
+          stage: 'archive',
+        },
+      },
+    }, projectPath);
+
+    const launcher = await buildWorkflowLauncherConfig(project, 'w1', 'archive');
+
+    assert.equal(launcher.workflowStageKey, 'archive');
+    assert.match(launcher.autoPrompt, /delivery-summary\.md/);
+    assert.match(launcher.autoPrompt, /必须生成或更新/);
   });
 });
 
@@ -162,6 +277,26 @@ test('Scenario: WebUI 普通草稿 finalize', async () => {
     assert.equal(persisted.chat['1'].title, '会话1');
     assert.equal(persisted.chat['1'].model, 'gpt-5.5');
     assert.equal(persisted.chat['1'].reasoningEffort, 'medium');
+  });
+});
+
+test('Scenario: WebUI 草稿不会 finalize 到自身路由 id', async () => {
+  await withIsolatedProject(async ({ projectPath }) => {
+    const project = await addProjectManually(projectPath, 'Conf V2 Self Finalize Guard Demo');
+    const draft = await createManualSessionDraft(project.name, projectPath, 'codex', '会话1');
+
+    const finalized = await finalizeManualSessionDraft(
+      project.name,
+      draft.id,
+      draft.id,
+      'codex',
+      projectPath,
+    );
+    const persisted = await readProjectConf(projectPath);
+
+    assert.equal(finalized, false);
+    assert.equal(persisted.chat['1'].sessionId, draft.id);
+    assert.equal(persisted.chat['1'].title, '会话1');
   });
 });
 

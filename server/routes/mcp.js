@@ -240,21 +240,33 @@ router.delete('/cli/remove/:name', async (req, res) => {
     // Handle the ID format (remove scope prefix if present)
     let actualName = name;
     let actualScope = scope;
-    
-    // If the name includes a scope prefix like "local:test", extract it
-    if (name.includes(':')) {
-      const [prefix, serverName] = name.split(':');
-      actualName = serverName;
-      actualScope = actualScope || prefix; // Use prefix as scope if not provided in query
+    let projectPathFromId = null;
+
+    if (name.startsWith('local:')) {
+      const afterLocal = name.slice(6);
+      actualScope = actualScope || 'local';
+      // Check if it contains a project path (format: local:projectPath:name)
+      const lastColonIndex = afterLocal.lastIndexOf(':');
+      if (lastColonIndex > 0) {
+        projectPathFromId = afterLocal.slice(0, lastColonIndex);
+        actualName = afterLocal.slice(lastColonIndex + 1);
+      } else {
+        actualName = afterLocal;
+      }
+    } else if (name.startsWith('user:')) {
+      actualScope = actualScope || 'user';
+      actualName = name.slice(5);
     }
     
-    console.log('🗑️ Removing MCP server using Claude CLI:', actualName, 'scope:', actualScope);
-    
+    const effectiveProjectPath = req.query.projectPath || projectPathFromId;
+
+    console.log('🗑️ Removing MCP server using Claude CLI:', actualName, 'scope:', actualScope, 'projectPath:', effectiveProjectPath);
+
     const { spawn } = await import('child_process');
-    
+
     // Build command args based on scope
     let cliArgs = ['mcp', 'remove'];
-    
+
     // Add scope flag if it's local scope
     if (actualScope === 'local') {
       cliArgs.push('--scope', 'local');
@@ -262,14 +274,21 @@ router.delete('/cli/remove/:name', async (req, res) => {
       // User scope is default, but we can be explicit
       cliArgs.push('--scope', 'user');
     }
-    
+
     cliArgs.push(actualName);
-    
+
     console.log('🔧 Running Claude CLI command:', 'claude', cliArgs.join(' '));
-    
-    const process = spawn('claude', cliArgs, {
+
+    const spawnOptions = {
       stdio: ['pipe', 'pipe', 'pipe']
-    });
+    };
+
+    if (actualScope === 'local' && effectiveProjectPath) {
+      spawnOptions.cwd = effectiveProjectPath;
+      console.log('📁 Running in project directory:', effectiveProjectPath);
+    }
+
+    const process = spawn('claude', cliArgs, spawnOptions);
     
     let stdout = '';
     let stderr = '';
@@ -412,38 +431,68 @@ router.get('/config/read', async (req, res) => {
       }
     }
     
-    // Check for local-scoped MCP servers (project-specific)
-    const currentProjectPath = process.cwd();
-    
-    // Check under 'projects' key
-    if (configData.projects && configData.projects[currentProjectPath]) {
-      const projectConfig = configData.projects[currentProjectPath];
-      if (projectConfig.mcpServers && typeof projectConfig.mcpServers === 'object' && Object.keys(projectConfig.mcpServers).length > 0) {
-        console.log(`🔍 Found local-scoped MCP servers for ${currentProjectPath}:`, Object.keys(projectConfig.mcpServers));
-        for (const [name, config] of Object.entries(projectConfig.mcpServers)) {
-          const server = {
-            id: `local:${name}`,  // Prefix with scope for uniqueness
-            name: name,           // Keep original name
-            type: 'stdio', // Default type
-            scope: 'local',  // Local scope - only for this project
-            projectPath: currentProjectPath,
-            config: {},
-            raw: config // Include raw config for full details
-          };
-          
-          // Determine transport type and extract config
-          if (config.command) {
-            server.type = 'stdio';
-            server.config.command = config.command;
-            server.config.args = config.args || [];
-            server.config.env = config.env || {};
-          } else if (config.url) {
-            server.type = config.transport || 'http';
-            server.config.url = config.url;
-            server.config.headers = config.headers || {};
+    // Check for local-scoped MCP servers (project-specific) under 'projects' key
+    if (configData.projects && typeof configData.projects === 'object') {
+      for (const [projectPath, projectConfig] of Object.entries(configData.projects)) {
+        if (projectConfig.mcpServers && typeof projectConfig.mcpServers === 'object' && Object.keys(projectConfig.mcpServers).length > 0) {
+          console.log(`🔍 Found local-scoped MCP servers for ${projectPath}:`, Object.keys(projectConfig.mcpServers));
+          for (const [name, config] of Object.entries(projectConfig.mcpServers)) {
+            const server = {
+              id: `local:${projectPath}:${name}`,
+              name: name,
+              type: 'stdio',
+              scope: 'local',
+              projectPath: projectPath,
+              config: {},
+              raw: config
+            };
+
+            if (config.command) {
+              server.type = 'stdio';
+              server.config.command = config.command;
+              server.config.args = config.args || [];
+              server.config.env = config.env || {};
+            } else if (config.url) {
+              server.type = config.transport || 'http';
+              server.config.url = config.url;
+              server.config.headers = config.headers || {};
+            }
+
+            servers.push(server);
           }
-          
-          servers.push(server);
+        }
+      }
+    }
+
+    // Also check under 'claudeProjects' key for compatibility with older Claude CLI versions
+    if (configData.claudeProjects && typeof configData.claudeProjects === 'object') {
+      for (const [projectPath, projectConfig] of Object.entries(configData.claudeProjects)) {
+        if (projectConfig.mcpServers && typeof projectConfig.mcpServers === 'object' && Object.keys(projectConfig.mcpServers).length > 0) {
+          console.log(`🔍 Found local-scoped MCP servers (claudeProjects) for ${projectPath}:`, Object.keys(projectConfig.mcpServers));
+          for (const [name, config] of Object.entries(projectConfig.mcpServers)) {
+            const server = {
+              id: `local:${projectPath}:${name}`,
+              name: name,
+              type: 'stdio',
+              scope: 'local',
+              projectPath: projectPath,
+              config: {},
+              raw: config
+            };
+
+            if (config.command) {
+              server.type = 'stdio';
+              server.config.command = config.command;
+              server.config.args = config.args || [];
+              server.config.env = config.env || {};
+            } else if (config.url) {
+              server.type = config.transport || 'http';
+              server.config.url = config.url;
+              server.config.headers = config.headers || {};
+            }
+
+            servers.push(server);
+          }
         }
       }
     }
@@ -468,51 +517,70 @@ router.get('/config/read', async (req, res) => {
 function parseClaudeListOutput(output) {
   const servers = [];
   const lines = output.split('\n').filter(line => line.trim());
-  
+
   for (const line of lines) {
     // Skip the header line
     if (line.includes('Checking MCP server health')) continue;
-    
+
+    let processedLine = line;
+    let isPlugin = false;
+
+    // Handle plugin prefix: lines like "plugin:context-mode:context-mode: node ..."
+    if (processedLine.startsWith('plugin:')) {
+      processedLine = processedLine.slice(7);
+      isPlugin = true;
+    }
+
     // Parse lines like "test: test test - ✗ Failed to connect"
     // or "server-name: command or description - ✓ Connected"
-    if (line.includes(':')) {
-      const colonIndex = line.indexOf(':');
-      const name = line.substring(0, colonIndex).trim();
-      
-      // Skip empty names
-      if (!name) continue;
-      
-      // Extract the rest after the name
-      const rest = line.substring(colonIndex + 1).trim();
-      
-      // Try to extract description and status
-      let description = rest;
-      let status = 'unknown';
-      let type = 'stdio'; // default type
-      
-      // Check for status indicators
-      if (rest.includes('✓') || rest.includes('✗')) {
-        const statusMatch = rest.match(/(.*?)\s*-\s*([✓✗].*)$/);
-        if (statusMatch) {
-          description = statusMatch[1].trim();
-          status = statusMatch[2].includes('✓') ? 'connected' : 'failed';
-        }
-      }
-      
-      // Try to determine type from description
-      if (description.startsWith('http://') || description.startsWith('https://')) {
-        type = 'http';
-      }
-      
-      servers.push({
-        name,
-        type,
-        status: status || 'active',
-        description
-      });
+    // or "context-mode:context-mode: node /path... - ✓ Connected" (plugin)
+    // Use ": " (colon+space) as separator when possible, fall back to first ":"
+    let separatorIndex = processedLine.indexOf(': ');
+    if (separatorIndex < 0) {
+      separatorIndex = processedLine.indexOf(':');
     }
+    if (separatorIndex < 0) continue;
+
+    const name = processedLine.substring(0, separatorIndex).trim();
+    // Skip empty names
+    if (!name) continue;
+
+    // Extract the rest after the name
+    const rest = processedLine.substring(
+      separatorIndex + (processedLine.indexOf(': ') === separatorIndex ? 2 : 1)
+    ).trim();
+
+    // Try to extract description and status
+    let description = rest;
+    let status = 'unknown';
+    let type = 'stdio'; // default type
+
+    // Check for status indicators
+    if (rest.includes('✓') || rest.includes('✗')) {
+      const statusMatch = rest.match(/(.*?)\s*-\s*([✓✗].*)$/);
+      if (statusMatch) {
+        description = statusMatch[1].trim();
+        status = statusMatch[2].includes('✓') ? 'connected' : 'failed';
+      }
+    }
+
+    // Try to determine type from description
+    if (description.startsWith('http://') || description.startsWith('https://')) {
+      type = 'http';
+    }
+
+    if (isPlugin) {
+      type = 'plugin';
+    }
+
+    servers.push({
+      name: isPlugin ? `plugin:${name}` : name,
+      type,
+      status: status || 'active',
+      description
+    });
   }
-  
+
   console.log('🔍 Parsed Claude CLI servers:', servers);
   return servers;
 }

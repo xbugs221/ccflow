@@ -105,6 +105,17 @@ const isSessionCreatedForPendingView = (
   return latestMessage.clientRequestId === expectedRequestId;
 };
 
+/**
+ * Check whether a lifecycle event belongs to the optimistic request in this view.
+ */
+const isMessageForPendingRequest = (
+  latestMessage: LatestChatMessage,
+  pendingViewSession: PendingViewSession | null,
+): boolean => {
+  const expectedRequestId = pendingViewSession?.clientRequestId;
+  return Boolean(expectedRequestId && latestMessage.clientRequestId === expectedRequestId);
+};
+
 const buildWorkflowNavigationOptions = (
   selectedProject: Project | null,
   selectedSession: ProjectSession | null,
@@ -170,7 +181,7 @@ const markAcceptedUserMessageSent = (
 };
 
 /**
- * Mark optimistic user sends as persisted once the backend reports the agent turn is complete.
+ * Mark optimistic user sends as persisted once the provider confirms JSONL-backed session history.
  */
 const markUserMessagesPersisted = (
   msgs: ChatMessage[],
@@ -191,7 +202,7 @@ const appendStreamingChunk = (
   }
 
   setChatMessages((previous) => {
-    const updated = [...previous];
+    const updated = markUserMessagesPersisted(previous);
     const lastIndex = updated.length - 1;
     const last = updated[lastIndex];
     if (last && last.type === 'assistant' && !last.isToolUse && last.isStreaming) {
@@ -203,7 +214,14 @@ const appendStreamingChunk = (
       // Clone the message instead of mutating in place so React can reliably detect state updates.
       updated[lastIndex] = { ...last, content: nextContent };
     } else {
-      updated.push({ type: 'assistant', content: chunk, timestamp: new Date(), isStreaming: true });
+      updated.push({
+        type: 'assistant',
+        content: chunk,
+        timestamp: new Date(),
+        isStreaming: true,
+        source: 'claude-realtime',
+        messageKey: `streaming-${Date.now()}`,
+      });
     }
     return markPendingUserMessagesDelivered(updated);
   });
@@ -401,7 +419,8 @@ export function useChatRealtimeHandlers({
         systemInitSessionId && (!activeViewSessionId || systemInitSessionId === activeViewSessionId);
       const shouldBypassSessionFilter = isGlobalMessage
         || Boolean(isSystemInitForView)
-        || (latestMessage.type === 'session-created' && isTemporaryViewSession);
+        || (latestMessage.type === 'session-created' && isTemporaryViewSession)
+        || isMessageForPendingRequest(latestMessage, pendingViewSessionRef.current);
       const isUnscopedError =
         !latestMessage.sessionId &&
         pendingViewSessionRef.current &&
@@ -510,7 +529,7 @@ export function useChatRealtimeHandlers({
               request.sessionId ? request : { ...request, sessionId: latestMessage.sessionId },
             ),
           );
-          setChatMessages((previous) => markPendingUserMessagesDelivered(previous));
+          setChatMessages((previous) => markUserMessagesPersisted(previous));
           return;
         }
 
@@ -527,7 +546,7 @@ export function useChatRealtimeHandlers({
             buildWorkflowNavigationOptions(selectedProject, selectedSession, provider),
           );
         }
-        setChatMessages((previous) => markPendingUserMessagesDelivered(previous));
+        setChatMessages((previous) => markUserMessagesPersisted(previous));
         break;
 
       case 'token-budget':
@@ -640,12 +659,13 @@ export function useChatRealtimeHandlers({
               const isSubagentContainer = part.name === 'Task' || part.name === 'Agent';
 
               setChatMessages((previous) => [
-                ...previous,
+                ...markUserMessagesPersisted(previous),
                 {
                   type: 'assistant',
                   content: '',
                   timestamp: new Date(),
                   isToolUse: true,
+                  source: 'claude-realtime',
                   toolName: part.name,
                   toolInput,
                   toolId: part.id,
@@ -663,11 +683,12 @@ export function useChatRealtimeHandlers({
               let content = decodeHtmlEntities(part.text);
               content = formatUsageLimitText(content);
               setChatMessages((previous) => [
-                ...previous,
+                ...markUserMessagesPersisted(previous),
                 {
                   type: 'assistant',
                   content,
                   timestamp: new Date(),
+                  source: 'claude-realtime',
                 },
               ]);
             }
@@ -676,11 +697,12 @@ export function useChatRealtimeHandlers({
           let content = decodeHtmlEntities(structuredMessageData.content);
           content = formatUsageLimitText(content);
           setChatMessages((previous) => [
-            ...previous,
+            ...markUserMessagesPersisted(previous),
             {
               type: 'assistant',
               content,
               timestamp: new Date(),
+              source: 'claude-realtime',
             },
           ]);
         }
@@ -776,6 +798,7 @@ export function useChatRealtimeHandlers({
               content: interactiveContent,
               timestamp: new Date(),
               isInteractivePrompt: true,
+              source: 'claude-realtime',
             },
           ]);
         }

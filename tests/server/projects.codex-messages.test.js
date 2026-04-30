@@ -183,6 +183,54 @@ test('getCodexSessionMessages returns only new mapped messages when afterLine is
   });
 });
 
+test('getCodexSessionMessages collapses duplicated Codex user echo records', async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const sessionId = 'codex-duplicate-user-echo';
+    const sessionsDir = path.join(tempHome, '.codex', 'sessions', '2026', '04', '30');
+    const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
+    const prompt = '把工作区的stage变更合并到 02080295 这个commit里';
+
+    await fs.mkdir(sessionsDir, { recursive: true });
+    await fs.writeFile(
+      sessionFile,
+      [
+        JSON.stringify({
+          type: 'response_item',
+          timestamp: '2026-04-30T03:40:29.604Z',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: prompt }],
+          },
+        }),
+        JSON.stringify({
+          type: 'event_msg',
+          timestamp: '2026-04-30T03:40:29.605Z',
+          payload: {
+            type: 'user_message',
+            message: prompt,
+          },
+        }),
+        JSON.stringify({
+          type: 'response_item',
+          timestamp: '2026-04-30T03:40:30.604Z',
+          payload: {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: '已处理' }],
+          },
+        }),
+      ].join('\n') + '\n',
+      'utf8',
+    );
+
+    const result = await getCodexSessionMessages(sessionId, null, 0, null);
+
+    assert.equal(result.messages.filter((message) => message.type === 'user').length, 1);
+    assert.equal(result.messages.length, 2);
+  });
+});
+
 test('getCodexSessionMessages limits initial history to the newest requested lines', async () => {
   await withTemporaryHome(async (tempHome) => {
     const sessionId = 'codex-tail-window-session';

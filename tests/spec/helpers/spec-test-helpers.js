@@ -166,10 +166,13 @@ export async function getFixtureProject(request) {
  * Open the main shell and select the primary fixture project from the sidebar.
  *
  * @param {import('@playwright/test').Page} page
+ * @param {{ reset?: boolean }} [options]
  * @returns {Promise<void>}
  */
-export async function openFixtureProject(page) {
-  ensurePlaywrightFixture({ preserveAuthDatabase: true });
+export async function openFixtureProject(page, options = {}) {
+  if (options.reset !== false) {
+    ensurePlaywrightFixture({ preserveAuthDatabase: true });
+  }
   await authenticatePage(page);
   let isAuthenticated = false;
 

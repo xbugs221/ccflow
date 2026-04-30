@@ -459,8 +459,10 @@ async function loadMcpConfig(cwd) {
     }
 
     // Add/override with project-specific MCP servers
-    if (claudeConfig.claudeProjects && cwd) {
-      const projectConfig = claudeConfig.claudeProjects[cwd];
+    // Check both 'claudeProjects' (older format) and 'projects' (current Claude CLI format)
+    const projectsKey = claudeConfig.claudeProjects ? 'claudeProjects' : (claudeConfig.projects ? 'projects' : null);
+    if (projectsKey && cwd) {
+      const projectConfig = claudeConfig[projectsKey][cwd];
       if (projectConfig && projectConfig.mcpServers && typeof projectConfig.mcpServers === 'object') {
         mcpServers = { ...mcpServers, ...projectConfig.mcpServers };
         console.log(`Loaded ${Object.keys(projectConfig.mcpServers).length} project-specific MCP servers`);
@@ -665,6 +667,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     ws.send({
       type: 'claude-complete',
       sessionId: capturedSessionId,
+      clientRequestId,
       exitCode: 0,
       isNewSession: !sessionId && !!command
     });

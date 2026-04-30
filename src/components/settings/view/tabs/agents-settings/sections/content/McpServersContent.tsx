@@ -34,7 +34,7 @@ type ClaudeMcpServersProps = {
   servers: McpServer[];
   onAdd: () => void;
   onEdit: (server: McpServer) => void;
-  onDelete: (serverId: string, scope?: string) => void;
+  onDelete: (serverId: string, scope?: string, projectPath?: string) => void;
   onTest: (serverId: string, scope?: string) => void;
   onDiscoverTools: (serverId: string, scope?: string) => void;
   testResults: Record<string, McpTestResult>;
@@ -153,24 +153,28 @@ function ClaudeMcpServers({
                 </div>
 
                 <div className="flex items-center gap-2 ml-4">
-                  <Button
-                    onClick={() => onEdit(server)}
-                    variant="ghost"
-                    size="sm"
-                    className="text-gray-600 hover:text-gray-700"
-                    title={t('mcpServers.actions.edit')}
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    onClick={() => onDelete(serverId, server.scope)}
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-600 hover:text-red-700"
-                    title={t('mcpServers.actions.delete')}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  {server.type !== 'plugin' && (
+                    <>
+                      <Button
+                        onClick={() => onEdit(server)}
+                        variant="ghost"
+                        size="sm"
+                        className="text-gray-600 hover:text-gray-700"
+                        title={t('mcpServers.actions.edit')}
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        onClick={() => onDelete(serverId, server.scope, server.projectPath)}
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700"
+                        title={t('mcpServers.actions.delete')}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

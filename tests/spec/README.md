@@ -6,9 +6,17 @@
 
 - `test_session_management_refactor.js`: 派生自 `openspec/changes/24-session-management-refactor/specs/session-management-refactor/spec.md`，覆盖 ccflow 会话身份、并发绑定、pending 恢复、事件重放、历史校准和 steer 干预。
 
+## 26-workflow-stage-provider-selection
+
+- `workflow-stage-provider.spec.js`: 派生自 `openspec/changes/26-workflow-stage-provider-selection/specs/workflow-stage-provider-selection/spec.md` 和 `openspec/changes/26-workflow-stage-provider-selection/specs/project-workflow-control-plane/spec.md`，覆盖工作流各阶段 provider 配置（创建时预设、运行时调整、launcher payload 分发、旧工作流向后兼容）。
+
 ## 运行
 
 ```bash
+# 运行全部 Playwright spec 测试
+pnpm exec playwright test tests/spec/workflow-stage-provider.spec.js
+
+# 或运行单个变更的验收测试
 node --test tests/spec/test_session_management_refactor.js
 ```
 

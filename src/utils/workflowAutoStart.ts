@@ -15,6 +15,7 @@ export type NewSessionOptions = {
   workflowRepairPass?: number;
   workflowReviewProfile?: string;
   autoPrompt?: string;
+  provider?: SessionProvider;
 };
 
 type WorkflowDraftSessionResult = Pick<

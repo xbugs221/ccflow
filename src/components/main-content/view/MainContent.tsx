@@ -381,7 +381,7 @@ function MainContent({
                       return;
                     }
                     const launcherOptions = (await response.json()) as NewSessionOptions;
-                    onNewSession(selectedProject, 'codex', launcherOptions);
+                    onNewSession(selectedProject, launcherOptions.provider || 'codex', launcherOptions);
                     return;
                   }
 
@@ -411,7 +411,7 @@ function MainContent({
                   return;
                 }
                 const launcherOptions = (await response.json()) as NewSessionOptions;
-                onNewSession(selectedProject, 'codex', launcherOptions);
+                onNewSession(selectedProject, launcherOptions.provider || 'codex', launcherOptions);
               }}
             />
           </div>

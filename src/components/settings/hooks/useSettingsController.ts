@@ -284,39 +284,43 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
 
   const fetchMcpServers = useCallback(async () => {
     try {
+      let allServers: McpServer[] = [];
+
+      // 1. Read from config file (most complete info: command, args, env, etc.)
       const configResponse = await authenticatedFetch('/api/mcp/config/read');
       if (configResponse.ok) {
         const configData = await toResponseJson<McpReadResponse>(configResponse);
         if (configData.success && configData.servers) {
-          setMcpServers(configData.servers);
-          return;
+          allServers = [...configData.servers];
         }
       }
 
+      // 2. Always query CLI list to include plugins and any servers not in config file
       const cliResponse = await authenticatedFetch('/api/mcp/cli/list');
       if (cliResponse.ok) {
         const cliData = await toResponseJson<McpCliReadResponse>(cliResponse);
         if (cliData.success && cliData.servers) {
-          setMcpServers(mapCliServersToMcpServers(cliData.servers));
-          return;
+          const cliServers = mapCliServersToMcpServers(cliData.servers);
+          const existingNames = new Set(allServers.map((s) => s.name));
+          for (const cliServer of cliServers) {
+            if (!existingNames.has(cliServer.name)) {
+              allServers.push(cliServer);
+            }
+          }
         }
       }
 
-      const fallbackResponse = await authenticatedFetch('/api/mcp/servers?scope=user');
-      if (!fallbackResponse.ok) {
-        console.error('Failed to fetch MCP servers');
-        return;
-      }
-
-      const fallbackData = await toResponseJson<{ servers?: McpServer[] }>(fallbackResponse);
-      setMcpServers(fallbackData.servers || []);
+      setMcpServers(allServers);
     } catch (error) {
       console.error('Error fetching MCP servers:', error);
     }
   }, []);
 
-  const deleteMcpServer = useCallback(async (serverId: string, scope = 'user') => {
-    const response = await authenticatedFetch(`/api/mcp/cli/remove/${serverId}?scope=${scope}`, {
+  const deleteMcpServer = useCallback(async (serverId: string, scope = 'user', projectPath?: string) => {
+    const queryParams = new URLSearchParams();
+    if (scope) queryParams.set('scope', scope);
+    if (projectPath) queryParams.set('projectPath', projectPath);
+    const response = await authenticatedFetch(`/api/mcp/cli/remove/${serverId}?${queryParams.toString()}`, {
       method: 'DELETE',
     });
 
@@ -420,14 +424,14 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
   );
 
   const handleMcpDelete = useCallback(
-    async (serverId: string, scope = 'user') => {
+    async (serverId: string, scope = 'user', projectPath?: string) => {
       if (!window.confirm('Are you sure you want to delete this MCP server?')) {
         return;
       }
 
       setDeleteError(null);
       try {
-        await deleteMcpServer(serverId, scope);
+        await deleteMcpServer(serverId, scope, projectPath);
         await fetchMcpServers();
         setDeleteError(null);
         setSaveStatus('success');

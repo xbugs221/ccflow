@@ -27,6 +27,7 @@ import { useFileMentions } from './useFileMentions';
 import { type SlashCommand, useSlashCommands } from './useSlashCommands';
 import type { Project, ProjectSession, SessionProvider } from '../../../types/app';
 import { escapeRegExp } from '../utils/chatFormatting';
+import { dedupeAdjacentChatMessages } from '../utils/messageDedup';
 import { useWebSocket } from '../../../contexts/WebSocketContext';
 
 type PendingViewSession = {
@@ -90,6 +91,12 @@ const MAX_CHAT_ATTACHMENT_COUNT = 100;
 
 const isTemporarySessionId = (sessionId: string | null | undefined) =>
   Boolean(sessionId && (sessionId.startsWith('new-session-') || /^c\d+$/.test(sessionId)));
+
+/**
+ * Check whether a session id is a ccflow route alias that should scope realtime events.
+ */
+const isCcflowRouteSessionId = (sessionId: string | null | undefined) =>
+  Boolean(sessionId && /^c\d+$/.test(sessionId));
 
 const DISCONNECTED_SUBMIT_MESSAGE =
   '当前与服务端的实时连接已断开，消息不会被发送。请等待重连后重试。';
@@ -213,7 +220,14 @@ export function useChatComposerState({
   const [uploadingAttachments, setUploadingAttachments] = useState<Map<string, number>>(new Map());
   const [attachmentErrors, setAttachmentErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
-  const [thinkingMode, setThinkingMode] = useState('disabled');
+  const [thinkingMode, setThinkingMode] = useState(() => {
+    try {
+      const cached = localStorage.getItem('ccflow-thinking-mode');
+      return cached || 'disabled';
+    } catch {
+      return 'disabled';
+    }
+  });
   const [composerSubmitPhase, setComposerSubmitPhase] = useState<ComposerSubmitPhase>('idle');
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -629,7 +643,7 @@ export function useChatComposerState({
         submittedContent: messageContent,
       };
 
-      setChatMessages((previous) => [...previous, userMessage]);
+      setChatMessages((previous) => dedupeAdjacentChatMessages([...previous, userMessage]) as ChatMessage[]);
       armUserMessageDeliveryTimeout(clientRequestId);
       updateComposerSubmitPhase('dispatching');
       // Disable abort before dispatching the new command to prevent a stale
@@ -651,12 +665,17 @@ export function useChatComposerState({
         && codexModelSwitchSessionId === selectedSession.id;
       const candidateSessionId = currentSessionId || selectedSession?.id || null;
       const effectiveSessionId =
-        shouldCreateNewCodexSession || isTemporarySessionId(candidateSessionId)
+        shouldCreateNewCodexSession || isTemporarySessionId(candidateSessionId) || isCcflowRouteSessionId(candidateSessionId)
           ? null
           : candidateSessionId;
-      const ccflowSessionId = !effectiveSessionId && isTemporarySessionId(candidateSessionId)
-        ? candidateSessionId
+      const selectedRouteSessionId = isCcflowRouteSessionId(selectedSession?.id)
+        ? selectedSession?.id || null
         : null;
+      const ccflowSessionId = selectedRouteSessionId || (
+        !effectiveSessionId && isCcflowRouteSessionId(candidateSessionId)
+          ? candidateSessionId
+          : null
+      );
       const sessionToActivate = candidateSessionId || effectiveSessionId || `new-session-${Date.now()}`;
 
       if (!effectiveSessionId && (!selectedSession?.id || isTemporarySessionId(selectedSession.id))) {
@@ -854,6 +873,14 @@ export function useChatComposerState({
   useEffect(() => {
     inputValueRef.current = input;
   }, [input]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('ccflow-thinking-mode', thinkingMode);
+    } catch {
+      // Ignore localStorage errors.
+    }
+  }, [thinkingMode]);
 
   useEffect(() => {
     if (!selectedProject) {

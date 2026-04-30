@@ -41,6 +41,47 @@ const CARD_SORT_OPTIONS: Array<{ value: SessionCardSortMode; label: string }> = 
   { value: 'provider', label: 'Provider' },
 ];
 
+const WORKFLOW_STAGE_PROVIDER_OPTIONS: Array<{ key: string; label: string }> = [
+  { key: 'planning', label: '规划提案' },
+  { key: 'execution', label: '执行' },
+  { key: 'review_1', label: '初审' },
+  { key: 'repair_1', label: '初修' },
+  { key: 'review_2', label: '再审' },
+  { key: 'repair_2', label: '再修' },
+  { key: 'review_3', label: '三审' },
+  { key: 'repair_3', label: '三修' },
+  { key: 'archive', label: '归档' },
+];
+
+function buildDefaultStageProviders(): Record<string, SessionProvider> {
+  /**
+   * PURPOSE: Give project overview workflow creation the same provider defaults as sidebars.
+   */
+  return Object.fromEntries(
+    WORKFLOW_STAGE_PROVIDER_OPTIONS.map((stage) => [stage.key, 'codex' as SessionProvider]),
+  );
+}
+
+function buildExplicitStageProviders(
+  stageProviders: Record<string, SessionProvider>,
+  enabled: boolean,
+): Record<string, SessionProvider> | undefined {
+  /**
+   * PURPOSE: Avoid sending implicit codex defaults when the create form did not configure stages.
+   */
+  if (!enabled) {
+    return undefined;
+  }
+  const explicitProviders = WORKFLOW_STAGE_PROVIDER_OPTIONS.reduce<Record<string, SessionProvider>>((providers, stage) => {
+    const provider = stageProviders[stage.key] === 'claude' ? 'claude' : 'codex';
+    if (provider !== 'codex') {
+      providers[stage.key] = provider;
+    }
+    return providers;
+  }, {});
+  return Object.keys(explicitProviders).length > 0 ? explicitProviders : undefined;
+}
+
 /**
  * Read the visible session number from the same stable index used by `/cN` URLs.
  */
@@ -232,6 +273,10 @@ export default function ProjectOverviewPanel({
   const [workflowComposerOpen, setWorkflowComposerOpen] = useState(false);
   const [workflowTitleInput, setWorkflowTitleInput] = useState('');
   const [workflowObjectiveInput, setWorkflowObjectiveInput] = useState('');
+  const [workflowStageProviders, setWorkflowStageProviders] = useState<Record<string, SessionProvider>>(
+    () => buildDefaultStageProviders(),
+  );
+  const [workflowStageConfigOpen, setWorkflowStageConfigOpen] = useState(false);
   const [availableOpenSpecChanges, setAvailableOpenSpecChanges] = useState<string[]>([]);
   const [selectedOpenSpecChange, setSelectedOpenSpecChange] = useState('');
   const [isLoadingOpenSpecChanges, setIsLoadingOpenSpecChanges] = useState(false);
@@ -501,6 +546,8 @@ export default function ProjectOverviewPanel({
     setWorkflowComposerOpen(false);
     setWorkflowTitleInput('');
     setWorkflowObjectiveInput('');
+    setWorkflowStageProviders(buildDefaultStageProviders());
+    setWorkflowStageConfigOpen(false);
     setAvailableOpenSpecChanges([]);
     setSelectedOpenSpecChange('');
     setWorkflowComposerError('');
@@ -526,6 +573,7 @@ export default function ProjectOverviewPanel({
         title,
         objective,
         openspecChangeName: openspecChangeName || undefined,
+        stageProviders: buildExplicitStageProviders(workflowStageProviders, workflowStageConfigOpen),
       });
       if (!response.ok) {
         setWorkflowComposerError('创建工作流失败，请稍后重试。');
@@ -881,6 +929,35 @@ export default function ProjectOverviewPanel({
                     ))}
                   </select>
                 </label>
+                <details
+                  className="rounded-md border border-border/60 p-3 md:col-span-2"
+                  open={workflowStageConfigOpen}
+                  onToggle={(event) => setWorkflowStageConfigOpen(event.currentTarget.open)}
+                >
+                  <summary className="cursor-pointer text-sm font-medium text-foreground">阶段配置</summary>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {WORKFLOW_STAGE_PROVIDER_OPTIONS.map((stage) => (
+                      <label key={stage.key} className="flex items-center justify-between gap-2 text-sm text-foreground">
+                        <span>{stage.label}</span>
+                        <select
+                          data-testid={`workflow-stage-provider-${stage.key}`}
+                          className="h-8 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+                          value={workflowStageProviders[stage.key] || 'codex'}
+                          onChange={(event) => {
+                            const provider = event.target.value === 'claude' ? 'claude' : 'codex';
+                            setWorkflowStageProviders((current) => ({
+                              ...current,
+                              [stage.key]: provider,
+                            }));
+                          }}
+                        >
+                          <option value="codex">codex</option>
+                          <option value="claude">claude</option>
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                </details>
               </div>
               <p className="mt-3 text-sm text-muted-foreground">
                 {selectedOpenSpecChange

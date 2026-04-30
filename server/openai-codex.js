@@ -28,6 +28,11 @@ import { appendAttachmentNote } from './chat-attachments.js';
 const activeCodexSessions = new Map();
 let shellProxyEnvPromise = null;
 const CODEX_SESSIONS_ROOT = process.env.CODEX_SESSIONS_DIR || path.join(os.homedir(), '.codex', 'sessions');
+const CCFLOW_ROUTE_SESSION_PATTERN = /^c\d+$/;
+
+function isCcflowRouteSessionId(sessionId) {
+  return typeof sessionId === 'string' && CCFLOW_ROUTE_SESSION_PATTERN.test(sessionId.trim());
+}
 
 function normalizeCodexPermissionMode(permissionMode) {
   if (permissionMode === 'acceptEdits' || permissionMode === 'bypassPermissions' || permissionMode === 'default') {
@@ -601,8 +606,9 @@ export async function queryCodex(command, options = {}, ws) {
   const effectivePermissionMode = normalizeCodexPermissionMode(permissionMode);
   const { sandboxMode, approvalPolicy } = mapPermissionModeToCodexOptions(effectivePermissionMode);
 
-  let currentSessionId = sessionId;
-  const shouldEmitSessionCreatedEarly = Boolean(sessionId);
+  const providerSessionId = isCcflowRouteSessionId(sessionId) ? '' : sessionId;
+  let currentSessionId = providerSessionId;
+  const shouldEmitSessionCreatedEarly = Boolean(providerSessionId);
   let sessionCreatedSent = false;
   const abortController = new AbortController();
   const runTimeoutMs = Number(process.env.CODEX_RUN_TIMEOUT_MS || 600000);
@@ -610,9 +616,9 @@ export async function queryCodex(command, options = {}, ws) {
   const finalCommand = appendAttachmentNote(command, attachments);
 
   try {
-    await assertResumeSessionWorkingDirectory(sessionId, workingDirectory);
+    await assertResumeSessionWorkingDirectory(providerSessionId, workingDirectory);
 
-    currentSessionId = sessionId || `codex-${Date.now()}`;
+    currentSessionId = providerSessionId || `codex-${Date.now()}`;
 
     // Track the session
     activeCodexSessions.set(currentSessionId, {
@@ -639,7 +645,7 @@ export async function queryCodex(command, options = {}, ws) {
 
     const fallback = await runCodexCliFallback({
       command: finalCommand,
-      sessionId,
+      sessionId: providerSessionId,
       workingDirectory,
       model,
       reasoningEffort,

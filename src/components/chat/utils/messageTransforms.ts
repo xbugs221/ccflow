@@ -17,6 +17,20 @@ type CursorBlob = {
   content?: any;
 };
 
+const USER_UPLOAD_NOTE_MARKER = '[User uploaded files for this message]';
+
+/**
+ * Remove provider-facing upload metadata from user-visible transcript text.
+ */
+function stripUserUploadNoteForDisplay(content: string): string {
+  const markerIndex = content.indexOf(USER_UPLOAD_NOTE_MARKER);
+  if (markerIndex < 0) {
+    return content;
+  }
+
+  return content.slice(0, markerIndex).trimEnd();
+}
+
 const asArray = <T>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
 
 const normalizeToolInput = (value: unknown): string => {
@@ -480,16 +494,17 @@ export const convertSessionMessages = (rawMessages: any[]): ChatMessage[] => {
         content = decodeHtmlEntities(String(message.message.content));
       }
 
+      const displayContent = stripUserUploadNoteForDisplay(content);
       const shouldSkip =
-        !content ||
-        content.startsWith('<command-name>') ||
-        content.startsWith('<command-message>') ||
-        content.startsWith('<command-args>') ||
-        content.startsWith('<local-command-stdout>') ||
-        content.startsWith('<system-reminder>') ||
-        content.startsWith('Caveat:') ||
-        content.startsWith('This session is being continued from a previous') ||
-        content.startsWith('[Request interrupted');
+        !displayContent ||
+        displayContent.startsWith('<command-name>') ||
+        displayContent.startsWith('<command-message>') ||
+        displayContent.startsWith('<command-args>') ||
+        displayContent.startsWith('<local-command-stdout>') ||
+        displayContent.startsWith('<system-reminder>') ||
+        displayContent.startsWith('Caveat:') ||
+        displayContent.startsWith('This session is being continued from a previous') ||
+        displayContent.startsWith('[Request interrupted');
 
       if (!shouldSkip) {
         // Parse <task-notification> blocks into compact system messages
@@ -510,7 +525,7 @@ export const convertSessionMessages = (rawMessages: any[]): ChatMessage[] => {
         } else {
           converted.push({
             type: 'user',
-            content: unescapeWithMathProtection(content),
+            content: unescapeWithMathProtection(displayContent),
             timestamp: message.timestamp || new Date().toISOString(),
             messageKey: message.messageKey,
             clientRequestId: getClientRequestId(message),

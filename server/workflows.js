@@ -1104,13 +1104,20 @@ async function writeWorkflowStore(projectPath, store, options = {}) {
  * Expand compact persisted workflow records into the runtime shape.
  */
 function expandWorkflowFromStore(workflow = {}) {
+  const {
+    providers: _removedProviders,
+    stageProviders: _removedStageProviders,
+    stageState: _removedStageState,
+    ...workflowFields
+  } = workflow;
   const stage = workflow.stage || 'planning';
   const routeIndex = parseWorkflowRouteIndex(workflow.id) || Number(workflow.routeIndex);
   const workflowId = buildWorkflowId(routeIndex) || workflow.id;
   const legacyId = workflow.id && workflow.id !== workflowId ? workflow.id : undefined;
   const childSessions = expandWorkflowChatSessions(workflow, workflowId);
+  const stageProviderMap = getWorkflowStageProviderMap(workflow);
   return {
-    ...workflow,
+    ...workflowFields,
     id: workflowId,
     legacyId,
     routeIndex: Number.isInteger(routeIndex) && routeIndex > 0 ? routeIndex : undefined,
@@ -1119,12 +1126,7 @@ function expandWorkflowFromStore(workflow = {}) {
     runState: workflow.runState || 'running',
     hasUnreadActivity: workflow.hasUnreadActivity === true,
     gateDecision: workflow.gateDecision || 'pending',
-    stageStatuses: Array.isArray(workflow.stageStatuses)
-      ? workflow.stageStatuses
-      : getWorkflowStages().map((item) => ({
-        ...item,
-        status: item.key === stage ? 'active' : 'pending',
-      })),
+    stageStatuses: expandWorkflowStageStatuses(workflow, stageProviderMap),
     artifacts: Array.isArray(workflow.artifacts) ? workflow.artifacts : [],
     chat: workflow.chat && typeof workflow.chat === 'object' && !Array.isArray(workflow.chat)
       ? workflow.chat
@@ -1146,12 +1148,8 @@ function compactWorkflowForStore(workflow = {}) {
 
   if (workflow.objective && workflow.objective !== workflow.title) compact.objective = workflow.objective;
   if (workflow.adoptsExistingOpenSpec === true) compact.adoptsExistingOpenSpec = true;
-  if (workflow.openspecChangePrefix) compact.openspecChangePrefix = workflow.openspecChangePrefix;
+  if (workflow.openspecChangePrefix && !workflow.openspecChangeName) compact.openspecChangePrefix = workflow.openspecChangePrefix;
   if (workflow.openspecChangeName) compact.openspecChangeName = workflow.openspecChangeName;
-  if (workflow.openspecChangeDetected === true) compact.openspecChangeDetected = true;
-  if (workflow.openspecTaskProgress && typeof workflow.openspecTaskProgress === 'object') {
-    compact.openspecTaskProgress = workflow.openspecTaskProgress;
-  }
   if (stage !== 'planning') compact.stage = stage;
   if (workflow.runState && workflow.runState !== 'running') compact.runState = workflow.runState;
   if (workflow.hasUnreadActivity === true) compact.hasUnreadActivity = true;
@@ -1162,8 +1160,13 @@ function compactWorkflowForStore(workflow = {}) {
   if (workflow.pending === true) compact.pending = true;
   if (workflow.hidden === true) compact.hidden = true;
 
-  if (!isDefaultStageStatuses(workflow.stageStatuses, stage)) {
-    compact.stageStatuses = workflow.stageStatuses;
+  const providerMap = compactWorkflowProviderMap(workflow);
+  if (Object.keys(providerMap).length > 0) {
+    compact.providers = providerMap;
+  }
+  const stageState = compactWorkflowStageState(workflow.stageStatuses, stage);
+  if (Object.keys(stageState).length > 0) {
+    compact.stageState = stageState;
   }
   if (Array.isArray(workflow.artifacts) && workflow.artifacts.length > 0) {
     compact.artifacts = workflow.artifacts.map(compactArtifactForStore);
@@ -1179,15 +1182,80 @@ function compactWorkflowForStore(workflow = {}) {
 /**
  * Check whether stage statuses can be derived from the workflow stage alone.
  */
-function isDefaultStageStatuses(stageStatuses, stage = 'planning') {
-  if (!Array.isArray(stageStatuses)) {
-    return true;
+function buildDerivedWorkflowStageStatuses(stage = 'planning', providerMap = {}) {
+  /**
+   * PURPOSE: Rebuild the full UI stage table from the compact persisted current
+   * stage plus provider overrides.
+   */
+  const currentStageKey = normalizeWorkflowStageKey(stage) || 'planning';
+  const currentStageIndex = STAGE_TEMPLATES.findIndex((item) => item.key === currentStageKey);
+  const activeIndex = currentStageIndex >= 0 ? currentStageIndex : 0;
+  return getWorkflowStages().map((item, index) => ({
+    ...item,
+    status: index < activeIndex ? 'completed' : (index === activeIndex ? 'active' : 'pending'),
+    provider: providerMap[item.key] || 'codex',
+  }));
+}
+
+function normalizeWorkflowStageState(stageState = {}) {
+  /**
+   * PURPOSE: Keep persisted stage state overrides to canonical stage/status pairs.
+   */
+  if (!stageState || typeof stageState !== 'object' || Array.isArray(stageState)) {
+    return {};
   }
-  const expected = getWorkflowStages();
-  return stageStatuses.length === expected.length && expected.every((item) => {
-    const matched = stageStatuses.find((candidate) => candidate?.key === item.key);
-    return matched && matched.status === (item.key === stage ? 'active' : 'pending');
-  });
+  return Object.entries(stageState).reduce((state, [stageKey, status]) => {
+    const normalizedStageKey = normalizeWorkflowStageKey(stageKey);
+    const normalizedStatus = String(status || '').trim();
+    if (normalizedStageKey && normalizedStatus) {
+      state[normalizedStageKey] = normalizedStatus;
+    }
+    return state;
+  }, {});
+}
+
+function expandWorkflowStageStatuses(workflow = {}, providerMap = {}) {
+  /**
+   * PURPOSE: Accept compact stageState records and old full stageStatuses records,
+   * then return the full read model expected by the control plane UI.
+   */
+  const baseStatuses = buildDerivedWorkflowStageStatuses(workflow.stage || 'planning', providerMap);
+  const statusOverrides = normalizeWorkflowStageState(workflow.stageState);
+  if (Array.isArray(workflow.stageStatuses)) {
+    workflow.stageStatuses.forEach((item) => {
+      const stageKey = normalizeWorkflowStageKey(item?.key);
+      const status = String(item?.status || '').trim();
+      if (stageKey && status) {
+        statusOverrides[stageKey] = status;
+      }
+    });
+  }
+  return baseStatuses.map((item) => ({
+    ...item,
+    status: statusOverrides[item.key] || item.status,
+    provider: providerMap[item.key] || item.provider || 'codex',
+  }));
+}
+
+function compactWorkflowStageState(stageStatuses, stage = 'planning') {
+  /**
+   * PURPOSE: Persist only stage statuses that cannot be derived from the active
+   * workflow stage, avoiding the old full stageStatuses table in conf.json.
+   */
+  if (!Array.isArray(stageStatuses)) {
+    return {};
+  }
+  const derivedByKey = Object.fromEntries(
+    buildDerivedWorkflowStageStatuses(stage).map((item) => [item.key, item.status]),
+  );
+  return stageStatuses.reduce((state, item) => {
+    const stageKey = normalizeWorkflowStageKey(item?.key);
+    const status = String(item?.status || '').trim();
+    if (stageKey && status && status !== derivedByKey[stageKey]) {
+      state[stageKey] = status;
+    }
+    return state;
+  }, {});
 }
 
 /**
@@ -1206,9 +1274,12 @@ function compactArtifactForStore(artifact = {}) {
  */
 function compactChildSessionForStore(session = {}) {
   const compact = {};
-  ['id', 'title', 'summary', 'provider', 'stageKey', 'url'].forEach((key) => {
+  ['id', 'title', 'provider', 'stageKey', 'summary', 'url'].forEach((key) => {
     if (session[key] !== undefined && session[key] !== '') compact[key] = session[key];
   });
+  if (compact.summary && compact.summary === compact.title) {
+    delete compact.summary;
+  }
   return compact;
 }
 
@@ -1250,17 +1321,117 @@ function compactChildSessionsToWorkflowChat(childSessions = []) {
       return chat;
     }
     const compact = compactChildSessionForStore(session);
+    const sessionId = compact.id;
     if (compact.id) {
-      compact.sessionId = compact.id;
       delete compact.id;
     }
-    chat[String(routeIndex)] = compact;
+    chat[String(routeIndex)] = sessionId ? { sessionId, ...compact } : compact;
     return chat;
   }, {});
 }
 
 function getWorkflowStages() {
   return STAGE_TEMPLATES.map((stage) => ({ key: stage.key, label: stage.label }));
+}
+
+function normalizeWorkflowStageProvider(provider) {
+  /**
+   * Keep persisted provider values limited to supported runtime engines.
+   */
+  return provider === 'claude' ? 'claude' : 'codex';
+}
+
+function normalizeWorkflowStageProviders(stageProviders = {}) {
+  /**
+   * Normalize user-supplied per-stage provider choices into canonical stage keys.
+   */
+  if (!stageProviders || typeof stageProviders !== 'object' || Array.isArray(stageProviders)) {
+    return {};
+  }
+  return Object.entries(stageProviders).reduce((providers, [stageKey, provider]) => {
+    const normalizedStageKey = normalizeWorkflowStageKey(stageKey);
+    if (normalizedStageKey) {
+      providers[normalizedStageKey] = normalizeWorkflowStageProvider(provider);
+    }
+    return providers;
+  }, {});
+}
+
+function compactWorkflowProviderMap(workflow = {}) {
+  /**
+   * PURPOSE: Persist only non-default provider choices; launched child sessions
+   * still carry their actual provider in workflow.chat.
+   */
+  const providers = {};
+  [workflow.providers, workflow.stageProviders].forEach((providerSource) => {
+    Object.entries(normalizeWorkflowStageProviders(providerSource)).forEach(([stageKey, provider]) => {
+      if (provider !== 'codex') {
+        providers[stageKey] = provider;
+      }
+    });
+  });
+  if (Array.isArray(workflow.stageStatuses)) {
+    workflow.stageStatuses.forEach((stage) => {
+      const stageKey = normalizeWorkflowStageKey(stage?.key);
+      const provider = normalizeWorkflowStageProvider(stage?.provider);
+      if (stageKey && provider !== 'codex') {
+        providers[stageKey] = provider;
+      }
+    });
+  }
+  return providers;
+}
+
+function getWorkflowStageProviderMap(workflow = {}) {
+  /**
+   * PURPOSE: Build the derived provider map from persisted stage statuses and
+   * child-session chat records. Provider ownership has one persisted source:
+   * stageStatuses for planned stages and chat records for launched sessions.
+   */
+  const providers = {};
+  [workflow.providers, workflow.stageProviders].forEach((providerSource) => {
+    Object.entries(normalizeWorkflowStageProviders(providerSource)).forEach(([stageKey, provider]) => {
+      providers[stageKey] = provider;
+    });
+  });
+  if (Array.isArray(workflow.stageStatuses)) {
+    workflow.stageStatuses.forEach((stage) => {
+      const stageKey = normalizeWorkflowStageKey(stage?.key);
+      if (stageKey && stage?.provider) {
+        providers[stageKey] = normalizeWorkflowStageProvider(stage.provider);
+      }
+    });
+  }
+  expandWorkflowChatSessions(workflow, workflow.id).forEach((session) => {
+    const stageKey = normalizeWorkflowStageKey(session?.stageKey);
+    if (stageKey && session?.provider) {
+      providers[stageKey] = normalizeWorkflowStageProvider(session.provider);
+    }
+  });
+  return providers;
+}
+
+function getWorkflowStageProvider(workflow = {}, stageKey = '') {
+  /**
+   * PURPOSE: Resolve a stage provider from normalized stage status/chat data.
+   */
+  const providers = getWorkflowStageProviderMap(workflow);
+  return providers[normalizeWorkflowStageKey(stageKey)] || 'codex';
+}
+
+function isWorkflowStageStarted(workflow = {}, stageKey = '') {
+  /**
+   * Detect whether a workflow stage has already begun and must keep its provider.
+   */
+  const normalizedStageKey = normalizeWorkflowStageKey(stageKey);
+  const childSessions = expandWorkflowChatSessions(workflow, workflow.id);
+  if (childSessions.some((session) => normalizeWorkflowStageKey(session.stageKey || session.stage) === normalizedStageKey)) {
+    return true;
+  }
+  const stageStatus = Array.isArray(workflow.stageStatuses)
+    ? workflow.stageStatuses.find((stage) => normalizeWorkflowStageKey(stage?.key) === normalizedStageKey)
+    : null;
+  return ['active', 'running', 'blocked', 'failed', 'completed'].includes(String(stageStatus?.status || ''));
 }
 
 function normalizeWorkflowStageKey(stageKey) {
@@ -1290,6 +1461,7 @@ function createWorkflowRecord(payload = {}) {
   const workflowId = payload.workflowId || `workflow-${Date.now().toString(36)}`;
   const adoptsExistingOpenSpec = payload.adoptsExistingOpenSpec === true;
   const initialStage = adoptsExistingOpenSpec ? 'execution' : 'planning';
+  const stageProviders = normalizeWorkflowStageProviders(payload.stageProviders);
 
   return {
     id: workflowId,
@@ -1306,6 +1478,7 @@ function createWorkflowRecord(payload = {}) {
     stageStatuses: getWorkflowStages().map((stage) => ({
       ...stage,
       status: stage.key === initialStage ? 'active' : 'pending',
+      provider: stageProviders[stage.key] || 'codex',
     })),
     artifacts: [],
     childSessions: [],
@@ -1810,20 +1983,21 @@ function compareWorkflowChildSessions(left = {}, right = {}) {
 }
 
 function prepareWorkflowRecord(workflow = {}) {
+  const {
+    providers: _removedProviders,
+    stageProviders: _removedStageProviders,
+    stageState: _removedStageState,
+    ...workflowFields
+  } = workflow;
+  const stageProviderMap = getWorkflowStageProviderMap(workflow);
   const validStageKeys = new Set(getWorkflowStages().map((stage) => stage.key));
-  const normalizedStageStatuses = Array.isArray(workflow.stageStatuses)
-    ? getWorkflowStages().map((stage) => {
-      const matched = workflow.stageStatuses.find((item) => normalizeWorkflowStageKey(item.key) === stage.key);
-      const inheritedStatus = !matched && stage.key === 'planning' && workflow.stage === 'discussion'
-        ? 'active'
-        : 'pending';
-      return {
-        key: stage.key,
-        label: STAGE_LABELS[stage.key],
-        status: matched?.status || inheritedStatus,
-      };
-    })
-    : getWorkflowStages().map((stage) => ({ ...stage, status: 'pending' }));
+  const normalizedStageStatuses = expandWorkflowStageStatuses(
+    {
+      ...workflow,
+      stage: workflow.stage === 'discussion' ? 'planning' : workflow.stage,
+    },
+    stageProviderMap,
+  );
   const initialStageKey = resolveWorkflowStageKey(workflow, normalizedStageStatuses);
   const artifacts = (Array.isArray(workflow.artifacts) ? workflow.artifacts : [])
     .map((artifact) => {
@@ -1915,7 +2089,7 @@ function prepareWorkflowRecord(workflow = {}) {
     : persistedStageKey;
 
   return {
-    ...workflow,
+    ...workflowFields,
     title: String(workflow.title || workflow.objective || '新需求').trim(),
     objective: String(workflow.objective || workflow.title || '新需求').trim(),
     adoptsExistingOpenSpec: workflow.adoptsExistingOpenSpec === true,
@@ -2130,6 +2304,7 @@ function buildEffectiveStageStatuses(stageInspections) {
     key: stage.stageKey,
     label: stage.title,
     status: stage.status,
+    provider: stage.provider || 'codex',
   }));
 }
 
@@ -2379,6 +2554,7 @@ function buildStageInspections(workflow, currentStageKey, stageStatuses, artifac
       stageKey: template.key,
       title: template.label,
       status: visibleStageStatus,
+      provider: getWorkflowStageProvider(workflow, template.key),
       note: stageNote,
       substages,
     };
@@ -2435,7 +2611,8 @@ async function normalizeWorkflow(projectPath, workflow) {
     ...preparedWorkflow,
     openspecChangeName,
     openspecArtifactChangeName,
-    openspecChangeDetected: Boolean(openspecChangeStatus || openspecArtifactChangeName),
+    openspecChangeDetected: preparedWorkflow.openspecChangeDetected === true
+      || Boolean(openspecChangeStatus || openspecArtifactChangeName),
     openspecTaskProgress,
   };
   const stageStatuses = Array.isArray(preparedWorkflow.stageStatuses)
@@ -2443,8 +2620,13 @@ async function normalizeWorkflow(projectPath, workflow) {
       key: normalizeWorkflowStageKey(stage.key),
       label: STAGE_LABELS[normalizeWorkflowStageKey(stage.key)] || stage.label || stage.key,
       status: stage.status || 'pending',
+      provider: getWorkflowStageProvider(preparedWorkflow, stage.key),
     }))
-    : getWorkflowStages().map((stage) => ({ ...stage, status: 'pending' }));
+    : getWorkflowStages().map((stage) => ({
+      ...stage,
+      status: 'pending',
+      provider: getWorkflowStageProvider(preparedWorkflow, stage.key),
+    }));
   const artifacts = await Promise.all(
     (Array.isArray(normalizedWorkflow.artifacts) ? normalizedWorkflow.artifacts : []).map((artifact) => normalizeArtifact(projectPath, artifact)),
   );
@@ -2556,11 +2738,15 @@ function getLatestWorkflowStageChildSession(workflow = {}, stageKey = '') {
 
 function attachExistingWorkflowStageSession(workflow, stageKey, launcherPayload) {
   const existingSession = getLatestWorkflowStageChildSession(workflow, stageKey);
+  const payload = {
+    ...launcherPayload,
+    provider: existingSession?.provider || getWorkflowStageProvider(workflow, stageKey),
+  };
   if (!existingSession) {
-    return launcherPayload;
+    return payload;
   }
   return {
-    ...launcherPayload,
+    ...payload,
     sessionId: existingSession.id,
     routeIndex: existingSession.routeIndex,
   };
@@ -2611,6 +2797,66 @@ export async function listProjectAdoptableOpenSpecChanges(project) {
 export async function getProjectWorkflow(project, workflowId) {
   const workflows = await listProjectWorkflows(project?.fullPath || project?.path || '');
   return workflows.find((workflow) => workflow.id === workflowId || workflow.legacyId === workflowId) || null;
+}
+
+export async function updateWorkflowStageProviders(project, workflowId, stageProviders = {}) {
+  /**
+   * PURPOSE: Persist runtime provider choices for not-yet-started workflow stages.
+   */
+  const projectPath = project?.fullPath || project?.path || '';
+  if (!projectPath) {
+    return null;
+  }
+
+  const normalizedProviders = normalizeWorkflowStageProviders(stageProviders);
+  const store = await readWorkflowStore(projectPath);
+  const entry = store;
+  if (!entry?.workflows) {
+    return null;
+  }
+
+  let updatedWorkflow = null;
+  entry.workflows = entry.workflows.map((workflow) => {
+    if (workflow.id !== workflowId) {
+      return workflow;
+    }
+    const currentProviders = getWorkflowStageProviderMap(workflow);
+    const stageStatuses = Array.isArray(workflow.stageStatuses)
+      ? workflow.stageStatuses.map((stage) => ({
+        key: normalizeWorkflowStageKey(stage.key),
+        label: STAGE_LABELS[normalizeWorkflowStageKey(stage.key)] || stage.label || stage.key,
+        status: stage.status || 'pending',
+        provider: getWorkflowStageProvider(workflow, stage.key),
+      }))
+      : getWorkflowStages().map((stage) => ({
+        ...stage,
+        status: stage.key === (workflow.stage || 'planning') ? 'active' : 'pending',
+        provider: currentProviders[stage.key] || 'codex',
+      }));
+    const nextProviders = { ...currentProviders };
+    Object.entries(normalizedProviders).forEach(([stageKey, provider]) => {
+      const currentProvider = currentProviders[stageKey] || 'codex';
+      if (isWorkflowStageStarted(workflow, stageKey) && currentProvider !== provider) {
+        const error = new Error(`Stage provider is locked after stage start: ${stageKey}`);
+        error.statusCode = 409;
+        throw error;
+      }
+      nextProviders[stageKey] = provider;
+    });
+    updatedWorkflow = {
+      ...workflow,
+      stageStatuses: stageStatuses.map((stage) => ({
+        ...stage,
+        provider: nextProviders[normalizeWorkflowStageKey(stage.key)] || 'codex',
+      })),
+      updatedAt: new Date().toISOString(),
+    };
+    return updatedWorkflow;
+  });
+
+  store.workflows = entry.workflows;
+  await writeWorkflowStore(projectPath, store);
+  return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
 }
 
 export async function getWorkflowReviewResult(project, workflowId, passIndex) {
@@ -2681,10 +2927,17 @@ export async function buildWorkflowLauncherConfig(project, workflowId, stage) {
     );
   }
 
+  if (normalizedStage === 'archive') {
+    return attachExistingWorkflowStageSession(
+      workflow,
+      normalizedStage,
+      await buildArchiveLauncherPayload(workflow),
+    );
+  }
+
   const modeToStage = {
     planning: { workflowAutoStart: 'planning', workflowStageKey: 'planning' },
     execution: { workflowAutoStart: 'execution', workflowStageKey: 'execution' },
-    archive: { workflowAutoStart: 'archive', workflowStageKey: 'archive' },
   }[normalizedStage];
 
   if (!modeToStage) {
@@ -2901,8 +3154,13 @@ export async function updateWorkflowGateDecision(project, workflowId, gateDecisi
         key: stage.key,
         label: STAGE_LABELS[stage.key] || stage.label || stage.key,
         status: stage.status || 'pending',
+        provider: getWorkflowStageProvider(workflow, stage.key),
       }))
-      : getWorkflowStages().map((stage) => ({ ...stage, status: 'pending' }));
+      : getWorkflowStages().map((stage) => ({
+        ...stage,
+        status: 'pending',
+        provider: getWorkflowStageProvider(workflow, stage.key),
+      }));
     const finalReadiness = normalizedDecision === 'pass';
     const nextArchiveStatus = finalReadiness ? 'completed' : 'blocked';
 
@@ -2999,8 +3257,13 @@ export async function registerWorkflowChildSession(project, workflowId, sessionP
         key: stage.key,
         label: STAGE_LABELS[stage.key] || stage.label || stage.key,
         status: stage.status || 'pending',
+        provider: getWorkflowStageProvider(workflow, stage.key),
       }))
-      : getWorkflowStages().map((stage) => ({ ...stage, status: 'pending' }));
+      : getWorkflowStages().map((stage) => ({
+        ...stage,
+        status: 'pending',
+        provider: getWorkflowStageProvider(workflow, stage.key),
+      }));
     const currentStageKey = resolveWorkflowStageKey(workflow, stageStatuses);
     const childSessions = expandWorkflowChatSessions(workflow, workflow.id);
     const stageKey = normalizeWorkflowStageKey(sessionPayload.stageKey) || currentStageKey;
@@ -3093,8 +3356,13 @@ export async function advanceWorkflow(project, workflowId) {
         key: stage.key,
         label: STAGE_LABELS[stage.key] || stage.label || stage.key,
         status: stage.status || 'pending',
+        provider: getWorkflowStageProvider(workflow, stage.key),
       }))
-      : getWorkflowStages().map((stage) => ({ ...stage, status: 'pending' }));
+      : getWorkflowStages().map((stage) => ({
+        ...stage,
+        status: 'pending',
+        provider: getWorkflowStageProvider(workflow, stage.key),
+      }));
     const currentStageKey = resolveWorkflowStageKey(workflow, stageStatuses);
     if (currentStageKey === 'planning') {
       updatedWorkflow = {

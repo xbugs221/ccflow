@@ -17,6 +17,7 @@ import {
   deleteCodexSession,
   deleteSession,
   finalizeManualSessionDraft,
+  getManualSessionDraftRuntime,
   getCodexSessions,
   getSessions,
   loadProjectConfig,
@@ -721,6 +722,59 @@ test('finalizing an indexed review draft preserves the existing review child rou
     assert.equal(reviewSessions.length, 1);
     assert.equal(reviewSessions[0].id, 'review-real');
     assert.equal(reviewSessions[0].routeIndex, 3);
+  });
+});
+
+test('workflow chat draft finalizes without a manual draft mirror', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'workflow-chat-draft-finalize');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Workflow Chat Draft Finalize Demo');
+    const workflow = await createProjectWorkflow(project, {
+      title: '清理技术债',
+      objective: '验证 workflow 内部 cN 草稿能绑定真实 provider 会话',
+    });
+    await registerWorkflowChildSession(project, workflow.id, {
+      sessionId: 'c1',
+      title: '提案落地：清理技术债',
+      provider: 'claude',
+      stageKey: 'execution',
+    });
+
+    const startResult = await startManualSessionDraft(
+      project.name,
+      projectPath,
+      'c1',
+      'claude',
+      'workflow-start-1',
+    );
+    assert.equal(startResult.started, true);
+    assert.equal(
+      await bindManualSessionDraftProviderSession(
+        project.name,
+        projectPath,
+        'c1',
+        'claude-workflow-real',
+        'workflow-start-1',
+      ),
+      true,
+    );
+
+    const runtime = await getManualSessionDraftRuntime(project.name, projectPath, 'c1');
+    assert.equal(runtime?.pendingProviderSessionId, 'claude-workflow-real');
+    assert.equal(runtime?.startRequestId, 'workflow-start-1');
+
+    assert.equal(
+      await finalizeManualSessionDraft(project.name, 'c1', 'claude-workflow-real', 'claude', projectPath),
+      true,
+    );
+
+    const workflows = await listProjectWorkflows(projectPath);
+    const executionSession = workflows[0].childSessions.find((session) => session.stageKey === 'execution');
+    assert.equal(executionSession?.id, 'claude-workflow-real');
+    assert.equal(executionSession?.routeIndex, 1);
+    assert.equal(executionSession?.workflowId, workflow.id);
   });
 });
 

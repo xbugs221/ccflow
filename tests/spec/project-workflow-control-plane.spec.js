@@ -522,7 +522,13 @@ test.describe('项目内需求工作流控制面', () => {
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: /自动工作流/ }).click();
+    const workflowDetailResponse = page.waitForResponse((response) => (
+      response.request().method() === 'GET'
+      && response.url().includes('/api/projects/')
+      && /\/workflows\/[^/?]+(?:\?|$)/.test(response.url())
+    ));
     await page.getByRole('button', { name: /登录升级/ }).click();
+    await workflowDetailResponse;
 
     await expect(page.getByTestId('workflow-stage-archive').getByRole('button', { name: '归档' })).toHaveCount(1);
     await expect(page.getByText('验收状态')).toHaveCount(0);
@@ -530,9 +536,11 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(page.getByTestId('workflow-gate-decision-pass')).toHaveAttribute('aria-pressed', 'false');
     await page.getByTestId('workflow-gate-decision-pass').click();
     await expect(page.getByTestId('workflow-gate-decision-pass')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('workflow-gate-decision-pass')).toHaveClass(/bg-primary/);
 
     await page.getByTestId('workflow-gate-decision-needs_repair').click();
     await expect(page.getByTestId('workflow-gate-decision-needs_repair')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('workflow-gate-decision-needs_repair')).toHaveClass(/bg-primary/);
   });
 
   test('刷新后保留工作流控制面状态', async ({ page }) => {

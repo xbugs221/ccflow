@@ -6,6 +6,7 @@ export interface WorkflowStageStatus {
   key: string;
   label: string;
   status: string;
+  provider?: SessionProvider;
 }
 
 export interface WorkflowArtifact {
@@ -50,6 +51,7 @@ export interface WorkflowStageInspection {
   stageKey: string;
   title: string;
   status: string;
+  provider?: SessionProvider;
   note?: string;
   substages: WorkflowSubstageInspection[];
 }

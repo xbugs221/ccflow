@@ -106,6 +106,11 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ gateDecision }),
     }),
+  updateWorkflowStageProviders: (projectName, workflowId, stageProviders) =>
+    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/stage-providers`, {
+      method: 'PUT',
+      body: JSON.stringify({ stageProviders }),
+    }),
   renameProjectWorkflow: (projectName, workflowId, title) =>
     authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/rename`, {
       method: 'PUT',

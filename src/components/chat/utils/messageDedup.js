@@ -25,7 +25,39 @@ function toTimestampMs(value) {
 }
 
 /**
- * Restrict deduping to plain user/assistant transcript entries.
+ * Build a stable attachment identity so attachment messages only dedupe exact echoes.
+ */
+function getAttachmentSignature(message) {
+  const attachments = [
+    ...(Array.isArray(message.attachments) ? message.attachments : []),
+    ...(Array.isArray(message.images) ? message.images : []),
+  ];
+
+  if (attachments.length === 0) {
+    return '';
+  }
+
+  return attachments
+    .map((attachment) => {
+      if (!attachment || typeof attachment !== 'object') {
+        return normalizeText(String(attachment));
+      }
+      return normalizeText(
+        attachment.absolutePath
+        || attachment.path
+        || attachment.relativePath
+        || attachment.url
+        || attachment.name
+        || attachment.id
+        || JSON.stringify(attachment),
+      );
+    })
+    .sort()
+    .join('|');
+}
+
+/**
+ * Restrict deduping to transcript entries that do not represent tool/runtime UI.
  */
 function isPlainTranscriptMessage(message) {
   if (!message || (message.type !== 'user' && message.type !== 'assistant')) {
@@ -36,9 +68,7 @@ function isPlainTranscriptMessage(message) {
     && !message.isStreaming
     && !message.isInteractivePrompt
     && !message.isThinking
-    && !message.isTaskNotification
-    && !Array.isArray(message.attachments)
-    && !Array.isArray(message.images);
+    && !message.isTaskNotification;
 }
 
 /**
@@ -69,6 +99,10 @@ function isAdjacentDuplicate(previousMessage, nextMessage) {
     return false;
   }
 
+  if (getAttachmentSignature(previousMessage) !== getAttachmentSignature(nextMessage)) {
+    return false;
+  }
+
   const previousTimestamp = toTimestampMs(previousMessage.timestamp);
   const nextTimestamp = toTimestampMs(nextMessage.timestamp);
 
@@ -80,6 +114,98 @@ function isAdjacentDuplicate(previousMessage, nextMessage) {
 }
 
 /**
+ * Build a same-turn user key for non-adjacent realtime duplicates.
+ */
+function getUserTurnKey(message) {
+  if (!isPlainTranscriptMessage(message) || message.type !== 'user') {
+    return null;
+  }
+
+  const timestamp = toTimestampMs(message.timestamp);
+  if (timestamp === null) {
+    return null;
+  }
+
+  const content = normalizeText(message.content);
+  if (!content) {
+    return null;
+  }
+
+  const reasoning = normalizeText(message.reasoning);
+  const attachmentSignature = getAttachmentSignature(message);
+  return `${timestamp}:${content}:${reasoning}:${attachmentSignature}`;
+}
+
+/**
+ * Rank delivery states so duplicate local rows keep the most complete status.
+ */
+function getDeliveryStatusRank(status) {
+  switch (status) {
+    case 'persisted':
+      return 4;
+    case 'sent':
+      return 3;
+    case 'pending':
+      return 2;
+    case 'failed':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Preserve the stronger user delivery status when dropping a duplicate row.
+ */
+function mergeDuplicateMessage(previousMessage, nextMessage) {
+  if (previousMessage.type !== 'user') {
+    return previousMessage;
+  }
+
+  const previousRank = getDeliveryStatusRank(previousMessage.deliveryStatus);
+  const nextRank = getDeliveryStatusRank(nextMessage.deliveryStatus);
+  if (previousRank > 0 && nextRank === 0 && previousMessage.deliveryStatus !== 'persisted') {
+    return {
+      ...previousMessage,
+      deliveryStatus: 'persisted',
+    };
+  }
+
+  if (nextRank <= previousRank) {
+    return previousMessage;
+  }
+
+  return {
+    ...previousMessage,
+    deliveryStatus: nextMessage.deliveryStatus,
+  };
+}
+
+/**
+ * Check whether a non-adjacent user row is the same send replayed in memory.
+ */
+function findSeenUserTurnIndex(seenUserTurns, message) {
+  if (!isPlainTranscriptMessage(message) || message.type !== 'user') {
+    return -1;
+  }
+
+  const timestamp = toTimestampMs(message.timestamp);
+  const content = normalizeText(message.content);
+  const reasoning = normalizeText(message.reasoning);
+  const attachmentSignature = getAttachmentSignature(message);
+  if (timestamp === null || !content) {
+    return -1;
+  }
+
+  return seenUserTurns.findIndex((seen) => (
+    seen.content === content
+    && seen.reasoning === reasoning
+    && seen.attachmentSignature === attachmentSignature
+    && Math.abs(timestamp - seen.timestamp) <= ADJACENT_DUPLICATE_WINDOW_MS
+  ));
+}
+
+/**
  * Remove adjacent duplicate transcript entries while preserving original order.
  */
 export function dedupeAdjacentChatMessages(messages) {
@@ -88,24 +214,36 @@ export function dedupeAdjacentChatMessages(messages) {
   }
 
   const dedupedMessages = [];
+  const seenUserTurns = new Set();
+  const seenUserTurnDetails = [];
 
   for (const message of messages) {
+    const userTurnKey = getUserTurnKey(message);
     const previousMessage = dedupedMessages[dedupedMessages.length - 1];
     if (previousMessage && isAdjacentDuplicate(previousMessage, message)) {
-      if (
-        previousMessage.type === 'user' &&
-        previousMessage.deliveryStatus &&
-        previousMessage.deliveryStatus !== 'persisted' &&
-        !message.deliveryStatus
-      ) {
-        dedupedMessages[dedupedMessages.length - 1] = {
-          ...previousMessage,
-          deliveryStatus: 'persisted',
-        };
+      dedupedMessages[dedupedMessages.length - 1] = mergeDuplicateMessage(previousMessage, message);
+      continue;
+    }
+
+    const seenUserTurnIndex = findSeenUserTurnIndex(seenUserTurnDetails, message);
+    if (userTurnKey && (seenUserTurns.has(userTurnKey) || seenUserTurnIndex >= 0)) {
+      if (seenUserTurnIndex >= 0) {
+        const dedupedIndex = seenUserTurnDetails[seenUserTurnIndex].dedupedIndex;
+        dedupedMessages[dedupedIndex] = mergeDuplicateMessage(dedupedMessages[dedupedIndex], message);
       }
       continue;
     }
 
+    if (userTurnKey) {
+      seenUserTurns.add(userTurnKey);
+      seenUserTurnDetails.push({
+        timestamp: toTimestampMs(message.timestamp),
+        content: normalizeText(message.content),
+        reasoning: normalizeText(message.reasoning),
+        attachmentSignature: getAttachmentSignature(message),
+        dedupedIndex: dedupedMessages.length,
+      });
+    }
     dedupedMessages.push(message);
   }
 

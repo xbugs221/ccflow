@@ -4,6 +4,7 @@
  * per-action idempotency, and event-triggered wakeups.
  */
 import { getProjects, renameCodexSession } from './projects.js';
+import { isClaudeSDKSessionActive, queryClaudeSDK } from './claude-sdk.js';
 import { isCodexSessionActive, queryCodex } from './openai-codex.js';
 import {
   attachWorkflowMetadata,
@@ -34,6 +35,27 @@ const runnerState = {
  */
 export function resolveWorkflowAutoRunPermissionMode(env = process.env) {
   return env.CCFLOW_WORKFLOW_AUTORUN_PERMISSION || 'bypassPermissions';
+}
+
+/**
+ * PURPOSE: Detect route-only draft ids that make workflow child sessions
+ * addressable before a provider has returned its real session id.
+ */
+export function isWorkflowTemporarySessionId(sessionId) {
+  return String(sessionId || '').startsWith('new-session-') || /^c\d+$/.test(String(sessionId || ''));
+}
+
+/**
+ * PURPOSE: Only resume provider sessions with concrete provider ids. Workflow
+ * route ids such as c2 must launch a new provider session and then be replaced
+ * by registerWorkflowChildSession while preserving the routeIndex.
+ */
+export function resolveProviderResumeSessionId(sessionId) {
+  const normalizedSessionId = String(sessionId || '').trim();
+  if (!normalizedSessionId || isWorkflowTemporarySessionId(normalizedSessionId)) {
+    return undefined;
+  }
+  return normalizedSessionId;
 }
 
 /**
@@ -130,14 +152,17 @@ function hasCompletedExecutionTasks(workflow) {
 }
 
 /**
- * PURPOSE: Keep downstream review from racing a Codex execution turn that has
+ * PURPOSE: Keep downstream review from racing a provider execution turn that has
  * completed OpenSpec tasks but has not closed its internal session yet.
  */
-function hasActiveCodexWorkflowSession(session) {
-  if (!session?.id || session.provider !== 'codex') {
+function hasActiveProviderWorkflowSession(session) {
+  if (!session?.id) {
     return false;
   }
-  return isCodexSessionActive(session.id);
+  if (session.provider === 'claude') {
+    return isClaudeSDKSessionActive(session.id);
+  }
+  return session.provider === 'codex' && isCodexSessionActive(session.id);
 }
 
 /**
@@ -186,7 +211,7 @@ export async function resolveWorkflowAutoAction(project, workflow) {
   const executionSession = getLatestWorkflowStageSession(workflow, 'execution');
   const executionDone = isWorkflowPassedStatus(executionStatus)
     && hasCompletedExecutionTasks(workflow)
-    && !hasActiveCodexWorkflowSession(executionSession);
+    && !hasActiveProviderWorkflowSession(executionSession);
   const finalAcceptanceDone = getWorkflowStageStatus(workflow, 'verification') === 'completed';
 
   if (finalAcceptanceDone) {
@@ -384,6 +409,7 @@ async function launchWorkflowAction(project, workflow, action, logger) {
   }
 
   const summary = launcher.sessionSummary || `${workflow.title} 自动阶段`;
+  const provider = launcher.provider === 'claude' ? 'claude' : 'codex';
   let registeredSessionId = null;
   let registrationPromise = null;
   const registerLaunchedSession = (actualSessionId) => {
@@ -395,7 +421,7 @@ async function launchWorkflowAction(project, workflow, action, logger) {
       sessionId: actualSessionId,
       title: summary,
       summary,
-      provider: 'codex',
+      provider,
       stageKey: launcher.workflowStageKey || action.stage,
       repairPassIndex: launcher.workflowRepairPass,
       routeIndex: Number.isInteger(Number(action.routeIndex))
@@ -406,28 +432,31 @@ async function launchWorkflowAction(project, workflow, action, logger) {
   };
 
   const writer = createWorkflowAutoRunWriter(registerLaunchedSession, () => {
-    scheduleWorkflowAutoRun('codex-turn-event', { logger });
+    scheduleWorkflowAutoRun(`${provider}-turn-event`, { logger });
   });
-  const sessionId = await queryCodex(
+  const queryProvider = provider === 'claude' ? queryClaudeSDK : queryCodex;
+  const sessionId = await queryProvider(
     launcher.autoPrompt,
     {
       projectPath,
       cwd: projectPath,
-      sessionId: action.sessionId,
+      sessionId: resolveProviderResumeSessionId(action.sessionId),
       permissionMode: resolveWorkflowAutoRunPermissionMode(),
     },
     writer,
   );
   const actualSessionId = sessionId || writer.getSessionId();
   if (!actualSessionId) {
-    logger.warn(`[WorkflowAutoRunner] Codex session was not created for ${project.name}/${workflow.id}`);
+    logger.warn(`[WorkflowAutoRunner] ${provider} session was not created for ${project.name}/${workflow.id}`);
     return false;
   }
 
   await registerLaunchedSession(actualSessionId);
-  await renameCodexSession(actualSessionId, summary, projectPath).catch((error) => {
-    logger.warn(`[WorkflowAutoRunner] Failed to rename ${actualSessionId}:`, error);
-  });
+  if (provider === 'codex') {
+    await renameCodexSession(actualSessionId, summary, projectPath).catch((error) => {
+      logger.warn(`[WorkflowAutoRunner] Failed to rename ${actualSessionId}:`, error);
+    });
+  }
 
   logger.info(`[WorkflowAutoRunner] Completed ${project.name}/${workflow.id}/${launcher.workflowStageKey || action.stage}`);
   return true;

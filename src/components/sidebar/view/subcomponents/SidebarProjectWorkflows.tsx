@@ -14,7 +14,7 @@ import { ChevronDown, ChevronUp, Plus, Star, Clock, Workflow, Edit2, Trash2 } fr
 import type { TFunction } from 'i18next';
 import { Button } from '../../../ui/button';
 import { cn } from '../../../../lib/utils';
-import type { Project, ProjectWorkflow } from '../../../../types/app';
+import type { Project, ProjectWorkflow, SessionProvider } from '../../../../types/app';
 import { api } from '../../../../utils/api';
 import { buildProjectWorkflowRoute } from '../../../../utils/projectRoute';
 import { formatTimeAgo } from '../../../../utils/dateUtils';
@@ -30,6 +30,47 @@ const WORKFLOW_SORT_OPTIONS: Array<{ value: WorkflowCardSortMode; label: string 
   { value: 'title', label: '标题' },
   { value: 'provider', label: 'Provider' },
 ];
+
+const WORKFLOW_STAGE_PROVIDER_OPTIONS: Array<{ key: string; label: string }> = [
+  { key: 'planning', label: '规划提案' },
+  { key: 'execution', label: '执行' },
+  { key: 'review_1', label: '初审' },
+  { key: 'repair_1', label: '初修' },
+  { key: 'review_2', label: '再审' },
+  { key: 'repair_2', label: '再修' },
+  { key: 'review_3', label: '三审' },
+  { key: 'repair_3', label: '三修' },
+  { key: 'archive', label: '归档' },
+];
+
+function buildDefaultStageProviders(): Record<string, SessionProvider> {
+  /**
+   * PURPOSE: Initialize create-form provider choices for all workflow stages.
+   */
+  return Object.fromEntries(
+    WORKFLOW_STAGE_PROVIDER_OPTIONS.map((stage) => [stage.key, 'codex' as SessionProvider]),
+  );
+}
+
+function buildExplicitStageProviders(
+  stageProviders: Record<string, SessionProvider>,
+  enabled: boolean,
+): Record<string, SessionProvider> | undefined {
+  /**
+   * PURPOSE: Keep create payloads limited to explicit non-default provider choices.
+   */
+  if (!enabled) {
+    return undefined;
+  }
+  const explicitProviders = WORKFLOW_STAGE_PROVIDER_OPTIONS.reduce<Record<string, SessionProvider>>((providers, stage) => {
+    const provider = stageProviders[stage.key] === 'claude' ? 'claude' : 'codex';
+    if (provider !== 'codex') {
+      providers[stage.key] = provider;
+    }
+    return providers;
+  }, {});
+  return Object.keys(explicitProviders).length > 0 ? explicitProviders : undefined;
+}
 
 type WorkflowActionMenuState =
   | { isOpen: false; workflowId: null; x: number; y: number }
@@ -134,6 +175,10 @@ export default function SidebarProjectWorkflows({
   const [composerOpen, setComposerOpen] = useState(false);
   const [workflowTitleInput, setWorkflowTitleInput] = useState('');
   const [workflowObjectiveInput, setWorkflowObjectiveInput] = useState('');
+  const [workflowStageProviders, setWorkflowStageProviders] = useState<Record<string, SessionProvider>>(
+    () => buildDefaultStageProviders(),
+  );
+  const [workflowStageConfigOpen, setWorkflowStageConfigOpen] = useState(false);
   const [availableOpenSpecChanges, setAvailableOpenSpecChanges] = useState<string[]>([]);
   const [selectedOpenSpecChange, setSelectedOpenSpecChange] = useState('');
   const [isLoadingOpenSpecChanges, setIsLoadingOpenSpecChanges] = useState(false);
@@ -188,6 +233,8 @@ export default function SidebarProjectWorkflows({
     setComposerOpen(false);
     setWorkflowTitleInput('');
     setWorkflowObjectiveInput('');
+    setWorkflowStageProviders(buildDefaultStageProviders());
+    setWorkflowStageConfigOpen(false);
     setAvailableOpenSpecChanges([]);
     setSelectedOpenSpecChange('');
     setComposerError('');
@@ -216,6 +263,7 @@ export default function SidebarProjectWorkflows({
         title,
         objective,
         openspecChangeName: openspecChangeName || undefined,
+        stageProviders: buildExplicitStageProviders(workflowStageProviders, workflowStageConfigOpen),
       });
       if (!response.ok) {
         setComposerError('创建工作流失败，请稍后重试。');
@@ -502,6 +550,35 @@ export default function SidebarProjectWorkflows({
               ))}
             </select>
           </label>
+          <details
+            className="rounded-md border border-border/60 p-2"
+            open={workflowStageConfigOpen}
+            onToggle={(event) => setWorkflowStageConfigOpen(event.currentTarget.open)}
+          >
+            <summary className="cursor-pointer text-xs font-medium text-foreground">阶段配置</summary>
+            <div className="mt-2 grid gap-2">
+              {WORKFLOW_STAGE_PROVIDER_OPTIONS.map((stage) => (
+                <label key={stage.key} className="flex items-center justify-between gap-2 text-xs text-foreground">
+                  <span>{stage.label}</span>
+                  <select
+                    data-testid={`workflow-stage-provider-${stage.key}`}
+                    className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                    value={workflowStageProviders[stage.key] || 'codex'}
+                    onChange={(event) => {
+                      const provider = event.target.value === 'claude' ? 'claude' : 'codex';
+                      setWorkflowStageProviders((current) => ({
+                        ...current,
+                        [stage.key]: provider,
+                      }));
+                    }}
+                  >
+                    <option value="codex">codex</option>
+                    <option value="claude">claude</option>
+                  </select>
+                </label>
+              ))}
+            </div>
+          </details>
           {composerError && <p className="text-xs text-destructive">{composerError}</p>}
           <div className="flex items-center justify-end gap-1">
             <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={closeWorkflowComposer} disabled={isCreatingWorkflow}>
