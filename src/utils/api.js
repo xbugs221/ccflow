@@ -111,6 +111,11 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ stageProviders }),
     }),
+  updateWorkflowSchedule: (projectName, workflowId, scheduledAt) =>
+    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/schedule`, {
+      method: 'PUT',
+      body: JSON.stringify({ scheduledAt }),
+    }),
   renameProjectWorkflow: (projectName, workflowId, title) =>
     authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/rename`, {
       method: 'PUT',

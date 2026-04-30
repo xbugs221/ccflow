@@ -28,6 +28,7 @@ const runnerState = {
   reconcileTimer: null,
   running: false,
   stopped: true,
+  inFlightWorkflowKeys: new Set(),
   inFlightKeys: new Set(),
   completedKeys: new Set(),
 };
@@ -196,6 +197,17 @@ function buildActionKey(project, workflow, action) {
   ].join(':');
 }
 
+function buildWorkflowRunKey(project, workflow) {
+  /**
+   * Keep automation serial inside one workflow while allowing different
+   * workflows and projects to launch in parallel.
+   */
+  return [
+    project?.fullPath || project?.path || project?.name || '',
+    workflow?.id || workflow?.routeIndex || workflow?.title || '',
+  ].join(':');
+}
+
 /**
  * PURPOSE: Build a fresh review checkpoint after a repair session completes.
  */
@@ -226,12 +238,50 @@ function getWorkflowIndexedSessions(workflow = {}) {
 }
 
 /**
+ * PURPOSE: Decide whether the persistent child-session index proves the exact
+ * selected action was already launched. Stage-only matching is too broad
+ * because repair checkpoints can intentionally re-run the same review stage.
+ */
+function hasIndexedSessionForAction(workflow, action) {
+  const sessions = getWorkflowIndexedSessions(workflow);
+  if (action.sessionId) {
+    return sessions.some((session) => (
+      session.id === action.sessionId
+      && session.stageKey === action.stage
+    ));
+  }
+
+  const afterRepairMatch = String(action.checkpoint || '').match(/^after-repair:(.+)$/);
+  if (afterRepairMatch) {
+    const marker = afterRepairMatch[1];
+    const markerSession = sessions.find((session) => (
+      session.id === marker || String(session.routeIndex || '') === marker
+    ));
+    const markerRouteIndex = Number(markerSession?.routeIndex);
+    return sessions.some((session) => (
+      session.stageKey === action.stage
+      && Number.isFinite(markerRouteIndex)
+      && Number(session.routeIndex) > markerRouteIndex
+    ));
+  }
+
+  return sessions.some((session) => (
+    session.stageKey === action.stage
+  ));
+}
+
+/**
  * PURPOSE: Evaluate whether an action should be skipped based on runner
  * deduplication state, with a fallback to persistent child-session index.
  * If the memory key exists but the workflow index is missing, the action
  * must not be skipped so recovery can run.
  */
 export function evaluateWorkflowActionDedup({ project, workflow, action, runnerState }) {
+  const workflowKey = buildWorkflowRunKey(project, workflow);
+  if (runnerState.inFlightWorkflowKeys?.has(workflowKey)) {
+    return { shouldSkip: true, reason: 'workflow_in_flight' };
+  }
+
   const actionKey = buildActionKey(project, workflow, action);
 
   if (runnerState.inFlightKeys.has(actionKey)) {
@@ -239,9 +289,11 @@ export function evaluateWorkflowActionDedup({ project, workflow, action, runnerS
   }
 
   if (runnerState.completedKeys.has(actionKey)) {
-    const hasIndex = getWorkflowIndexedSessions(workflow).some((session) => (
-      session.stageKey === action.stage
-    ));
+    if (action.sessionId) {
+      return { shouldSkip: false, reason: 'resume_existing_session' };
+    }
+
+    const hasIndex = hasIndexedSessionForAction(workflow, action);
     if (hasIndex) {
       return { shouldSkip: true, reason: 'indexed_action_already_completed' };
     }
@@ -510,6 +562,14 @@ export async function resolveWorkflowAutoAction(project, workflow) {
     return null;
   }
 
+  const scheduledAt = workflow.scheduledAt;
+  if (scheduledAt) {
+    const scheduledTime = new Date(scheduledAt).getTime();
+    if (Number.isFinite(scheduledTime) && Date.now() < scheduledTime) {
+      return null;
+    }
+  }
+
   const planningDone =
     workflow.openspecChangeDetected === true ||
     workflow.adoptsExistingOpenSpec === true ||
@@ -554,11 +614,27 @@ export async function resolveWorkflowAutoAction(project, workflow) {
     const latestCycleStage = latestCycleSession?.stageKey || '';
 
     if (repairStatus === 'completed' && latestCycleStage === `repair_${passIndex}`) {
-      return {
-        stage: `review_${passIndex}`,
-        provider: resolveWorkflowStageProvider(workflow, `review_${passIndex}`),
-        checkpoint: buildAfterRepairReviewCheckpoint(latestCycleSession, passIndex),
-      };
+      if (passIndex < REVIEW_PASSES.length) {
+        const nextReviewStage = `review_${passIndex + 1}`;
+        const nextReviewStatus = getWorkflowStageStatus(workflow, nextReviewStage);
+        const nextReviewSession = getLatestWorkflowReviewSession(workflow, passIndex + 1);
+        if (!isWorkflowPassedStatus(nextReviewStatus) && !nextReviewSession) {
+          return {
+            stage: nextReviewStage,
+            provider: resolveWorkflowStageProvider(workflow, nextReviewStage),
+            checkpoint: buildAfterRepairReviewCheckpoint(latestCycleSession, passIndex),
+          };
+        }
+      } else if (archiveStatus === 'pending') {
+        const archiveSession = getLatestWorkflowStageSession(workflow, 'archive');
+        if (!archiveSession) {
+          return {
+            stage: 'archive',
+            provider: resolveWorkflowStageProvider(workflow, 'archive'),
+            checkpoint: buildAfterRepairReviewCheckpoint(latestCycleSession, passIndex),
+          };
+        }
+      }
     }
 
     if (repairStatus === 'pending' && latestCycleStage === `repair_${passIndex}`) {
@@ -576,7 +652,7 @@ export async function resolveWorkflowAutoAction(project, workflow) {
       if (!reviewResult || typeof reviewResult !== 'object') {
         return null;
       }
-      if (isRepairReviewResult(reviewResult)) {
+      if (isRepairReviewResult(reviewResult) && !isWorkflowPassedStatus(repairStatus)) {
         const repairSession = getLatestWorkflowStageSession(workflow, `repair_${passIndex}`);
         return {
           stage: `repair_${passIndex}`,
@@ -588,6 +664,10 @@ export async function resolveWorkflowAutoAction(project, workflow) {
       }
 
       if (passIndex < REVIEW_PASSES.length) {
+        const nextReviewStatus = getWorkflowStageStatus(workflow, `review_${passIndex + 1}`);
+        if (isWorkflowPassedStatus(nextReviewStatus)) {
+          continue;
+        }
         const nextReviewSession = getLatestWorkflowReviewSession(workflow, passIndex + 1);
         if (!nextReviewSession) {
           return {
@@ -766,6 +846,39 @@ async function recordWorkflowControllerEvent(project, workflow, event, logger) {
 }
 
 /**
+ * PURPOSE: Launch one provider action without blocking the global scan loop.
+ * The workflow-level lock enforces serial execution inside a single workflow.
+ */
+function launchWorkflowActionInBackground({ project, workflow, action, actionKey, workflowKey, rebuildAllowed, logger }) {
+  runnerState.inFlightWorkflowKeys.add(workflowKey);
+  runnerState.inFlightKeys.add(actionKey);
+
+  void (async () => {
+    try {
+      const launched = await launchWorkflowAction(project, workflow, action, logger);
+      if (launched) {
+        runnerState.completedKeys.add(actionKey);
+        if (rebuildAllowed) {
+          await recordWorkflowControllerEvent(project, workflow, {
+            type: 'session_rebuilt',
+            stageKey: action.stage,
+            provider: action.provider || 'codex',
+            message: `Workflow action ${action.stage} created a replacement child session after index recovery`,
+            createdAt: new Date().toISOString(),
+          }, logger);
+        }
+        scheduleWorkflowAutoRun('codex-turn-complete', { logger });
+      }
+    } catch (error) {
+      logger.error(`[WorkflowAutoRunner] Failed ${project.name}/${workflow.id}:`, error);
+    } finally {
+      runnerState.inFlightKeys.delete(actionKey);
+      runnerState.inFlightWorkflowKeys.delete(workflowKey);
+    }
+  })();
+}
+
+/**
  * PURPOSE: Run one reconciliation pass. Existing action keys make repeated
  * scans harmless.
  */
@@ -788,6 +901,7 @@ export async function runWorkflowAutoOnce(options = {}) {
         }
 
         const actionKey = buildActionKey(project, workflow, action);
+        const workflowKey = buildWorkflowRunKey(project, workflow);
         const dedup = evaluateWorkflowActionDedup({ project, workflow, action, runnerState });
         if (dedup.shouldSkip) {
           stats.skipped += 1;
@@ -835,28 +949,16 @@ export async function runWorkflowAutoOnce(options = {}) {
           }
         }
 
-        runnerState.inFlightKeys.add(actionKey);
-        try {
-          const launched = await launchWorkflowAction(project, workflow, action, logger);
-          if (launched) {
-            runnerState.completedKeys.add(actionKey);
-            if (rebuildAllowed) {
-              await recordWorkflowControllerEvent(project, workflow, {
-                type: 'session_rebuilt',
-                stageKey: action.stage,
-                provider: action.provider || 'codex',
-                message: `Workflow action ${action.stage} created a replacement child session after index recovery`,
-                createdAt: new Date().toISOString(),
-              }, logger);
-            }
-            stats.launched += 1;
-            scheduleWorkflowAutoRun('codex-turn-complete', { logger });
-          }
-        } catch (error) {
-          logger.error(`[WorkflowAutoRunner] Failed ${project.name}/${workflow.id}:`, error);
-        } finally {
-          runnerState.inFlightKeys.delete(actionKey);
-        }
+        launchWorkflowActionInBackground({
+          project,
+          workflow,
+          action,
+          actionKey,
+          workflowKey,
+          rebuildAllowed,
+          logger,
+        });
+        stats.launched += 1;
       }
     }
     return stats;

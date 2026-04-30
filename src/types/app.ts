@@ -105,6 +105,7 @@ export interface ProjectWorkflow {
   activeStep?: string;
   completedSteps?: number;
   totalSteps?: number;
+  scheduledAt?: string;
   [key: string]: unknown;
 }
 

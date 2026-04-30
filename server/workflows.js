@@ -1456,6 +1456,9 @@ function createWorkflowRecord(payload = {}) {
   const adoptsExistingOpenSpec = payload.adoptsExistingOpenSpec === true;
   const initialStage = adoptsExistingOpenSpec ? 'execution' : 'planning';
   const stageProviders = normalizeWorkflowStageProviders(payload.stageProviders);
+  const scheduledAt = typeof payload.scheduledAt === 'string' && payload.scheduledAt.trim()
+    ? payload.scheduledAt.trim()
+    : undefined;
 
   return {
     id: workflowId,
@@ -1477,6 +1480,7 @@ function createWorkflowRecord(payload = {}) {
     artifacts: [],
     childSessions: [],
     gateDecision: 'pending',
+    scheduledAt,
   };
 }
 
@@ -1537,7 +1541,7 @@ function assignMissingWorkflowRouteIndices(workflows = []) {
  * Prefer the active/blocked stage from the read model.
  */
 function resolveWorkflowStageKey(workflow, stageStatuses) {
-  const activeStage = stageStatuses.find((stage) => ['active', 'blocked', 'failed', 'running'].includes(stage.status));
+  const activeStage = [...stageStatuses].reverse().find((stage) => ['active', 'blocked', 'failed', 'running'].includes(stage.status));
   if (activeStage?.key) {
     return normalizeWorkflowStageKey(activeStage.key);
   }
@@ -2026,7 +2030,7 @@ function prepareWorkflowRecord(workflow = {}) {
     (session) => session.stageKey === 'verification' || /^review_\d+$/.test(String(session.stageKey || '')),
   );
   const hasVerificationArtifact = artifacts.some((artifact) => artifact.stage === 'verification');
-  const hasDeliveryArtifact = artifacts.some((artifact) => artifact.stage === 'archive' || artifact.stage === 'ready_for_acceptance');
+  const hasFreshDeliveryArtifact = isSubstageArtifactFresh('delivery_package', artifacts);
   const executionStageStatus = normalizedStageStatuses.find((stage) => stage.key === 'execution')?.status || 'pending';
   const verificationStageStatus = normalizedStageStatuses.find((stage) => stage.key === 'verification')?.status || 'pending';
   const repairedStageStatuses = normalizedStageStatuses.map((stage) => {
@@ -2054,12 +2058,12 @@ function prepareWorkflowRecord(workflow = {}) {
     if (
       stage.key === 'archive'
       && verificationStageStatus === 'completed'
-      && hasDeliveryArtifact
+      && hasFreshDeliveryArtifact
       && ['pending', 'blocked'].includes(stage.status)
     ) {
       return {
         ...stage,
-        status: workflow.finalReadiness === true ? 'completed' : 'active',
+        status: 'completed',
       };
     }
     const hasStageChildSession = childSessions.some((session) => (
@@ -2078,7 +2082,10 @@ function prepareWorkflowRecord(workflow = {}) {
     ? 'planning'
     : (workflow.stage || currentStageKey);
   const persistedStageStatus = repairedStageStatuses.find((stage) => stage.key === persistedStageKey)?.status;
+  const persistedStageIndex = STAGE_TEMPLATES.findIndex((stage) => stage.key === persistedStageKey);
+  const currentStageIndex = STAGE_TEMPLATES.findIndex((stage) => stage.key === currentStageKey);
   const effectiveStageKey = ['completed', 'skipped'].includes(persistedStageStatus)
+    || (currentStageIndex >= 0 && persistedStageIndex >= 0 && currentStageIndex > persistedStageIndex)
     ? currentStageKey
     : persistedStageKey;
 
@@ -2330,8 +2337,7 @@ function applyOpenSpecTaskAwareStageStatuses(workflow, stageStatuses, childSessi
       hasReviewPassResultEvidence(passIndex, reviewArtifacts)
     )),
   );
-  const thirdReviewCompleted = completedReviewPasses.has(VERIFICATION_REVIEW_PASSES.length)
-    || isWorkflowPassedStatus(stageStatuses.find((stage) => stage.key === buildReviewPassStageKey(VERIFICATION_REVIEW_PASSES.length))?.status);
+  const thirdReviewCompleted = completedReviewPasses.has(VERIFICATION_REVIEW_PASSES.length);
   const hasArchiveArtifact = isSubstageArtifactFresh('delivery_package', reviewArtifacts);
 
   return stageStatuses.map((stage) => {
@@ -2355,23 +2361,57 @@ function applyOpenSpecTaskAwareStageStatuses(workflow, stageStatuses, childSessi
       if (completedReviewPasses.has(reviewPassIndex)) {
         return { ...stage, status: 'completed' };
       }
-      const previousPassCompleted = reviewPassIndex === 1 || completedReviewPasses.has(reviewPassIndex - 1);
-      if (previousPassCompleted && ['pending', 'blocked', 'skipped'].includes(stage.status)) {
+      const previousReviewReady = reviewPassIndex === 1 || (
+        reviewPassRequiresRepair(reviewPassIndex - 1, reviewArtifacts)
+          ? isSubstageArtifactFresh(`repair_${reviewPassIndex - 1}`, reviewArtifacts)
+          : completedReviewPasses.has(reviewPassIndex - 1)
+      );
+      if (previousReviewReady && stage.status === 'completed') {
         return { ...stage, status: 'active' };
       }
-      if (!previousPassCompleted && ['active', 'completed', 'blocked', 'skipped'].includes(stage.status)) {
+      if (previousReviewReady && ['pending', 'blocked', 'skipped'].includes(stage.status)) {
+        return { ...stage, status: 'active' };
+      }
+      if (!previousReviewReady && ['active', 'completed', 'blocked', 'skipped'].includes(stage.status)) {
+        return { ...stage, status: 'pending' };
+      }
+    }
+
+    const repairPassMatch = /^repair_(\d+)$/.exec(String(stage.key || ''));
+    if (repairPassMatch) {
+      if (!executionTasksCompleted) {
+        return { ...stage, status: 'pending' };
+      }
+      if (isSubstageArtifactFresh(stage.key, reviewArtifacts)) {
+        return { ...stage, status: 'completed' };
+      }
+      if (stage.status === 'completed') {
         return { ...stage, status: 'pending' };
       }
     }
 
     if (stage.key === 'archive' && thirdReviewCompleted) {
       if (
+        hasArchiveArtifact
+        || workflow.finalReadiness === true
+        || (hasArchiveSession && archivedOpenSpecChange && !hasActiveCodexWorkflowSession(archiveSession))
+      ) {
+        return { ...stage, status: 'completed' };
+      }
+      if (hasArchiveSession) {
+        return { ...stage, status: 'active' };
+      }
+      return { ...stage, status: 'pending' };
+    }
+
+    if (stage.key === 'archive') {
+      if (
         workflow.finalReadiness === true
         || (hasArchiveSession && archivedOpenSpecChange && !hasActiveCodexWorkflowSession(archiveSession))
       ) {
         return { ...stage, status: 'completed' };
       }
-      if (hasArchiveSession || hasArchiveArtifact) {
+      if (hasArchiveSession) {
         return { ...stage, status: 'active' };
       }
       return { ...stage, status: 'pending' };
@@ -2440,13 +2480,20 @@ function buildStageInspections(workflow, currentStageKey, stageStatuses, artifac
     const lastSubstageKey = templateSubstages[templateSubstages.length - 1]?.key;
     const progressSubstageKey = resolveSubstageProgressKey(workflow, template.key, stageArtifacts, stageSessions, currentStageKey);
     const progressIndex = templateSubstages.findIndex((item) => item.key === progressSubstageKey);
+    const progressEvidenceArtifacts = getReviewPassIndexForSubstage(progressSubstageKey) ? artifacts : stageArtifacts;
     const progressSatisfied = progressSubstageKey
-      ? hasSubstageEvidence(template.key, progressSubstageKey, workflow, stageArtifacts, stageSessions)
+      ? hasSubstageEvidence(template.key, progressSubstageKey, workflow, progressEvidenceArtifacts, stageSessions)
       : false;
     const firstIncompleteCompletedSubstageIndex = rawStageStatus === 'completed' && progressIndex >= 0
       ? template.substages.findIndex((substage, index) => (
         index <= progressIndex
-        && !hasSubstageEvidence(template.key, substage.key, workflow, stageArtifacts, stageSessions)
+        && !hasSubstageEvidence(
+          template.key,
+          substage.key,
+          workflow,
+          getReviewPassIndexForSubstage(substage.key) ? artifacts : stageArtifacts,
+          stageSessions,
+        )
       ))
       : -1;
     let stageStatus = rawStageStatus;
@@ -3128,6 +3175,47 @@ export async function updateWorkflowUiState(project, workflowId, uiState = {}) {
   return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
 }
 
+export async function updateWorkflowSchedule(project, workflowId, scheduledAt) {
+  const projectPath = project?.fullPath || project?.path || '';
+  if (!projectPath) {
+    return null;
+  }
+
+  const store = await readWorkflowStore(projectPath);
+  const entry = store;
+  if (!entry?.workflows) {
+    return null;
+  }
+
+  let updatedWorkflow = null;
+  entry.workflows = entry.workflows.map((workflow) => {
+    if (workflow.id !== workflowId) {
+      return workflow;
+    }
+
+    updatedWorkflow = {
+      ...workflow,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const trimmed = typeof scheduledAt === 'string' ? scheduledAt.trim() : '';
+    if (trimmed) {
+      const parsed = new Date(trimmed).getTime();
+      if (Number.isFinite(parsed)) {
+        updatedWorkflow.scheduledAt = trimmed;
+      }
+    } else {
+      delete updatedWorkflow.scheduledAt;
+    }
+
+    return updatedWorkflow;
+  });
+
+  store.workflows = entry.workflows;
+  await writeWorkflowStore(projectPath, store);
+  return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
+}
+
 export async function updateWorkflowGateDecision(project, workflowId, gateDecision) {
   /**
    * Persist the user's final acceptance gate so the workflow read model can
@@ -3489,12 +3577,7 @@ export function buildWorkflowControlPlaneReadModel(workflow) {
       .filter((event) => event.stageKey === stage.key)
       .filter((event) => ['orphan_recovered', 'session_rebuilt', 'session_rebuild_allowed'].includes(event.type));
 
-    let status = (workflow.stageStatuses || []).find((s) => s.key === stage.key)?.status || 'pending';
-    if (warnings.some((w) => w.type === 'index_missing' || w.type === 'index_stale')) {
-      if (status === 'completed') {
-        status = 'active';
-      }
-    }
+    const status = (workflow.stageStatuses || []).find((s) => s.key === stage.key)?.status || 'pending';
 
     const duplicateAutoStartAllowed = !recoveryEvents.some((e) => e.type === 'orphan_recovered');
 

@@ -98,6 +98,38 @@ test('Scenario: completedKey 存在且 chat-only child session 索引有效', as
   assert.equal(result.reason, 'indexed_action_already_completed');
 });
 
+test('Scenario: 同一个 workflow 已有 action 运行时跳过后续 action', async () => {
+  const { autoRunner } = await loadRecoveryApi();
+
+  const result = autoRunner.evaluateWorkflowActionDedup({
+    project: { fullPath: '/tmp/project-a' },
+    workflow: buildWorkflow(),
+    action: buildAction('execution'),
+    runnerState: {
+      completedKeys: new Set(),
+      inFlightKeys: new Set(),
+      inFlightWorkflowKeys: new Set(['/tmp/project-a:w1']),
+    },
+  });
+
+  assert.equal(result.shouldSkip, true);
+  assert.equal(result.reason, 'workflow_in_flight');
+
+  const otherWorkflow = autoRunner.evaluateWorkflowActionDedup({
+    project: { fullPath: '/tmp/project-a' },
+    workflow: buildWorkflow({ id: 'w2' }),
+    action: buildAction('planning'),
+    runnerState: {
+      completedKeys: new Set(),
+      inFlightKeys: new Set(),
+      inFlightWorkflowKeys: new Set(['/tmp/project-a:w1']),
+    },
+  });
+
+  assert.equal(otherWorkflow.shouldSkip, false);
+  assert.equal(otherWorkflow.reason, 'not_started');
+});
+
 test('Scenario: provider orphan 扫描限定当前项目并标记登记状态', async () => {
   const { autoRunner } = await loadRecoveryApi();
   assert.equal(typeof autoRunner.scanWorkflowProviderSessions, 'function');

@@ -123,6 +123,7 @@ import {
     renameWorkflow,
     registerWorkflowChildSession,
     updateWorkflowGateDecision,
+    updateWorkflowSchedule,
     updateWorkflowStageProviders,
     updateWorkflowUiState,
 } from './workflows.js';
@@ -827,6 +828,7 @@ app.post('/api/projects/:projectName/workflows', authenticateToken, async (req, 
             objective: req.body?.objective,
             openspecChangeName: req.body?.openspecChangeName,
             stageProviders: req.body?.stageProviders,
+            scheduledAt: req.body?.scheduledAt,
         });
         scheduleWorkflowAutoRun('workflow-create', { logger: console });
         res.status(201).json(workflow);
@@ -940,6 +942,25 @@ app.put('/api/projects/:projectName/workflows/:workflowId/gate-decision', authen
         }
 
         const workflow = await updateWorkflowGateDecision(project, req.params.workflowId, req.body?.gateDecision);
+        if (!workflow) {
+            return res.status(404).json({ error: 'Workflow not found' });
+        }
+
+        res.json({ success: true, workflow });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+app.put('/api/projects/:projectName/workflows/:workflowId/schedule', authenticateToken, async (req, res) => {
+    try {
+        const projects = await attachWorkflowMetadata(await getProjects());
+        const project = findProjectByName(projects, req.params.projectName);
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        const workflow = await updateWorkflowSchedule(project, req.params.workflowId, req.body?.scheduledAt);
         if (!workflow) {
             return res.status(404).json({ error: 'Workflow not found' });
         }

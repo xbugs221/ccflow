@@ -114,6 +114,24 @@ function isWorkflowFinished(workflow: ProjectWorkflow): boolean {
     || stageStatusMap.get('verification') === 'completed';
 }
 
+function isWorkflowScheduledPending(workflow: ProjectWorkflow): boolean {
+  const scheduledAt = workflow.scheduledAt;
+  if (!scheduledAt) return false;
+  const scheduledTime = new Date(scheduledAt).getTime();
+  return Number.isFinite(scheduledTime) && Date.now() < scheduledTime;
+}
+
+function formatWorkflowScheduleTime(workflow: ProjectWorkflow): string {
+  const scheduledAt = workflow.scheduledAt;
+  if (!scheduledAt) return '';
+  const date = new Date(scheduledAt);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  return `${month}-${day} ${hour}:${minute}`;
+}
+
 /**
  * PURPOSE: Keep workflow child sessions inside workflow detail pages instead of
  * duplicating them under the manual-session navigation group.
@@ -154,6 +172,7 @@ export default function ProjectWorkspaceNav({
     () => buildDefaultStageProviders(),
   );
   const [workflowStageConfigOpen, setWorkflowStageConfigOpen] = useState(false);
+  const [workflowScheduledAtInput, setWorkflowScheduledAtInput] = useState('');
   const [availableOpenSpecChanges, setAvailableOpenSpecChanges] = useState<string[]>([]);
   const [selectedOpenSpecChange, setSelectedOpenSpecChange] = useState('');
   const [isLoadingOpenSpecChanges, setIsLoadingOpenSpecChanges] = useState(false);
@@ -284,6 +303,7 @@ export default function ProjectWorkspaceNav({
     setWorkflowObjectiveInput('');
     setWorkflowStageProviders(buildDefaultStageProviders());
     setWorkflowStageConfigOpen(false);
+    setWorkflowScheduledAtInput('');
     setAvailableOpenSpecChanges([]);
     setSelectedOpenSpecChange('');
     setWorkflowComposerError('');
@@ -308,11 +328,13 @@ export default function ProjectWorkspaceNav({
       setIsCreatingWorkflow(true);
       setWorkflowComposerError('');
       const openspecChangeName = selectedOpenSpecChange.trim();
+      const scheduledAt = workflowScheduledAtInput.trim() || undefined;
       const response = await api.createProjectWorkflow(project.name, {
         title,
         objective,
         openspecChangeName: openspecChangeName || undefined,
         stageProviders: buildExplicitStageProviders(workflowStageProviders, workflowStageConfigOpen),
+        scheduledAt,
       });
       if (!response.ok) {
         setWorkflowComposerError('创建工作流失败，请稍后重试。');
@@ -509,6 +531,15 @@ export default function ProjectWorkspaceNav({
                   ))}
                 </select>
               </label>
+              <label className="grid gap-1 text-xs text-foreground">
+                <span>定时启动（可选）</span>
+                <input
+                  type="datetime-local"
+                  className="h-8 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+                  value={workflowScheduledAtInput}
+                  onChange={(event) => setWorkflowScheduledAtInput(event.target.value)}
+                />
+              </label>
               <details
                 className="rounded-md border border-border/60 p-2"
                 open={workflowStageConfigOpen}
@@ -590,6 +621,12 @@ export default function ProjectWorkspaceNav({
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                       {workflow.favorite === true && <Star className="h-3 w-3 fill-current text-yellow-500" />}
                       {workflow.pending === true && <Clock className="h-3 w-3 text-amber-500" />}
+                      {isWorkflowScheduledPending(workflow) && (
+                        <span className="inline-flex items-center gap-1 text-blue-500" title={`定时启动: ${formatWorkflowScheduleTime(workflow)}`}>
+                          <Clock className="h-3 w-3" />
+                          {formatWorkflowScheduleTime(workflow)}
+                        </span>
+                      )}
                       <span>{workflow.stage}</span>
                       <span
                         className={[

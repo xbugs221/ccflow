@@ -878,6 +878,9 @@ function buildProjectChatRecord(sessionId, title, modelState = {}, uiState = {},
   if (typeof metadata.stageKey === 'string' && metadata.stageKey.trim()) {
     record.stageKey = metadata.stageKey.trim();
   }
+  if (typeof metadata.workflowId === 'string' && metadata.workflowId.trim()) {
+    record.workflowId = metadata.workflowId.trim();
+  }
   if (typeof metadata.summary === 'string' && metadata.summary.trim()) {
     record.summary = metadata.summary.trim();
   }
@@ -1171,6 +1174,9 @@ function normalizeProjectConfigForSave(config, projectPath = '') {
   delete normalized[LEGACY_MANUAL_SESSION_ROUTE_COUNTER_BY_PATH_KEY];
 
   const workflowMetadataById = getSessionWorkflowMetadataMap(config);
+  if (Object.keys(workflowMetadataById).length > 0) {
+    normalized[SESSION_WORKFLOW_METADATA_BY_ID_KEY] = workflowMetadataById;
+  }
   const modelStateById = getSessionModelStateMap(config);
   const uiStateByPath = getSessionUiStateMap(config);
   const uiStateBySessionId = Object.entries(uiStateByPath).reduce((stateById, [key, state]) => {
@@ -1477,11 +1483,15 @@ function getSessionWorkflowMetadataMap(config) {
     return Object.entries(config.workflows || {}).reduce((metadataById, [workflowIndex, workflow]) => {
       Object.values(workflow?.chat || {}).forEach((record) => {
         if (record?.sessionId) {
-          metadataById[record.sessionId] = {
-            workflowId: `w${workflowIndex}`,
-            provider: record.provider,
-            stageKey: record.stageKey,
-          };
+          if (!metadataById[record.sessionId]) {
+            metadataById[record.sessionId] = {
+              workflowId: typeof record.workflowId === 'string' && record.workflowId.trim()
+                ? record.workflowId.trim()
+                : `w${workflowIndex}`,
+              provider: record.provider,
+              stageKey: record.stageKey,
+            };
+          }
         }
       });
       return metadataById;
@@ -1526,7 +1536,9 @@ function getManualSessionDraftMap(config) {
             provider: record.provider || 'codex',
             label: record.title,
             summary: record.summary,
-            workflowId: `w${workflowIndex}`,
+            workflowId: typeof record.workflowId === 'string' && record.workflowId.trim()
+              ? record.workflowId.trim()
+              : `w${workflowIndex}`,
             routeIndex: Number(routeIndex),
             stageKey: record.stageKey,
             startRequestId: record.startRequestId,
@@ -1679,6 +1691,60 @@ function isWorkflowOwnedSession(session, workflowMetadataById = {}) {
 
   const metadata = workflowMetadataById?.[session?.id];
   return typeof metadata?.workflowId === 'string' && metadata.workflowId.trim();
+}
+
+function getSessionDisplayText(session = {}) {
+  /**
+   * PURPOSE: Normalize provider-specific title fields so orphan workflow
+   * sessions can be recognized before they leak into manual-session lists.
+   */
+  return String(session.title || session.summary || session.name || session.message || '').trim();
+}
+
+function buildWorkflowAutoSessionPrefixes(workflow = {}) {
+  /**
+   * PURPOSE: Mirror backend-owned workflow stage titles. These titles are the
+   * only durable clue left when provider sessions are created but not indexed.
+   */
+  const workflowTitle = String(workflow.title || workflow.objective || '').trim();
+  if (!workflowTitle) {
+    return [];
+  }
+  return [
+    `规划提案：${workflowTitle}`,
+    `提案落地：${workflowTitle}`,
+    `归档：${workflowTitle}`,
+    ...[1, 2, 3].flatMap((passIndex) => [
+      `评审${passIndex}：${workflowTitle}`,
+      `修复${passIndex}：${workflowTitle}`,
+    ]),
+  ];
+}
+
+function isLikelyWorkflowAutoSession(session, workflows = [], provider = '') {
+  /**
+   * PURPOSE: Hide workflow-owned provider sessions that failed to persist their
+   * workflow metadata. The workflow detail recovery path remains responsible for
+   * re-attaching them when possible.
+   */
+  if (session?.workflowId || session?.stageKey) {
+    return true;
+  }
+
+  const displayText = getSessionDisplayText(session);
+  if (!displayText) {
+    return false;
+  }
+
+  if (workflows.some((workflow) => (
+    buildWorkflowAutoSessionPrefixes(workflow).some((prefix) => displayText.startsWith(prefix))
+  ))) {
+    return true;
+  }
+
+  return provider === 'claude'
+    && workflows.length > 0
+    && displayText.startsWith('执行 OpenSpec 变更中的任务');
 }
 
 /**
@@ -3122,7 +3188,10 @@ async function getSessions(projectName, limit = 5, offset = 0, options = {}) {
           .filter((session) => session?.provider === 'claude' && session?.id)
           .map((session) => session.id),
       );
-      candidateSessions = candidateSessions.filter((session) => !workflowClaudeSessionIds.has(session.id));
+      candidateSessions = candidateSessions.filter((session) => (
+        !workflowClaudeSessionIds.has(session.id)
+        && !isLikelyWorkflowAutoSession(session, workflows, 'claude')
+      ));
     }
     const annotatedSessions = await annotateSessionCollectionVisibility(candidateSessions, fallbackProjectPath);
     const sessionsWithUiState = annotatedSessions.map((session) => applySessionUiState(
@@ -4056,9 +4125,11 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
   }
   const workflowId = typeof draft?.workflowId === 'string' && draft.workflowId.trim()
     ? draft.workflowId.trim()
-    : draftRecord?.scope === 'workflow'
-      ? `w${draftRecord.workflowIndex}`
-      : '';
+    : typeof draftRecord?.record?.workflowId === 'string' && draftRecord.record.workflowId.trim()
+      ? draftRecord.record.workflowId.trim()
+      : draftRecord?.scope === 'workflow'
+        ? `w${draftRecord.workflowIndex}`
+        : '';
   const stageKey = typeof draft?.stageKey === 'string' && draft.stageKey.trim()
     ? draft.stageKey.trim()
     : typeof draftRecord?.record?.stageKey === 'string'
@@ -4091,6 +4162,7 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
       sessionId: actualSessionId,
       title: trimmedLabel || draftRecord.record.title,
       provider,
+      workflowId,
       stageKey,
     };
     delete config.chat[draftRecord.routeIndex].startRequestId;
@@ -4102,6 +4174,7 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
       sessionId: actualSessionId,
       title: trimmedLabel || draftRecord.record.title,
       provider,
+      workflowId,
       stageKey,
     };
     delete config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex].startRequestId;
@@ -4139,7 +4212,7 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
   }
 
   await saveProjectConfig(config, resolvedProjectPath);
-  if (workflowRegistrationPayload) {
+  if (workflowRegistrationPayload && /^w[1-9]\d*$/.test(workflowRegistrationPayload.workflowId)) {
     await registerWorkflowChildSession(
       { name: projectName, fullPath: resolvedProjectPath, path: resolvedProjectPath },
       workflowRegistrationPayload.workflowId,
@@ -4498,9 +4571,24 @@ async function getCodexSessions(projectPath, options = {}) {
       .map((session) => session.providerSessionId)
       .filter((sessionId) => typeof sessionId === 'string' && sessionId)
       .forEach((sessionId) => boundProviderSessionIds.add(sessionId));
-    const standaloneSessions = excludeWorkflowChildSessions
-      ? sessions.filter((session) => !isWorkflowOwnedSession(session, workflowMetadataById))
-      : sessions;
+    let standaloneSessions = sessions;
+    if (excludeWorkflowChildSessions) {
+      /**
+       * PURPOSE: Keep both indexed workflow child sessions and unindexed
+       * workflow auto-runner orphans out of the manual Codex session list.
+       */
+      const workflows = await listProjectWorkflows(projectPath);
+      const workflowCodexSessionIds = new Set(
+        workflows.flatMap((workflow) => (workflow.childSessions || []))
+          .filter((session) => session?.provider === 'codex' && session?.id)
+          .map((session) => session.id),
+      );
+      standaloneSessions = sessions.filter((session) => (
+        !workflowCodexSessionIds.has(session.id)
+        && !isWorkflowOwnedSession(session, workflowMetadataById)
+        && !isLikelyWorkflowAutoSession(session, workflows, 'codex')
+      ));
+    }
     const routeVisibleStandaloneSessions = standaloneSessions
       .filter((session) => !boundProviderSessionIds.has(session.id));
     const sessionsWithDrafts = Array.from(

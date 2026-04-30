@@ -226,6 +226,17 @@ test('auto runner decision matrix starts the next planned stage or waits on acti
       expectedStage: null,
     },
     {
+      name: 'repair 1 completion advances to review 2',
+      workflow: buildAutoWorkflow({
+        statuses: { review_1: 'completed', repair_1: 'completed', review_2: 'active' },
+        childSessions: [
+          { id: 'review-session', stageKey: 'review_1', routeIndex: 2 },
+          { id: 'repair-session', stageKey: 'repair_1', routeIndex: 3 },
+        ],
+      }),
+      expectedStage: 'review_2',
+    },
+    {
       name: 'archive completed stops',
       workflow: buildAutoWorkflow({
         statuses: { review_1: 'completed', archive: 'completed' },
@@ -248,6 +259,71 @@ test('auto runner decision matrix starts the next planned stage or waits on acti
     const action = await resolveWorkflowAutoAction(project, item.workflow);
     assert.equal(action?.stage || null, item.expectedStage, item.name);
   }
+});
+
+test('fresh repair 3 evidence schedules archive when delivery is missing', { concurrency: false }, async () => {
+  await withWorkflowProject(async ({ project, projectPath, workflowId }) => {
+    await writeEvidenceThroughReview3(projectPath, workflowId, 'blocked');
+    await writeWorkflowArtifact(projectPath, workflowId, 'repair-3-summary.md', '# repair 3\n', 6000);
+
+    const [workflow] = await listProjectWorkflows(projectPath);
+    assert.equal(workflow.stageStatuses.find((stage) => stage.key === 'repair_3')?.status, 'completed');
+    assert.equal(workflow.stageStatuses.find((stage) => stage.key === 'archive')?.status, 'pending');
+
+    const action = await resolveWorkflowAutoAction(project, workflow);
+    assert.equal(action?.stage, 'archive');
+  });
+});
+
+test('review 2 waits for repair 1 when review 1 requested changes', { concurrency: false }, async () => {
+  await withWorkflowProject(async ({ projectPath, workflowId }) => {
+    await writeWorkflowArtifact(projectPath, workflowId, 'review-1.json', JSON.stringify({ decision: 'needs_repair', findings: [{ title: 'fix 1' }] }), 1000);
+
+    const [workflow] = await listProjectWorkflows(projectPath);
+    assert.equal(workflow.stageStatuses.find((stage) => stage.key === 'repair_1')?.status, 'pending');
+    assert.equal(workflow.stageStatuses.find((stage) => stage.key === 'review_2')?.status, 'pending');
+  });
+});
+
+test('stale persisted stage follows later active review state', { concurrency: false }, async () => {
+  await withWorkflowProject(async ({ projectPath, workflowId }) => {
+    await writeWorkflowArtifact(projectPath, workflowId, 'review-1.json', JSON.stringify({ decision: 'needs_repair', findings: [{ title: 'fix 1' }] }), 1000);
+    await writeWorkflowArtifact(projectPath, workflowId, 'repair-1-summary.md', '# repair 1\n', 2000);
+    await rewriteWorkflow(projectPath, workflowId, {
+      stage: 'review_1',
+      stageState: {
+        repair_1: 'completed',
+        review_2: 'active',
+      },
+      controllerEvents: [{
+        type: 'index_missing',
+        stageKey: 'review_1',
+        provider: 'codex',
+        message: 'stale warning',
+        createdAt: new Date(3000).toISOString(),
+      }],
+      chat: {
+        2: {
+          sessionId: 'review-before-repair',
+          title: '评审1',
+          provider: 'codex',
+          stageKey: 'review_1',
+        },
+        3: {
+          sessionId: 'repair-session',
+          title: '修复1',
+          provider: 'claude',
+          stageKey: 'repair_1',
+        },
+      },
+      stageStatuses: undefined,
+    });
+
+    const [workflow] = await listProjectWorkflows(projectPath);
+    assert.equal(workflow.stage, 'review_2');
+    assert.equal(workflow.stageStatuses.find((stage) => stage.key === 'review_1')?.status, 'completed');
+    assert.equal(workflow.stageStatuses.find((stage) => stage.key === 'review_2')?.status, 'active');
+  });
 });
 
 test('blocked review 3 keeps stale archive pending until repair 3 evidence exists', { concurrency: false }, async () => {

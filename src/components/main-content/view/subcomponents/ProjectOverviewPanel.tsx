@@ -277,6 +277,7 @@ export default function ProjectOverviewPanel({
     () => buildDefaultStageProviders(),
   );
   const [workflowStageConfigOpen, setWorkflowStageConfigOpen] = useState(false);
+  const [workflowScheduledAtInput, setWorkflowScheduledAtInput] = useState('');
   const [availableOpenSpecChanges, setAvailableOpenSpecChanges] = useState<string[]>([]);
   const [selectedOpenSpecChange, setSelectedOpenSpecChange] = useState('');
   const [isLoadingOpenSpecChanges, setIsLoadingOpenSpecChanges] = useState(false);
@@ -548,6 +549,7 @@ export default function ProjectOverviewPanel({
     setWorkflowObjectiveInput('');
     setWorkflowStageProviders(buildDefaultStageProviders());
     setWorkflowStageConfigOpen(false);
+    setWorkflowScheduledAtInput('');
     setAvailableOpenSpecChanges([]);
     setSelectedOpenSpecChange('');
     setWorkflowComposerError('');
@@ -569,11 +571,13 @@ export default function ProjectOverviewPanel({
       setIsCreatingWorkflow(true);
       setWorkflowComposerError('');
       const openspecChangeName = selectedOpenSpecChange.trim();
+      const scheduledAt = workflowScheduledAtInput.trim() || undefined;
       const response = await api.createProjectWorkflow(project.name, {
         title,
         objective,
         openspecChangeName: openspecChangeName || undefined,
         stageProviders: buildExplicitStageProviders(workflowStageProviders, workflowStageConfigOpen),
+        scheduledAt,
       });
       if (!response.ok) {
         setWorkflowComposerError('创建工作流失败，请稍后重试。');
@@ -928,6 +932,15 @@ export default function ProjectOverviewPanel({
                       </option>
                     ))}
                   </select>
+                </label>
+                <label className="grid gap-2 text-sm text-foreground">
+                  <span>定时启动（可选）</span>
+                  <input
+                    type="datetime-local"
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    value={workflowScheduledAtInput}
+                    onChange={(event) => setWorkflowScheduledAtInput(event.target.value)}
+                  />
                 </label>
                 <details
                   className="rounded-md border border-border/60 p-3 md:col-span-2"

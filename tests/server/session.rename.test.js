@@ -65,7 +65,7 @@ async function withTemporaryHome(testBody) {
 /**
  * Create a minimal Claude session JSONL file that the parser can list and rename.
  */
-async function createClaudeSessionFile(projectName, sessionId) {
+async function createClaudeSessionFile(projectName, sessionId, message = 'original session prompt', cwd = '/tmp/workspace') {
   const projectDir = path.join(process.env.HOME, '.claude', 'projects', projectName);
   const sessionPath = path.join(projectDir, `${sessionId}.jsonl`);
 
@@ -77,8 +77,8 @@ async function createClaudeSessionFile(projectName, sessionId) {
         sessionId,
         type: 'user',
         timestamp: '2026-03-06T08:00:00.000Z',
-        cwd: '/tmp/workspace',
-        message: { role: 'user', content: 'original session prompt' },
+        cwd,
+        message: { role: 'user', content: message },
         parentUuid: null,
         uuid: 'user-1',
       }),
@@ -86,7 +86,7 @@ async function createClaudeSessionFile(projectName, sessionId) {
         sessionId,
         type: 'assistant',
         timestamp: '2026-03-06T08:00:05.000Z',
-        cwd: '/tmp/workspace',
+        cwd,
         message: { role: 'assistant', content: 'assistant reply' },
         parentUuid: 'user-1',
         uuid: 'assistant-1',
@@ -775,6 +775,48 @@ test('workflow chat draft finalizes without a manual draft mirror', { concurrenc
     assert.equal(executionSession?.id, 'claude-workflow-real');
     assert.equal(executionSession?.routeIndex, 1);
     assert.equal(executionSession?.workflowId, workflow.id);
+  });
+});
+
+test('workflow orphan provider sessions stay out of manual session lists', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'workflow-orphan-filter');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'Workflow Orphan Filter Demo');
+    await createProjectWorkflow(project, {
+      title: '实现工作流调度加购',
+      objective: '验证未索引的内部会话不会进入手动会话区',
+    });
+
+    await createClaudeSessionFile(
+      project.name,
+      'claude-workflow-orphan',
+      '执行 OpenSpec 变更中的任务\n\n1. **选择变更**',
+      projectPath,
+    );
+    await createCodexSessionFile(tempHome, projectPath, 'codex-workflow-orphan', {
+      message: '评审2：实现工作流调度加购',
+    });
+
+    const claudeSessions = await getSessions(project.name, 10, 0, {
+      includeHidden: true,
+      excludeWorkflowChildSessions: true,
+    });
+    assert.equal(
+      claudeSessions.sessions.some((session) => session.id === 'claude-workflow-orphan'),
+      false,
+    );
+
+    const codexSessions = await getCodexSessions(projectPath, {
+      limit: 0,
+      includeHidden: true,
+      excludeWorkflowChildSessions: true,
+    });
+    assert.equal(
+      codexSessions.some((session) => session.id === 'codex-workflow-orphan'),
+      false,
+    );
   });
 });
 
