@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+定义 ccflow 会话身份、草稿绑定、待恢复会话、实时事件索引和 provider transcript 保留的稳定管理语义。
+
+## Requirements
 
 ### Requirement: Stable ccflow session identity
 The system SHALL treat manual route identifiers such as `c1` and `c2` as stable ccflow session identifiers that remain distinct from Claude or Codex provider session identifiers.

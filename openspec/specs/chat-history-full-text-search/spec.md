@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+定义跨会话聊天全文搜索的索引范围、结果定位和查询状态反馈，确保用户能从历史消息命中并回到对应上下文。
+
+## Requirements
 
 ### Requirement: 用户可以对全部聊天记录的可见文本做跨会话全文搜索
 系统 SHALL 支持对历史聊天 transcript 中全部可见文本做统一搜索，覆盖 Claude 与 Codex 的全部可见历史会话，而不是仅匹配项目名、session 摘要、当前打开的会话或项目列表首屏已加载的少量会话。

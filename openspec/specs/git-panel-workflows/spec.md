@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+定义 Git 面板中的本地/远程分支展示、分支生命周期管理、暂存区状态区分和操作失败反馈工作流，确保用户能在面板内完成常见 Git 操作。
+
+## Requirements
 
 ### Requirement: The Git panel presents local and remote branch workflows explicitly
 The system SHALL expose a dedicated Git panel view that separates local and remote branches for the selected project.

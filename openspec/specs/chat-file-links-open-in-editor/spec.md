@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+定义聊天消息中的工作区文件引用如何解析并打开到当前项目编辑器，确保绝对路径、项目相对路径和行号后缀都定位到正确文件，同时保持外部链接的浏览器默认行为。
+
+## Requirements
 
 ### Requirement: Assistant workspace file references resolve against the selected project
 The system SHALL recognize workspace file references inside assistant markdown replies and resolve them to files under the selected project instead of treating them as ordinary browser URLs.

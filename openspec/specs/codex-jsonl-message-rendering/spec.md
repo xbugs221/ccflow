@@ -1,3 +1,9 @@
+## Purpose
+
+定义 Codex 会话消息以 JSONL transcript 为唯一内容来源进行增量读取、合并、排序和最终同步渲染。
+
+## Requirements
+
 ### Requirement: Codex messages render from JSONL as the single source of truth
 
 The system SHALL render Codex chat messages from parsed JSONL transcript data as the only message-list source. WebSocket events MUST NOT directly create, replace, or delete Codex chat messages.

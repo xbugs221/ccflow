@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+定义工作区文件树中的创建、重命名、删除、上传、下载和作用域菜单操作，确保文件与目录操作都限制在当前选中项目的工作区范围内。
+
+## Requirements
 
 ### Requirement: Users can manage workspace entries from the file tree
 The system SHALL let an authenticated user create, rename, and delete files or directories inside the selected project directly from the file tree without requiring terminal access.
