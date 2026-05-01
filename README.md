@@ -10,6 +10,7 @@
 ```sh
 git clone https://github.com/xbugs221/ccflow.git
 cd ccflow
+pnpm i
 pnpm build
 node server/index.js
 ```
