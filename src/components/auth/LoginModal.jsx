@@ -1,6 +1,6 @@
 import { X } from 'lucide-react';
-import StandaloneShell from './standalone-shell/view/StandaloneShell';
-import { IS_PLATFORM } from '../constants/config';
+import StandaloneShell from '../standalone-shell/view/StandaloneShell';
+import { IS_PLATFORM } from '../../constants/config';
 
 /**
  * Reusable login modal component for Claude and Codex CLI authentication.

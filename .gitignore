@@ -1,32 +1,67 @@
 # Dependencies
 node_modules/
+jspm_packages/
+/.pnpm-store/
+.npm/
+
+# Build, cache, and coverage output
+dist/
+dist-ssr/
+build/
+out/
+.vite/
+.turbo/
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.out/
+.storybook-out/
+coverage/
+*.lcov
+.nyc_output/
+
+# Environment and runtime state
+.env
+.env.*
+!.env.example
+/.ccflow/
+authdb/
+*.db
+*.sqlite
+*.sqlite3
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Logs and debug output
+*.log
+logs/
+dev-debug.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Build outputs
-dist/
-dist-ssr/
-build/
-out/
+# Temporary files
+tmp/
+temp/
+.tmp/
+*.tgz
 
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# IDE and editor files
+# Editor and OS files
 .vscode/
 .idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
 *.swp
 *.swo
+*.sw?
 *~
-
-# OS generated files
 .DS_Store
 .DS_Store?
 ._*
@@ -35,70 +70,7 @@ out/
 ehthumbs.db
 Thumbs.db
 
-# Logs
-*.log
-logs/
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Coverage directory used by tools like istanbul
-coverage/
-*.lcov
-
-# nyc test coverage
-.nyc_output
-
-# Dependency directories
-jspm_packages/
-
-# Optional npm cache directory
-.npm
-
-# Optional eslint cache
-.eslintcache
-
-# Optional REPL history
-.node_repl_history
-
-# Output of 'npm pack'
-*.tgz
-
-# Yarn Integrity file
-.yarn-integrity
-
-# dotenv environment variables file
-.env.test
-
-# parcel-bundler cache (https://parceljs.org/)
-.cache
-.parcel-cache
-
-# Next.js build output
-.next
-
-# Nuxt.js build / generate output
-.nuxt
-
-# Storybook build outputs
-.out
-.storybook-out
-
-# Temporary folders
-tmp/
-temp/
-.tmp/
-
-# Vite
-.vite/
-
-# Local Netlify folder
-.netlify
-
-# AI specific
+# Local AI/tool state
 .claude/
 .cursor/
 .roo/
@@ -106,55 +78,19 @@ temp/
 .cline/
 .windsurf/
 .serena/
-CLAUDE.md
 .mcp.json
-
-
-# Database files
-*.db
-*.sqlite
-*.sqlite3
-
-logs
-dev-debug.log
-# Editor directories and files
-.idea
-.vscode
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-# OS specific
-
-# Task files
+CLAUDE.md
 tasks.json
 tasks/
 tests/test-results/
-/.playwright-cli
-/.ccflow/workflows
-/.ccflow
+/.playwright-cli/
+.openspec/tmp/
+.openspec/cache/
+.agents/tmp/
+.agents/cache/
 
 # Generated workflow artifacts
 planner-output.json
 execution-manifest.json
 verification-evidence.json
 delivery-summary.md
-
-# OpenSpec and agent runtime output
-.openspec/tmp/
-.openspec/cache/
-.agents/tmp/
-.agents/cache/
-
-# Local build, cache, and environment output
-dist/
-build/
-.vite/
-.turbo/
-.cache/
-coverage/
-.env
-.env.*
-!.env.example
-/.pnpm-store/v10

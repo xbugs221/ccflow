@@ -1,16 +1,21 @@
 /**
- * Serve quick-alias markdown commands from the global ~/.config/ccflow-alias directory.
+ * Serve built-in quick-alias markdown commands plus user commands from ~/.config/ccflow-alias.
  */
 import express from 'express';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
 import matter from 'gray-matter';
 
 const router = express.Router();
 const ALIAS_DIRECTORY_NAME = path.join('.config', 'ccflow-alias');
 const ALIAS_NAMESPACE = 'alias';
+const BUILTIN_ALIAS_NAMESPACE = 'builtin';
 const aliasBaseDir = path.resolve(path.join(os.homedir(), ALIAS_DIRECTORY_NAME));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const builtinAliasBaseDir = path.resolve(path.join(__dirname, '..', 'commands', 'aliases'));
 
 /**
  * Recursively scan directory for command files (.md)
@@ -77,28 +82,45 @@ async function scanCommandsDirectory(dir, baseDir, namespace) {
 }
 
 /**
- * Check whether a file path stays inside the configured global alias directory.
+ * Check whether a file path stays inside one allowed command directory.
  * @param {string} targetPath - Absolute or relative file path
- * @returns {boolean} True when the target is inside ~/.config/ccflow-alias
+ * @param {string} baseDir - Absolute allowed base directory
+ * @returns {boolean} True when the target is inside baseDir
  */
-function isAliasPathAllowed(targetPath) {
+function isPathInsideDirectory(targetPath, baseDir) {
   const resolvedPath = path.resolve(targetPath);
-  const relativePath = path.relative(aliasBaseDir, resolvedPath);
+  const relativePath = path.relative(baseDir, resolvedPath);
   return relativePath !== '' && !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
 }
 
 /**
+ * Check whether a command file path stays inside one of the configured command directories.
+ * @param {string} targetPath - Absolute or relative file path
+ * @returns {boolean} True when the target is inside a command directory
+ */
+function isCommandPathAllowed(targetPath) {
+  return isPathInsideDirectory(targetPath, aliasBaseDir)
+    || isPathInsideDirectory(targetPath, builtinAliasBaseDir);
+}
+
+/**
  * POST /api/commands/list
- * List all available quick aliases from the global alias directory.
+ * List built-in quick aliases plus user aliases from the global alias directory.
  */
 router.post('/list', async (req, res) => {
   try {
+    const builtinCommands = await scanCommandsDirectory(
+      builtinAliasBaseDir,
+      builtinAliasBaseDir,
+      BUILTIN_ALIAS_NAMESPACE,
+    );
     const aliasCommands = await scanCommandsDirectory(aliasBaseDir, aliasBaseDir, ALIAS_NAMESPACE);
-    aliasCommands.sort((a, b) => a.name.localeCompare(b.name));
+    const commands = [...builtinCommands, ...aliasCommands];
+    commands.sort((a, b) => a.name.localeCompare(b.name) || a.namespace.localeCompare(b.namespace));
 
     res.json({
-      commands: aliasCommands,
-      count: aliasCommands.length
+      commands,
+      count: commands.length
     });
   } catch (error) {
     console.error('Error listing commands:', error);
@@ -123,10 +145,10 @@ router.post('/load', async (req, res) => {
       });
     }
 
-    if (!isAliasPathAllowed(commandPath)) {
+    if (!isCommandPathAllowed(commandPath)) {
       return res.status(403).json({
         error: 'Access denied',
-        message: `Command must be in ${aliasBaseDir}`
+        message: `Command must be in ${builtinAliasBaseDir} or ${aliasBaseDir}`
       });
     }
 
@@ -177,10 +199,10 @@ router.post('/execute', async (req, res) => {
       });
     }
 
-    if (!isAliasPathAllowed(commandPath)) {
+    if (!isCommandPathAllowed(commandPath)) {
       return res.status(403).json({
         error: 'Access denied',
-        message: `Command must be in ${aliasBaseDir}`
+        message: `Command must be in ${builtinAliasBaseDir} or ${aliasBaseDir}`
       });
     }
 
@@ -224,3 +246,12 @@ router.post('/execute', async (req, res) => {
 });
 
 export default router;
+
+export {
+  ALIAS_NAMESPACE,
+  BUILTIN_ALIAS_NAMESPACE,
+  aliasBaseDir,
+  builtinAliasBaseDir,
+  isCommandPathAllowed,
+  scanCommandsDirectory,
+};

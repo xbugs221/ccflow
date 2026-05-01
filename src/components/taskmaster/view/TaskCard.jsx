@@ -1,7 +1,7 @@
 import React from 'react';
 import { Clock, CheckCircle, Circle, AlertCircle, Pause, X, ArrowRight, ChevronUp, Minus, Flag } from 'lucide-react';
 import { cn } from '../../../lib/utils';
-import Tooltip from '../../Tooltip';
+import Tooltip from '../../ui/Tooltip';
 
 const TaskCard = ({ 
   task,

@@ -6,7 +6,6 @@
   "packageManager": "pnpm@10.33.0",
   "main": "server/index.js",
   "bin": {
-    "claude-code-ui": "server/cli.js",
     "ccflow": "server/cli.js"
   },
   "files": [
@@ -19,10 +18,10 @@
   "homepage": "https://ccflow.ai",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/siteboon/claudecodeui.git"
+    "url": "git+https://github.com/xbugs221/ccflow.git"
   },
   "bugs": {
-    "url": "https://github.com/siteboon/claudecodeui/issues"
+    "url": "https://github.com/xbugs221/ccflow/issues"
   },
   "scripts": {
     "dev": "concurrently --kill-others \"pnpm run server\" \"pnpm run client\"",
@@ -51,7 +50,7 @@
     "ui",
     "mobile"
   ],
-  "author": "CloudCLI UI Contributors",
+  "author": "ccflow contributors",
   "license": "GPL-3.0",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.59",

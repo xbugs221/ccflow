@@ -77,7 +77,7 @@
 
 #### Scenario: 部署后搜索接口不再回退到前端首页
 - **WHEN** 系统完成部署并对公开站点执行聊天搜索 smoke test
-- **THEN** `/api/chat/search` SHALL 命中后端搜索接口，而不是返回带有 `CloudCLI UI` 等首页标识的 HTML 文档
+- **THEN** `/api/chat/search` SHALL 命中后端搜索接口，而不是返回带有 `ccflow` 等首页标识的 HTML 文档
 
 ### Requirement: 当前搜索词在命中消息中必须可见高亮
 系统 SHALL 在用户从搜索结果进入目标会话后，对当前搜索词在命中消息中的出现位置做可见高亮，便于用户立即识别命中上下文。

@@ -1,16 +1,6 @@
-/**
- * Language Selector Component
- *
- * A dropdown component for selecting the application language.
- * Automatically updates the i18n language and persists to localStorage.
- *
- * Props:
- * @param {boolean} compact - If true, uses compact style (default: false)
- */
-
 import { useTranslation } from 'react-i18next';
 import { Languages } from 'lucide-react';
-import { languages } from '../i18n/languages';
+import { languages } from '../../../../i18n/languages';
 
 function LanguageSelector({ compact = false }) {
   const { i18n, t } = useTranslation('settings');
@@ -20,7 +10,6 @@ function LanguageSelector({ compact = false }) {
     i18n.changeLanguage(newLanguage);
   };
 
-  // Compact style for QuickSettingsPanel
   if (compact) {
     return (
       <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors border border-transparent hover:border-gray-300 dark:hover:border-gray-600">
@@ -43,7 +32,6 @@ function LanguageSelector({ compact = false }) {
     );
   }
 
-  // Full style for Settings page
   return (
     <div className="bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
       <div className="flex items-center justify-between">

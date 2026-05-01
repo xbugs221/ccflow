@@ -23,7 +23,7 @@ test('shows an explicit error when chat search returns HTML with HTTP 200', asyn
     await route.fulfill({
       status: 200,
       contentType: 'text/html; charset=UTF-8',
-      body: '<!doctype html><html><head><title>CloudCLI UI</title></head><body><div id=\"root\"></div></body></html>',
+      body: '<!doctype html><html><head><title>ccflow</title></head><body><div id=\"root\"></div></body></html>',
     });
   });
 

@@ -1,5 +1,5 @@
 import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, type LucideIcon } from 'lucide-react';
-import Tooltip from '../../../Tooltip';
+import Tooltip from '../../../ui/Tooltip';
 import type { AppTab } from '../../../../types/app';
 import type { Dispatch, SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';

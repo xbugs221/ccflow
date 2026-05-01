@@ -16,11 +16,11 @@ import {
   GripVertical
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import DarkModeToggle from '../../../DarkModeToggle';
+import DarkModeToggle from '../controls/DarkModeToggle';
 
 import { useUiPreferences } from '../../../../hooks/useUiPreferences';
 import { useTheme } from '../../../../contexts/ThemeContext';
-import LanguageSelector from '../../../LanguageSelector';
+import LanguageSelector from '../controls/LanguageSelector';
 
 import { useDeviceSettings } from '../../../../hooks/useDeviceSettings';
 

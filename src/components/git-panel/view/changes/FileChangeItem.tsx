@@ -1,16 +1,7 @@
 import { ChevronRight, Trash2 } from 'lucide-react';
-import DiffViewer from '../../../DiffViewer.jsx';
+import DiffViewer from '../DiffViewer';
 import type { FileStatusCode } from '../../types/types';
 import { getStatusBadgeClass, getStatusLabel } from '../../utils/gitPanelUtils';
-
-type DiffViewerProps = {
-  diff: string;
-  fileName: string;
-  isMobile: boolean;
-  wrapText: boolean;
-};
-
-const DiffViewerComponent = DiffViewer as unknown as (props: DiffViewerProps) => JSX.Element;
 
 type FileChangeItemProps = {
   filePath: string;
@@ -130,7 +121,7 @@ export default function FileChangeItem({
         </div>
 
         <div className="max-h-96 overflow-y-auto">
-          {diff && <DiffViewerComponent diff={diff} fileName={filePath} isMobile={isMobile} wrapText={wrapText} />}
+          {diff && <DiffViewer diff={diff} isMobile={isMobile} wrapText={wrapText} />}
         </div>
       </div>
     </div>

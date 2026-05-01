@@ -44,7 +44,7 @@ test.beforeEach(async ({ page }) => {
 
 test('local app loads with authenticated shell', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
-  await expect(page).toHaveTitle(/CloudCLI UI/i);
+  await expect(page).toHaveTitle(/ccflow/i);
   await expect(page.locator('body')).not.toContainText('Login');
 });
 

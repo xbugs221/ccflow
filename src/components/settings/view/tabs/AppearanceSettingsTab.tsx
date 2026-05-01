@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import DarkModeToggle from '../../../DarkModeToggle';
-import LanguageSelector from '../../../LanguageSelector';
+import DarkModeToggle from '../controls/DarkModeToggle';
+import LanguageSelector from '../controls/LanguageSelector';
 import type { CodeEditorSettingsState, ProjectSortOrder } from '../../types/types';
 
 type AppearanceSettingsTabProps = {

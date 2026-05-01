@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronRight, ChevronLeft, Check, GitBranch, User, Mail, LogIn, Loader2 } from 'lucide-react';
-import SessionProviderLogo from './llm-logo-provider/SessionProviderLogo';
+import SessionProviderLogo from '../llm-logo-provider/SessionProviderLogo';
 import LoginModal from './LoginModal';
-import { authenticatedFetch } from '../utils/api';
-import { IS_PLATFORM } from '../constants/config';
+import { authenticatedFetch } from '../../utils/api';
+import { IS_PLATFORM } from '../../constants/config';
 
 const Onboarding = ({ onComplete }) => {
   const [currentStep, setCurrentStep] = useState(0);

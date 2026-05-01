@@ -1,6 +1,10 @@
-import React from 'react';
+type DiffViewerProps = {
+  diff?: string;
+  isMobile: boolean;
+  wrapText: boolean;
+};
 
-function DiffViewer({ diff, fileName, isMobile, wrapText }) {
+export default function DiffViewer({ diff, isMobile, wrapText }: DiffViewerProps) {
   if (!diff) {
     return (
       <div className="p-4 text-center text-muted-foreground text-sm">
@@ -9,7 +13,7 @@ function DiffViewer({ diff, fileName, isMobile, wrapText }) {
     );
   }
 
-  const renderDiffLine = (line, index) => {
+  const renderDiffLine = (line: string, index: number) => {
     const isAddition = line.startsWith('+') && !line.startsWith('+++');
     const isDeletion = line.startsWith('-') && !line.startsWith('---');
     const isHeader = line.startsWith('@@');
@@ -20,10 +24,13 @@ function DiffViewer({ diff, fileName, isMobile, wrapText }) {
         className={`font-mono text-xs px-3 py-0.5 ${
           isMobile && wrapText ? 'whitespace-pre-wrap break-all' : 'whitespace-pre overflow-x-auto'
         } ${
-          isAddition ? 'bg-green-50 dark:bg-green-950/50 text-green-700 dark:text-green-300' :
-          isDeletion ? 'bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300' :
-          isHeader ? 'bg-primary/5 text-primary' :
-          'text-muted-foreground/70'
+          isAddition
+            ? 'bg-green-50 dark:bg-green-950/50 text-green-700 dark:text-green-300'
+            : isDeletion
+              ? 'bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300'
+              : isHeader
+                ? 'bg-primary/5 text-primary'
+                : 'text-muted-foreground/70'
         }`}
       >
         {line}
@@ -37,5 +44,3 @@ function DiffViewer({ diff, fileName, isMobile, wrapText }) {
     </div>
   );
 }
-
-export default DiffViewer;

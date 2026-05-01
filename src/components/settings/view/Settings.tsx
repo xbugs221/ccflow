@@ -1,7 +1,7 @@
 // PURPOSE: Render the settings modal shell and route each settings tab to its panel.
 import { Settings as SettingsIcon, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import LoginModal from '../../LoginModal';
+import LoginModal from '../../auth/LoginModal';
 import { Button } from '../../ui/button';
 import ClaudeMcpFormModal from '../view/modals/ClaudeMcpFormModal';
 import CodexMcpFormModal from '../view/modals/CodexMcpFormModal';

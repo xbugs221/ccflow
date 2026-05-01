@@ -20,7 +20,7 @@ export default function VersionUpgradeModal({
     const { t } = useTranslation('common');
     const upgradeCommand = installMode === 'npm'
         ? t('versionUpdate.npmUpgradeCommand')
-        : 'git checkout main && git pull && npm install';
+        : 'git checkout main && git pull && pnpm install';
     const [isUpdating, setIsUpdating] = useState(false);
     const [updateOutput, setUpdateOutput] = useState('');
     const [updateError, setUpdateError] = useState('');

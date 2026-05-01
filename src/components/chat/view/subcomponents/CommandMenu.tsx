@@ -20,11 +20,13 @@ type CommandMenuProps = {
 };
 
 const namespaceLabels: Record<string, string> = {
+  builtin: 'Built-in Commands',
   alias: 'Quick Aliases',
   other: 'Other Commands',
 };
 
 const namespaceIcons: Record<string, string> = {
+  builtin: '[B]',
   alias: '//',
   other: '[O]',
 };
