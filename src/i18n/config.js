@@ -20,7 +20,6 @@ import enAuth from './locales/en/auth.json';
 import enSidebar from './locales/en/sidebar.json';
 import enChat from './locales/en/chat.json';
 import enCodeEditor from './locales/en/codeEditor.json';
-import enTasks from './locales/en/tasks.json';
 
 import koCommon from './locales/ko/common.json';
 import koSettings from './locales/ko/settings.json';
@@ -42,7 +41,6 @@ import jaAuth from './locales/ja/auth.json';
 import jaSidebar from './locales/ja/sidebar.json';
 import jaChat from './locales/ja/chat.json';
 import jaCodeEditor from './locales/ja/codeEditor.json';
-import jaTasks from './locales/ja/tasks.json';
 
 // Import supported languages configuration
 import { languages } from './languages.js';
@@ -75,7 +73,6 @@ i18n
         sidebar: enSidebar,
         chat: enChat,
         codeEditor: enCodeEditor,
-        tasks: enTasks,
       },
       ko: {
         common: koCommon,
@@ -100,7 +97,6 @@ i18n
         sidebar: jaSidebar,
         chat: jaChat,
         codeEditor: jaCodeEditor,
-        tasks: jaTasks,
       },
     },
 
@@ -114,7 +110,7 @@ i18n
     debug: import.meta.env.DEV,
 
     // Namespaces - load only what's needed
-    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor', 'tasks'],
+    ns: ['common', 'settings', 'auth', 'sidebar', 'chat', 'codeEditor'],
     defaultNS: 'common',
 
     // Key separator for nested keys (default: '.')

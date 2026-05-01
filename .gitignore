@@ -157,3 +157,4 @@ coverage/
 .env
 .env.*
 !.env.example
+/.pnpm-store/v10
