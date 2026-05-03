@@ -220,6 +220,7 @@ export default function ProviderSelectionEmptyState({
                     model: codexModel,
                     effort: codexReasoningEffort,
                   }),
+                  opencode: t('providerSelection.readyPrompt.opencode', { model: codexModel }),
                 }[provider]
               }
             </p>

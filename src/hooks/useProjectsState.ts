@@ -11,6 +11,7 @@ import {
   reduceProjectsUpdatedMessages,
 } from '../../shared/socket-message-utils.js';
 import { api } from '../utils/api';
+import type { SessionProvider } from '../types/app';
 import {
   buildProjectRoute,
   buildProjectSessionRoute,
@@ -82,7 +83,8 @@ const projectsHaveChanges = (
     }
 
     return (
-      serialize(nextProject.codexSessions) !== serialize(prevProject.codexSessions)
+      serialize(nextProject.codexSessions) !== serialize(prevProject.codexSessions) ||
+      serialize(nextProject.opencodeSessions) !== serialize(prevProject.opencodeSessions)
     );
   });
 };
@@ -91,6 +93,7 @@ const getProjectSessions = (project: Project): ProjectSession[] => {
   const visibleSessions = [
     ...(project.sessions ?? []),
     ...(project.codexSessions ?? []),
+    ...(project.opencodeSessions ?? []),
   ];
 
   return visibleSessions.filter((session) => {
@@ -139,7 +142,9 @@ const findRefreshedSelectedSession = (
 
   const providerSessions = selectedSession.__provider === 'codex'
     ? (project.codexSessions || [])
-    : (project.sessions || []);
+    : selectedSession.__provider === 'opencode'
+      ? (project.opencodeSessions || [])
+      : (project.sessions || []);
 
   return providerSessions.find((session) => (
     session.routeIndex === selectedSession.routeIndex
@@ -267,13 +272,19 @@ const resolveRouteSelection = (
     )) || null;
     const session = (childSession || projectSession)
       ? (() => {
-          const sessionProvider: 'claude' | 'codex' = (
+          const sessionProvider: SessionProvider = (
             childSession?.provider === 'codex'
             || projectSession?.__provider === 'codex'
             || (matchedProject.codexSessions || []).some((entry) => entry.id === (childSession?.id || projectSession?.id))
           )
             ? 'codex'
-            : 'claude';
+            : (
+              childSession?.provider === 'opencode'
+              || projectSession?.__provider === 'opencode'
+              || (matchedProject.opencodeSessions || []).some((entry) => entry.id === (childSession?.id || projectSession?.id))
+            )
+              ? 'opencode'
+              : 'claude';
           const baseSession = projectSession || {
             id: childSession?.id || `${workflow.id}-c${childRouteIndex}`,
             title: childSession?.title,
@@ -342,7 +353,7 @@ const getNextManualSessionLabel = (project: Project): string => {
 const withSessionProjectMetadata = (
   session: ProjectSession,
   project: Pick<Project, 'name' | 'fullPath' | 'path'>,
-  provider: 'claude' | 'codex',
+  provider: SessionProvider,
 ): ProjectSession => ({
   ...session,
   __provider: session.__provider || provider,
@@ -360,13 +371,19 @@ const withSessionProjectMetadata = (
  * PURPOSE: Show a freshly created manual session in the sidebar immediately
  * instead of waiting for the next backend refresh cycle.
  */
+const providerToSessionsKey = (provider: SessionProvider): keyof Project => {
+  if (provider === 'codex') return 'codexSessions';
+  if (provider === 'opencode') return 'opencodeSessions';
+  return 'sessions';
+};
+
 const insertSessionIntoProject = (
   project: Project,
   session: ProjectSession,
-  provider: 'claude' | 'codex',
+  provider: SessionProvider,
 ): Project => {
-  const targetKey = provider === 'codex' ? 'codexSessions' : 'sessions';
-  const currentSessions = Array.isArray(project[targetKey]) ? project[targetKey] : [];
+  const targetKey = providerToSessionsKey(provider);
+  const currentSessions = Array.isArray(project[targetKey]) ? project[targetKey] as ProjectSession[] : [];
   const withoutDuplicate = currentSessions.filter((entry) => entry.id !== session.id);
   const nextSessions = [session, ...withoutDuplicate];
   const currentTotal = Number(project.sessionMeta?.total || 0);
@@ -608,7 +625,8 @@ export function useProjectsState({
     if (legacySessionMatch) {
       const searchParams = new URLSearchParams(locationSearch);
       const hintedProjectPath = searchParams.get('projectPath') || '';
-      const hintedProvider = searchParams.get('provider') === 'codex' ? 'codex' : 'claude';
+      const rawProvider = searchParams.get('provider');
+      const hintedProvider: SessionProvider = rawProvider === 'codex' ? 'codex' : rawProvider === 'opencode' ? 'opencode' : 'claude';
       const decodedSessionId = decodeURIComponent(legacySessionMatch[1]);
       const matchedProject = projects.find((project) => (
         normalizeComparablePath(project.fullPath || project.path || '') === normalizeComparablePath(hintedProjectPath)
@@ -681,7 +699,9 @@ export function useProjectsState({
     if (resolvedSession) {
       const provider = resolvedSession.__provider || ((resolvedProject.codexSessions || []).some(
         (session) => session.id === resolvedSession.id,
-      ) ? 'codex' : 'claude');
+      ) ? 'codex' : (resolvedProject.opencodeSessions || []).some(
+        (session) => session.id === resolvedSession.id,
+      ) ? 'opencode' : 'claude');
       const nextSession = withSessionProjectMetadata(resolvedSession, resolvedProject, provider);
       if (
         selectedSession?.id !== nextSession.id
@@ -787,7 +807,7 @@ export function useProjectsState({
   );
 
   const handleNewSession = useCallback(
-    async (project: Project, provider: 'claude' | 'codex' = 'codex', options: NewSessionOptions = {}) => {
+    async (project: Project, provider: SessionProvider = 'codex', options: NewSessionOptions = {}) => {
       const isManualSessionDraft = !options.workflowId && !options.autoPrompt;
       const defaultSessionLabel = getNextManualSessionLabel(project);
       let sessionSummary = typeof options.sessionSummary === 'string' ? options.sessionSummary.trim() : '';
@@ -944,6 +964,7 @@ export function useProjectsState({
           ...project,
           sessions: project.sessions?.filter((session) => session.id !== sessionIdToDelete) ?? [],
           codexSessions: project.codexSessions?.filter((session) => session.id !== sessionIdToDelete) ?? [],
+          opencodeSessions: project.opencodeSessions?.filter((session) => session.id !== sessionIdToDelete) ?? [],
           sessionMeta: {
             ...project.sessionMeta,
             total: Math.max(0, (project.sessionMeta?.total as number | undefined ?? 0) - 1),

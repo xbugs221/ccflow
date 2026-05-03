@@ -18,7 +18,7 @@ export const SETTINGS_MAIN_TABS: SettingsMainTab[] = [
   'agents',
 ];
 
-export const AGENT_PROVIDERS: AgentProvider[] = ['claude', 'codex'];
+export const AGENT_PROVIDERS: AgentProvider[] = ['claude', 'codex', 'opencode'];
 export const AGENT_CATEGORIES: AgentCategory[] = ['account', 'mcp'];
 
 export const DEFAULT_PROJECT_SORT_ORDER: ProjectSortOrder = 'name';
@@ -84,4 +84,5 @@ export const DEFAULT_CODEX_MCP_FORM: CodexMcpFormState = {
 export const AUTH_STATUS_ENDPOINTS: Record<AgentProvider, string> = {
   claude: '/api/cli/claude/status',
   codex: '/api/cli/codex/status',
+  opencode: '/api/cli/opencode/status',
 };

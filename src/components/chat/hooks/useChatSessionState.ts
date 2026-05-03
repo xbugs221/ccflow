@@ -13,7 +13,7 @@ import type {
 
 import { api, authenticatedFetch } from '../../../utils/api';
 import type { ChatMessage } from '../types/types';
-import type { Project, ProjectSession } from '../../../types/app';
+import type { Project, ProjectSession, SessionProvider } from '../../../types/app';
 import { safeLocalStorage } from '../utils/chatStorage';
 import { dedupeAdjacentChatMessages } from '../utils/messageDedup';
 import {
@@ -158,6 +158,7 @@ function mergePersistedAndOptimisticMessages(
   const { preservePreviousMessages = true } = options;
   const mergedMessages = [...persistedMessages];
   const matchedPersistedIndexes = new Set<number>();
+  const hasPersistedTranscript = persistedMessages.length > 0;
 
   previousMessages
     .filter((message) => message.type === 'user' && message.deliveryStatus)
@@ -196,6 +197,7 @@ function mergePersistedAndOptimisticMessages(
       if (
         !preservePreviousMessages
         || isUploadNoteOnlyUserMessage(optimisticMessage)
+        || (hasPersistedTranscript && optimisticMessage.deliveryStatus === 'persisted')
       ) {
         return;
       }
@@ -269,9 +271,9 @@ function isTemporarySessionId(sessionId: string | null | undefined): boolean {
 function resolveSessionProvider(
   selectedProject: Project | null,
   selectedSession: ProjectSession | null,
-): 'claude' | 'codex' | null {
+): SessionProvider | null {
   const explicitProvider = selectedSession?.__provider || selectedSession?.provider;
-  if (explicitProvider === 'claude' || explicitProvider === 'codex') {
+  if (explicitProvider === 'claude' || explicitProvider === 'codex' || explicitProvider === 'opencode') {
     return explicitProvider;
   }
 
@@ -282,6 +284,10 @@ function resolveSessionProvider(
 
   if ((selectedProject.codexSessions || []).some((session) => session.id === sessionId)) {
     return 'codex';
+  }
+
+  if ((selectedProject.opencodeSessions || []).some((session) => session.id === sessionId)) {
+    return 'opencode';
   }
 
   if ((selectedProject.sessions || []).some((session) => session.id === sessionId)) {

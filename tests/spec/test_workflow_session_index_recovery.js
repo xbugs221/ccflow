@@ -142,11 +142,11 @@ test('Scenario: provider orphan 扫描限定当前项目并标记登记状态', 
     await mkdir(sessionDir, { recursive: true });
     await writeFile(
       join(sessionDir, 'codex-orphan-1.jsonl'),
-      JSON.stringify({ cwd: '/tmp/project-a', text: 'workflow w1 planning 前端要整体渲染消息' }),
+      JSON.stringify({ cwd: '/tmp/project-a', text: '当前工作流上下文 workflow w1 planning 前端要整体渲染消息' }),
     );
     await writeFile(
       join(sessionDir, 'codex-other-project.jsonl'),
-      JSON.stringify({ cwd: '/tmp/project-b', text: 'workflow w1 planning 前端要整体渲染消息' }),
+      JSON.stringify({ cwd: '/tmp/project-b', text: '当前工作流上下文 workflow w1 planning 前端要整体渲染消息' }),
     );
 
     const sessions = await autoRunner.scanWorkflowProviderSessions(
@@ -191,6 +191,157 @@ test('Scenario: 找到唯一高置信 orphan 会话', async () => {
   assert.equal(result.sessionId, 'claude-orphan-1');
   assert.equal(result.event.type, 'orphan_recovered');
   assert.equal(result.createNewSession, false);
+});
+
+test('Scenario: 发起新 action 前恢复未索引 Claude 修复会话', async () => {
+  const { autoRunner, workflows } = await loadRecoveryApi();
+  assert.equal(typeof autoRunner.recoverUnindexedWorkflowActionSession, 'function');
+
+  const originalHome = process.env.HOME;
+  const home = await mkdtemp(join(tmpdir(), 'ccflow-claude-repair-recovery-'));
+  process.env.HOME = home;
+  try {
+    const projectPath = join(home, 'workspace', 'project');
+    await mkdir(projectPath, { recursive: true });
+    const project = { name: 'project', path: projectPath, fullPath: projectPath };
+    const workflow = await workflows.createProjectWorkflow(project, {
+      title: '更新',
+      objective: '验证 Claude repair 会话索引恢复',
+    });
+    const encodedProjectPath = String(projectPath).replace(/\//g, '-');
+    const claudeProjectDir = join(home, '.claude', 'projects', encodedProjectPath);
+    await mkdir(claudeProjectDir, { recursive: true });
+    await writeFile(
+      join(claudeProjectDir, 'claude-repair-2.jsonl'),
+      JSON.stringify({
+        sessionId: 'claude-repair-2',
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: [
+                '## Repair Target',
+                '本轮不是首次落地，而是修复第 2 轮审核发现的问题。',
+                '必须先阅读 .ccflow/1/review-2.json，把其中仍然有效的 findings 逐项关闭后再结束本轮。',
+                '## Completion Rule',
+                '完成修复后必须生成或更新 .ccflow/1/repair-2-summary.md，作为 repair_2 的完成产物。',
+              ].join('\n'),
+            },
+          ],
+        },
+        type: 'user',
+      }),
+      'utf8',
+    );
+
+    const recovery = await autoRunner.recoverUnindexedWorkflowActionSession({
+      project,
+      workflow: {
+        ...workflow,
+        id: 'w1',
+        title: '更新',
+        openspecChangeName: '29-merge-upstream-critical-fixes',
+        stageStatuses: [
+          { key: 'repair_2', label: '再修', status: 'pending', provider: 'claude' },
+        ],
+        childSessions: [],
+      },
+      action: { stage: 'repair_2', provider: 'claude', checkpoint: 'after-review:review-2' },
+      logger: { info() {}, warn() {} },
+    });
+
+    assert.equal(recovery.recovered, true);
+    assert.equal(recovery.sessionId, 'claude-repair-2');
+
+    const recoveredWorkflow = await workflows.getProjectWorkflow(project, 'w1');
+    assert.equal(
+      recoveredWorkflow.childSessions.some((session) => (
+        session.id === 'claude-repair-2'
+        && session.stageKey === 'repair_2'
+        && session.provider === 'claude'
+      )),
+      true,
+    );
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test('Scenario: Codex 恢复只使用首个用户 prompt，忽略后续 transcript workflow 输出', async () => {
+  const { autoRunner } = await loadRecoveryApi();
+
+  const originalHome = process.env.HOME;
+  const home = await mkdtemp(join(tmpdir(), 'ccflow-codex-first-prompt-'));
+  process.env.HOME = home;
+  try {
+    const sessionDir = join(home, '.codex', 'sessions', '2026', '05', '03');
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, 'rollout-2026-05-03T00-00-00-false-review.jsonl'),
+      [
+        JSON.stringify({
+          type: 'session_meta',
+          payload: { id: 'false-review', cwd: '/tmp/project-a' },
+        }),
+        JSON.stringify({
+          type: 'event_msg',
+          payload: {
+            type: 'user_message',
+            message: 'http://localhost:3001/Documents/ccflow/w1 检查这个工作流状态',
+          },
+        }),
+        JSON.stringify({
+          type: 'response_item',
+          payload: {
+            type: 'function_call_output',
+            output: '当前工作流上下文 w1 review_3 前端要整体渲染消息 把审核结果写入 .ccflow/1/review-3.json 输出格式 findings',
+          },
+        }),
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(sessionDir, 'rollout-2026-05-03T00-00-01-real-review.jsonl'),
+      [
+        JSON.stringify({
+          type: 'session_meta',
+          payload: { id: 'real-review', cwd: '/tmp/project-a' },
+        }),
+        JSON.stringify({
+          type: 'event_msg',
+          payload: {
+            type: 'user_message',
+            message: [
+              '聚焦当前角度，尽可能严格地找出最近变更中需要改进的地方。',
+              '',
+              '把审核结果写入 .ccflow/1/review-3.json。',
+              '输出格式：',
+              '{"findings":[]}',
+            ].join('\n'),
+          },
+        }),
+      ].join('\n'),
+      'utf8',
+    );
+
+    const sessions = await autoRunner.scanWorkflowProviderSessions(
+      { fullPath: '/tmp/project-a' },
+      buildWorkflow({
+        id: 'w1',
+        routeIndex: 1,
+        title: '前端要整体渲染消息',
+        openspecChangeName: '27-workflow-session-index-recovery',
+      }),
+      { stage: 'review_3', checkpoint: 'pending-review:3', provider: 'codex' },
+    );
+
+    assert.deepEqual(sessions.map((session) => session.id), ['real-review']);
+  } finally {
+    process.env.HOME = originalHome;
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test('Scenario: 多个可疑 orphan 会话无法唯一绑定', async () => {
@@ -307,7 +458,7 @@ test('Scenario: Claude stage 索引缺失时扫描 Claude provider 而非 Codex'
     await mkdir(claudeProjectDir, { recursive: true });
     await writeFile(
       join(claudeProjectDir, 'claude-orphan-1.jsonl'),
-      JSON.stringify({ text: 'workflow w1 execution 前端要整体渲染消息' }),
+      JSON.stringify({ text: '当前工作流上下文 workflow w1 execution 前端要整体渲染消息' }),
     );
 
     const workflow = buildWorkflow({
@@ -333,7 +484,7 @@ test('Scenario: Claude stage 索引缺失时扫描 Claude provider 而非 Codex'
   }
 });
 
-test('Scenario: repair_1 completed 后应返回带新 checkpoint 的 review_1', async () => {
+test('Scenario: repair_1 completed 后应进入下一轮 review_2', async () => {
   const { autoRunner } = await loadRecoveryApi();
   assert.equal(typeof autoRunner.evaluateWorkflowActionDedup, 'function');
 
@@ -359,7 +510,7 @@ test('Scenario: repair_1 completed 后应返回带新 checkpoint 的 review_1', 
   );
 
   assert.ok(action);
-  assert.equal(action.stage, 'review_1');
+  assert.equal(action.stage, 'review_2');
   assert.equal(action.checkpoint, 'after-repair:repair-1-session');
   assert.equal(action.sessionId, undefined);
   assert.equal(action.routeIndex, undefined);

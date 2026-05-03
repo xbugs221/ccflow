@@ -30,7 +30,7 @@ test('workflow auto runner does not resume route-only draft session ids', () => 
   );
 });
 
-test('workflow auto runner resumes an indexed active stage instead of treating it as done', () => {
+test('workflow auto runner does not repeatedly resume an indexed completed action', () => {
   const project = { path: '/tmp/matx' };
   const workflow = {
     id: 'w1',
@@ -61,7 +61,7 @@ test('workflow auto runner resumes an indexed active stage instead of treating i
 
   assert.deepEqual(
     evaluateWorkflowActionDedup({ project, workflow, action, runnerState }),
-    { shouldSkip: false, reason: 'resume_existing_session' },
+    { shouldSkip: true, reason: 'indexed_action_already_completed' },
   );
 });
 

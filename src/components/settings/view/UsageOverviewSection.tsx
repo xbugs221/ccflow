@@ -3,9 +3,10 @@
  */
 import { useTranslation } from 'react-i18next';
 import UsageRemainingIndicator from '../../chat/view/subcomponents/UsageRemainingIndicator';
+import type { AgentProvider } from '../types/types';
 
 type UsageProviderRowProps = {
-  provider: 'claude' | 'codex';
+  provider: AgentProvider;
   label: string;
   description: string;
   enabled?: boolean;
@@ -33,7 +34,7 @@ export function UsageProviderQuota({
   provider,
   enabled = true,
 }: {
-  provider: 'claude' | 'codex';
+  provider: AgentProvider;
   enabled?: boolean;
 }) {
   const { t } = useTranslation('settings');

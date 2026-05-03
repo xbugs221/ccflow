@@ -85,6 +85,9 @@ const isTemporarySessionId = (sessionId?: string | null): boolean =>
 const isCcflowRouteSessionId = (sessionId?: string | null): boolean =>
   Boolean(sessionId && /^c\d+$/.test(sessionId));
 
+const isUnsavedNewSessionId = (sessionId?: string | null): boolean =>
+  Boolean(sessionId && sessionId.startsWith('new-session-'));
+
 /** 
  * Check whether a provider session-created event belongs to the draft request
  * currently shown in this chat view.
@@ -262,7 +265,7 @@ const reloadCodexSessionMessages = async ({
   ) => Promise<any[]>;
   setSessionMessages: Dispatch<SetStateAction<any[]>>;
 }) => {
-  if (!selectedProject?.name || !sessionId || isTemporarySessionId(sessionId)) {
+  if (!selectedProject?.name || !sessionId || isUnsavedNewSessionId(sessionId)) {
     return;
   }
 
@@ -385,10 +388,16 @@ export function useChatRealtimeHandlers({
         projectsUpdateProvider === 'codex' &&
         selectedSession?.__provider === 'codex'
       ) {
+        const selectedProviderSessionId =
+          typeof selectedSession.providerSessionId === 'string' ? selectedSession.providerSessionId : null;
+        const codexReloadSessionId =
+          selectedProviderSessionId ||
+          pendingViewSessionRef.current?.sessionId ||
+          selectedSession.id;
         void reloadCodexSessionMessages({
           selectedProject,
           selectedSession,
-          sessionId: selectedSession.id,
+          sessionId: codexReloadSessionId,
           loadSessionMessages,
           setSessionMessages,
         });
@@ -932,6 +941,19 @@ export function useChatRealtimeHandlers({
           loadSessionMessages,
           setSessionMessages,
         });
+        window.setTimeout(() => {
+          const retrySessionId =
+            latestMessage.actualSessionId ||
+            pendingViewSessionRef.current?.sessionId ||
+            codexCompletedSessionId;
+          void reloadCodexSessionMessages({
+            selectedProject,
+            selectedSession,
+            sessionId: retrySessionId,
+            loadSessionMessages,
+            setSessionMessages,
+          });
+        }, 500);
         break;
       }
 

@@ -3,6 +3,7 @@
  * 授权模式已锁定为 bypassPermissions（YOLO），此页面仅管理 allowedTools / disallowedTools。
  */
 import { useState } from 'react';
+import type { AgentProvider } from '../../../../../types/types';
 import { Plus, Shield, AlertTriangle, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../../../../../ui/button';
@@ -39,7 +40,7 @@ const removeValue = (items: string[], value: string): string[] => (
 );
 
 type PermissionsContentProps = {
-  agent: 'claude' | 'codex';
+  agent: AgentProvider;
   allowedTools?: string[];
   onAllowedToolsChange?: (value: string[]) => void;
   disallowedTools?: string[];

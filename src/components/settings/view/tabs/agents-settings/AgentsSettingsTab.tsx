@@ -13,8 +13,10 @@ export default function AgentsSettingsTab({
   usageEnabled = true,
   claudeAuthStatus,
   codexAuthStatus,
+  opencodeAuthStatus,
   onClaudeLogin,
   onCodexLogin,
+  onOpencodeLogin,
   mcpServers,
   codexMcpServers,
   mcpTestResults,
@@ -40,11 +42,17 @@ export default function AgentsSettingsTab({
       authStatus: codexAuthStatus,
       onLogin: onCodexLogin,
     },
+    opencode: {
+      authStatus: opencodeAuthStatus,
+      onLogin: onOpencodeLogin,
+    },
   }), [
     claudeAuthStatus,
     codexAuthStatus,
+    opencodeAuthStatus,
     onClaudeLogin,
     onCodexLogin,
+    onOpencodeLogin,
   ]);
 
   return (

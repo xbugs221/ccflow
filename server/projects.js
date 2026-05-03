@@ -671,6 +671,11 @@ async function mergeActiveProviderSessionsIntoProjects({
     if (!session.id || !normalizedProjectPath) {
       continue;
     }
+    const sessionProjectConfig = await loadProjectConfig(session.projectPath);
+    const sessionWorkflowMetadata = getSessionWorkflowMetadataMap(sessionProjectConfig);
+    if (sessionWorkflowMetadata[session.id]?.workflowId) {
+      continue;
+    }
 
     let project = projects.find(
       (candidate) => normalizeComparablePath(candidate.fullPath || candidate.path) === normalizedProjectPath,
@@ -1869,6 +1874,10 @@ function applySessionUiState(session, projectPath, provider, config) {
  * Build the canonical project route path from the filesystem path.
  */
 function buildProjectRoutePath(projectPath) {
+  /**
+   * HOME itself has no relative segment, but it still needs a project-scoped
+   * route prefix so child session routes never become bare `/cN` or `//cN`.
+   */
   const normalizedPath = normalizeComparablePath(projectPath);
   if (!normalizedPath) {
     return '/';
@@ -1877,7 +1886,7 @@ function buildProjectRoutePath(projectPath) {
   const normalizedHome = normalizeComparablePath(os.homedir());
   if (normalizedHome && (normalizedPath === normalizedHome || normalizedPath.startsWith(`${normalizedHome}/`))) {
     const relativePath = normalizedPath.slice(normalizedHome.length).replace(/^\/+/g, '');
-    return relativePath ? `/${relativePath}` : '/';
+    return relativePath ? `/${relativePath}` : '/~';
   }
 
   return normalizedPath;
@@ -3593,7 +3602,12 @@ async function getSessionMessages(projectName, sessionId, limit = null, offset =
       };
     } else {
       // Fallback: 扫描所有 JSONL 文件（兼容文件名不等于 sessionId 的情况）
-      const files = await fs.readdir(projectDir);
+      let files = [];
+      try {
+        files = await fs.readdir(projectDir);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
       const jsonlFiles = files.filter(file => file.endsWith('.jsonl') && !file.startsWith('agent-'));
       fallbackTotal = 0;
 
@@ -3712,7 +3726,12 @@ async function findClaudeSessionFile(projectName, sessionId) {
     // Fall through to directory scan for legacy/non-standard filenames.
   }
 
-  const files = await fs.readdir(projectDir);
+  let files = [];
+  try {
+    files = await fs.readdir(projectDir);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
   const jsonlFiles = files.filter((file) => file.endsWith('.jsonl') && !file.startsWith('agent-'));
 
   for (const file of jsonlFiles) {
@@ -5698,6 +5717,7 @@ export {
   validateProjectPathAvailability,
   evaluateProjectArchival,
   extractProjectDirectory,
+  buildProjectRoutePath,
   clearProjectDirectoryCache,
   refreshMissingProjectPathCache,
   getCodexSessions,

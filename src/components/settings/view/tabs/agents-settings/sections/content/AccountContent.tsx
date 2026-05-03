@@ -41,6 +41,14 @@ const agentConfig: Record<AgentProvider, AgentVisualConfig> = {
     subtextClass: 'text-gray-700 dark:text-gray-300',
     buttonClass: 'bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600',
   },
+  opencode: {
+    name: 'OpenCode',
+    bgClass: 'bg-orange-50 dark:bg-orange-900/20',
+    borderClass: 'border-orange-200 dark:border-orange-800',
+    textClass: 'text-orange-900 dark:text-orange-100',
+    subtextClass: 'text-orange-700 dark:text-orange-300',
+    buttonClass: 'bg-orange-600 hover:bg-orange-700',
+  },
 };
 
 /**
@@ -124,14 +132,25 @@ export default function AccountContent({
                     : t('agents.login.description', { agent: config.name })}
                 </div>
               </div>
-              <Button
-                onClick={onLogin}
-                className={`${config.buttonClass} text-white`}
-                size="sm"
-              >
-                <LogIn className="w-4 h-4 mr-2" />
-                {authStatus.authenticated ? t('agents.login.reLoginButton') : t('agents.login.button')}
-              </Button>
+              {agent === 'opencode' ? (
+                /**
+                 * PURPOSE: Hide the login trigger for placeholder providers so a
+                 * click cannot reach a missing server route or dirty another
+                 * provider's auth status.
+                 */
+                <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
+                  {t('agents.authStatus.placeholder', { defaultValue: 'Coming soon' })}
+                </Badge>
+              ) : (
+                <Button
+                  onClick={onLogin}
+                  className={`${config.buttonClass} text-white`}
+                  size="sm"
+                >
+                  <LogIn className="w-4 h-4 mr-2" />
+                  {authStatus.authenticated ? t('agents.login.reLoginButton') : t('agents.login.button')}
+                </Button>
+              )}
             </div>
           </div>
 
@@ -143,9 +162,15 @@ export default function AccountContent({
             </div>
           )}
 
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <UsageProviderQuota provider={agent} enabled={usageEnabled} />
-          </div>
+          {agent !== 'opencode' && (
+            /**
+             * PURPOSE: Skip the quota panel for placeholder providers; rendering
+             * a label without ever requesting data made the section look broken.
+             */
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+              <UsageProviderQuota provider={agent} enabled={usageEnabled} />
+            </div>
+          )}
         </div>
       </div>
     </div>

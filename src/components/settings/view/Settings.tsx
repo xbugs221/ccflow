@@ -127,8 +127,15 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
                 usageEnabled={activeTab === 'agents'}
                 claudeAuthStatus={claudeAuthStatus}
                 codexAuthStatus={codexAuthStatus}
+                opencodeAuthStatus={{
+                  authenticated: false,
+                  email: null,
+                  loading: false,
+                  error: null,
+                }}
                 onClaudeLogin={() => openLoginForProvider('claude')}
                 onCodexLogin={() => openLoginForProvider('codex')}
+                onOpencodeLogin={() => openLoginForProvider('opencode')}
                 mcpServers={mcpServers}
                 codexMcpServers={codexMcpServers}
                 mcpTestResults={mcpTestResults}

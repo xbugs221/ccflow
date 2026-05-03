@@ -842,6 +842,19 @@ export function __buildCodexChildEnvForTest(shellProxyEnv, workingDirectory) {
   return buildCodexChildEnv(shellProxyEnv, workingDirectory);
 }
 
+/**
+ * Test-only export: map a UI permissionMode to the runtime { sandboxMode,
+ * approvalPolicy } pair used for Codex CLI invocation. Exposed so behavior
+ * tests can pin permission-mode semantics without depending on internal
+ * source structure.
+ *
+ * @param {string} permissionMode - 'default' | 'acceptEdits' | 'bypassPermissions'.
+ * @returns {{sandboxMode: string, approvalPolicy: string}} Runtime options.
+ */
+export function __mapPermissionModeToCodexOptionsForTest(permissionMode) {
+  return mapPermissionModeToCodexOptions(normalizeCodexPermissionMode(permissionMode));
+}
+
 export async function __findCodexSessionTranscriptForTest(sessionId, rootDir) {
   return findCodexSessionTranscript(sessionId, rootDir);
 }

@@ -12,6 +12,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
 import { useProjectsState } from '../../hooks/useProjectsState';
+import type { SessionProvider } from '../../types/app';
 import { buildProjectSessionRoute, buildWorkflowChildSessionRoute } from '../../utils/projectRoute';
 
 export default function AppContent() {
@@ -104,7 +105,7 @@ export default function AppContent() {
       onNavigateToSession={(
         targetSessionId: string,
         options?: {
-          provider?: 'claude' | 'codex';
+          provider?: SessionProvider;
           projectName?: string;
           projectPath?: string;
           workflowId?: string;

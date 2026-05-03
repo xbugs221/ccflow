@@ -14,6 +14,7 @@ import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
 import type { Provider } from '../types/types';
+import type { SessionProvider } from '../../../types/app';
 import { api } from '../../../utils/api';
 
 type PendingViewSession = {
@@ -33,7 +34,7 @@ const SESSION_STATUS_RECONCILE_INTERVAL_MS = 4_000;
 type ChatSearchResult = {
   projectName: string;
   projectDisplayName: string;
-  provider: 'claude' | 'codex';
+  provider: SessionProvider;
   sessionId: string;
   sessionSummary: string;
   messageKey: string;
@@ -66,7 +67,7 @@ const resolveSessionConfigTarget = (
 const resolveProjectSessionProvider = (
   selectedProject: ChatInterfaceProps['selectedProject'],
   sessionId?: string | null,
-): 'claude' | 'codex' | null => {
+): SessionProvider | null => {
   if (!selectedProject || !sessionId || isTemporarySessionId(sessionId)) {
     return null;
   }

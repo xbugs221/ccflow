@@ -268,6 +268,11 @@ function mapCliOptionsToSDK(options = {}) {
     sdkOptions.resume = sessionId;
   }
 
+  // Forward custom Claude CLI path when explicitly configured
+  if (process.env.CLAUDE_CLI_PATH) {
+    sdkOptions.pathToClaudeCodeExecutable = process.env.CLAUDE_CLI_PATH;
+  }
+
   return sdkOptions;
 }
 
@@ -781,6 +786,17 @@ function __clearActiveClaudeSessionsForTest() {
   activeSessions.clear();
 }
 
+/**
+ * Test-only export: expose mapCliOptionsToSDK so behavior tests can verify
+ * how UI options translate into Claude Agent SDK options (e.g. that
+ * CLAUDE_CLI_PATH is forwarded to pathToClaudeCodeExecutable without
+ * clobbering cwd / permissionMode / model / resume / systemPrompt /
+ * settingSources / allowedTools).
+ */
+function __mapCliOptionsToSDKForTest(options) {
+  return mapCliOptionsToSDK(options);
+}
+
 // Export public API
 export {
   queryClaudeSDK,
@@ -791,4 +807,5 @@ export {
   shouldAutoApproveClaudeTool,
   __registerActiveClaudeSessionForTest,
   __clearActiveClaudeSessionsForTest,
+  __mapCliOptionsToSDKForTest,
 };

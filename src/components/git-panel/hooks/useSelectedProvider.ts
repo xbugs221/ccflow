@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import type { SessionProvider } from '../../../types/app';
 
-function normalizeProvider(value: string | null): 'claude' | 'codex' {
+function normalizeProvider(value: string | null): SessionProvider {
   return value === 'codex' ? 'codex' : 'claude';
 }
 

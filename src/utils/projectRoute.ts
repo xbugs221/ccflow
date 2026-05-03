@@ -8,6 +8,9 @@ type WorkflowRouteTarget = { routeIndex?: number; id?: string };
 type SessionRouteTarget = { routeIndex?: number; id?: string };
 
 function normalizeSlashPath(value: string): string {
+  /**
+   * Normalize filesystem-like project identities into browser pathname prefixes.
+   */
   const normalized = String(value || '').replace(/\\/g, '/').replace(/\/+/g, '/');
   if (!normalized || normalized === '/') {
     return '/';
@@ -15,11 +18,27 @@ function normalizeSlashPath(value: string): string {
   return normalized.startsWith('/') ? normalized.replace(/\/+$/g, '') : `/${normalized.replace(/\/+$/g, '')}`;
 }
 
+function appendRouteSegment(routePrefix: string, segment: string): string {
+  /**
+   * Join canonical route pieces without producing a protocol-relative `//...`
+   * URL when the project prefix is the root path.
+   */
+  const normalizedPrefix = normalizeSlashPath(routePrefix);
+  return normalizedPrefix === '/' ? `/${segment}` : `${normalizedPrefix}/${segment}`;
+}
+
 export function getProjectRoutePath(project: ProjectRouteTarget): string {
+  /**
+   * Prefer the backend routePath because HOME-relative projects may need a
+   * synthetic prefix such as `/~` when the project path is HOME itself.
+   */
   return normalizeSlashPath(project.routePath || project.fullPath || project.path || project.name);
 }
 
 function assertIndexedSegment(prefix: 'w' | 'c', target: WorkflowRouteTarget | SessionRouteTarget): string {
+  /**
+   * Convert persisted route indexes into stable wN/cN URL segments.
+   */
   if (prefix === 'c' && typeof target?.id === 'string' && /^c\d+$/.test(target.id)) {
     return target.id;
   }
@@ -32,6 +51,9 @@ function assertIndexedSegment(prefix: 'w' | 'c', target: WorkflowRouteTarget | S
 }
 
 export function buildProjectRoute(project: ProjectRouteTarget): string {
+  /**
+   * Build the canonical route for a project overview.
+   */
   return getProjectRoutePath(project);
 }
 
@@ -39,14 +61,20 @@ export function buildProjectWorkflowRoute(
   project: ProjectRouteTarget,
   workflow: WorkflowRouteTarget,
 ): string {
-  return `${buildProjectRoute(project)}/${assertIndexedSegment('w', workflow)}`;
+  /**
+   * Build the canonical route for one project workflow.
+   */
+  return appendRouteSegment(buildProjectRoute(project), assertIndexedSegment('w', workflow));
 }
 
 export function buildProjectSessionRoute(
   project: ProjectRouteTarget,
   session: SessionRouteTarget,
 ): string {
-  return `${buildProjectRoute(project)}/${assertIndexedSegment('c', session)}`;
+  /**
+   * Build the canonical route for one project-level chat session.
+   */
+  return appendRouteSegment(buildProjectRoute(project), assertIndexedSegment('c', session));
 }
 
 export function buildWorkflowChildSessionRoute(
@@ -54,10 +82,16 @@ export function buildWorkflowChildSessionRoute(
   workflow: WorkflowRouteTarget,
   session: SessionRouteTarget,
 ): string {
-  return `${buildProjectWorkflowRoute(project, workflow)}/${assertIndexedSegment('c', session)}`;
+  /**
+   * Build the canonical route for one workflow child chat session.
+   */
+  return appendRouteSegment(buildProjectWorkflowRoute(project, workflow), assertIndexedSegment('c', session));
 }
 
 export function parseIndexedRouteSegment(segment: string, prefix: 'w' | 'c'): number | null {
+  /**
+   * Parse wN/cN route segments back into stable numeric route indexes.
+   */
   const matched = String(segment || '').match(new RegExp(`^${prefix}(\\d+)$`));
   if (!matched) {
     return null;

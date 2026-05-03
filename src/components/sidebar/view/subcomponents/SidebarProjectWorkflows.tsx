@@ -82,7 +82,7 @@ type SidebarProjectWorkflowsProps = {
   selectedWorkflow?: ProjectWorkflow | null;
   onProjectSelect: (project: Project) => void;
   onWorkflowSelect?: (project: Project, workflow: ProjectWorkflow) => void;
-  onNewSession: (project: Project, provider?: 'claude' | 'codex', options?: Record<string, unknown>) => void;
+  onNewSession: (project: Project, provider?: SessionProvider, options?: Record<string, unknown>) => void;
   currentTime: Date;
   t: TFunction;
 };

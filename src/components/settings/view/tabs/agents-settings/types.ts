@@ -18,8 +18,10 @@ export type AgentsSettingsTabProps = {
   usageEnabled?: boolean;
   claudeAuthStatus: AuthStatus;
   codexAuthStatus: AuthStatus;
+  opencodeAuthStatus: AuthStatus;
   onClaudeLogin: () => void;
   onCodexLogin: () => void;
+  onOpencodeLogin: () => void;
   mcpServers: McpServer[];
   codexMcpServers: McpServer[];
   mcpTestResults: Record<string, McpTestResult>;

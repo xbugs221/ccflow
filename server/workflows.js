@@ -1159,6 +1159,28 @@ function compactWorkflowForStore(workflow = {}) {
   if (Object.keys(stageState).length > 0) {
     compact.stageState = stageState;
   }
+  /**
+   * PURPOSE: Persist provider choices inside stageStatuses so the store schema
+   * avoids a separate duplicate stageProviders/providers map.  This keeps the
+   * runtime read model and the persisted record aligned on the same stage key.
+   */
+  if (Array.isArray(workflow.stageStatuses) && workflow.stageStatuses.length > 0) {
+    const compactStageStatuses = workflow.stageStatuses
+      .map((stage) => {
+        const entry = {};
+        const key = normalizeWorkflowStageKey(stage.key);
+        const provider = getWorkflowStageProvider(workflow, stage.key);
+        const status = String(stage.status || '').trim();
+        if (key) entry.key = key;
+        if (provider && provider !== 'codex') entry.provider = provider;
+        if (status && status !== 'pending') entry.status = status;
+        return entry;
+      })
+      .filter((entry) => Object.keys(entry).length > 1);
+    if (compactStageStatuses.length > 0) {
+      compact.stageStatuses = compactStageStatuses;
+    }
+  }
   if (Array.isArray(workflow.artifacts) && workflow.artifacts.length > 0) {
     compact.artifacts = workflow.artifacts.map(compactArtifactForStore);
   }

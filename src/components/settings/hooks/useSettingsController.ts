@@ -211,16 +211,35 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
   const [claudeAuthStatus, setClaudeAuthStatus] = useState<AuthStatus>(DEFAULT_AUTH_STATUS);
   const [codexAuthStatus, setCodexAuthStatus] = useState<AuthStatus>(DEFAULT_AUTH_STATUS);
 
+  /**
+   * PURPOSE: Route auth status updates to the correct provider's state slot so
+   * a 404 on one provider's status endpoint cannot pollute another provider.
+   * OpenCode currently has no backend status route in this change scope, so its
+   * branch is intentionally a no-op placeholder; AccountContent renders the
+   * Settings.tsx-supplied stub instead of any state from this hook.
+   */
   const setAuthStatusByProvider = useCallback((provider: AgentProvider, status: AuthStatus) => {
     if (provider === 'claude') {
       setClaudeAuthStatus(status);
       return;
     }
 
-    setCodexAuthStatus(status);
+    if (provider === 'codex') {
+      setCodexAuthStatus(status);
+      return;
+    }
+
+    // opencode: placeholder, no backend route, never write to other providers.
   }, []);
 
   const checkAuthStatus = useCallback(async (provider: AgentProvider) => {
+    /**
+     * PURPOSE: Skip the network probe for placeholder providers so a missing
+     * server route cannot land an error into another provider's auth slot.
+     */
+    if (provider === 'opencode') {
+      return;
+    }
     try {
       const response = await authenticatedFetch(AUTH_STATUS_ENDPOINTS[provider]);
 
@@ -630,6 +649,13 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
   }, [fetchCodexMcpServers, fetchMcpServers]);
 
   const openLoginForProvider = useCallback((provider: AgentProvider) => {
+    /**
+     * PURPOSE: Refuse to open the login modal for placeholder providers so the
+     * UI stays consistent with the absence of a real auth flow for OpenCode.
+     */
+    if (provider === 'opencode') {
+      return;
+    }
     setLoginProvider(provider);
     setSelectedProject(getDefaultProject(projects));
     setShowLoginModal(true);

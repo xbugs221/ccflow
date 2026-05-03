@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 
 export type SettingsMainTab = 'agents' | 'appearance' | 'git' | 'api';
-export type AgentProvider = 'claude' | 'codex';
+export type AgentProvider = 'claude' | 'codex' | 'opencode';
 export type AgentCategory = 'account' | 'mcp';
 export type ProjectSortOrder = 'name' | 'date';
 export type SaveStatus = 'success' | 'error' | null;

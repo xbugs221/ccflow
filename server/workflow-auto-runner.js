@@ -289,14 +289,15 @@ export function evaluateWorkflowActionDedup({ project, workflow, action, runnerS
   }
 
   if (runnerState.completedKeys.has(actionKey)) {
-    if (action.sessionId) {
-      return { shouldSkip: false, reason: 'resume_existing_session' };
-    }
-
     const hasIndex = hasIndexedSessionForAction(workflow, action);
     if (hasIndex) {
       return { shouldSkip: true, reason: 'indexed_action_already_completed' };
     }
+
+    if (action.sessionId) {
+      return { shouldSkip: false, reason: 'resume_existing_session' };
+    }
+
     return { shouldSkip: false, recoveryRequired: true, reason: 'index_missing' };
   }
 
@@ -359,6 +360,51 @@ export async function recoverWorkflowActionSessionIndex({ project, workflow, act
 }
 
 /**
+ * PURPOSE: Before launching a new provider turn, recover any already-created
+ * provider session that matches this workflow action but is missing from the
+ * workflow child-session index.
+ */
+export async function recoverUnindexedWorkflowActionSession({ project, workflow, action, logger = console }) {
+  const providerSessions = await scanWorkflowProviderSessions(project, workflow, action);
+  const orphanSessions = providerSessions.filter((session) => session.registered === false);
+  if (orphanSessions.length === 0) {
+    return { recovered: false, decision: 'none' };
+  }
+
+  const recovery = await recoverWorkflowActionSessionIndex({
+    project,
+    workflow,
+    action,
+    providerSessions: orphanSessions,
+  });
+  if (recovery.event) {
+    logger.info?.(`[WorkflowAutoRunner] Recovery ${recovery.decision} for ${project.name}/${workflow.id}/${action.stage}`);
+  }
+
+  if (recovery.decision === 'recover' && recovery.sessionId) {
+    const registered = await registerWorkflowChildSession(project, workflow.id, {
+      sessionId: recovery.sessionId,
+      title: `${workflow.title} 恢复会话`,
+      summary: `${workflow.title} 恢复会话`,
+      provider: recovery.event.provider || action.provider || 'codex',
+      stageKey: action.stage,
+      routeIndex: getNextWorkflowChildRouteIndex(workflow),
+    });
+    if (registered) {
+      await recordWorkflowControllerEvent(project, workflow, recovery.event, logger);
+      return { recovered: true, decision: 'recover', sessionId: recovery.sessionId };
+    }
+  }
+
+  if (recovery.decision === 'ambiguous') {
+    await recordWorkflowControllerEvent(project, workflow, recovery.event, logger);
+    return { recovered: false, decision: 'ambiguous' };
+  }
+
+  return { recovered: false, decision: recovery.decision || 'rebuild' };
+}
+
+/**
  * PURPOSE: Plan which unregistered provider sessions should be quarantined
  * before a new workflow child session is created. Protects sessions already
  * registered to any workflow.
@@ -391,6 +437,24 @@ export async function planWorkflowProviderOrphanCleanup({ project, workflow, act
  * the current project and time window.
  * Scans ~/.codex/sessions/YYYY/MM/DD/*.jsonl.
  */
+async function readCodexSessionIdFromFile(sessionFilePath) {
+  /**
+   * PURPOSE: Codex JSONL filenames include a rollout prefix, while the real
+   * resumable session id lives in the first session_meta payload.
+   */
+  try {
+    const content = await fs.readFile(sessionFilePath, 'utf8');
+    const firstLine = content.split(/\r?\n/).find((line) => line.trim());
+    if (!firstLine) {
+      return path.basename(sessionFilePath, '.jsonl');
+    }
+    const entry = JSON.parse(firstLine);
+    return entry?.payload?.id || path.basename(sessionFilePath, '.jsonl');
+  } catch {
+    return path.basename(sessionFilePath, '.jsonl');
+  }
+}
+
 export async function scanCodexProviderSessions(project) {
   const projectPath = project?.fullPath || project?.path || '';
   if (!projectPath) {
@@ -413,7 +477,7 @@ export async function scanCodexProviderSessions(project) {
         continue;
       }
       if (entry.isFile() && entry.name.endsWith('.jsonl')) {
-        const sessionId = path.basename(entry.name, '.jsonl');
+        const sessionId = await readCodexSessionIdFromFile(fullPath);
         candidates.push({
           id: sessionId,
           provider: 'codex',
@@ -479,37 +543,184 @@ async function readProviderSessionPreview(sessionFilePath) {
   }
 }
 
+function stringifyProviderMessageContent(content) {
+  /**
+   * PURPOSE: Normalize Codex and Claude JSONL message content into text so
+   * orphan recovery matches the original prompt, not serialized JSON structure.
+   */
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content.map((part) => {
+      if (typeof part === 'string') {
+        return part;
+      }
+      if (typeof part?.text === 'string') {
+        return part.text;
+      }
+      if (typeof part?.content === 'string') {
+        return part.content;
+      }
+      return '';
+    }).filter(Boolean).join('\n');
+  }
+  if (typeof content?.text === 'string') {
+    return content.text;
+  }
+  if (typeof content?.content === 'string') {
+    return content.content;
+  }
+  return '';
+}
+
+async function readProviderSessionInitialContext(sessionFilePath) {
+  /**
+   * PURPOSE: Read only the provider session origin signal used for conservative
+   * recovery. Later tool outputs may mention workflow ids and must not make an
+   * unrelated interactive session look workflow-owned.
+   */
+  const preview = await readProviderSessionPreview(sessionFilePath);
+  let cwd = '';
+  let initialUserText = '';
+  let fallbackText = '';
+
+  for (const line of preview.split(/\r?\n/)) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine) {
+      continue;
+    }
+    let entry = null;
+    try {
+      entry = JSON.parse(trimmedLine);
+    } catch {
+      fallbackText = fallbackText || trimmedLine;
+      continue;
+    }
+
+    cwd = cwd || entry?.cwd || entry?.payload?.cwd || entry?.payload?.cwd_path || '';
+    if (entry?.type === 'turn_context') {
+      cwd = cwd || entry?.payload?.cwd || '';
+    }
+    if (!fallbackText) {
+      fallbackText = stringifyProviderMessageContent(entry?.text || entry?.message?.content || entry?.message || '');
+    }
+    if (!initialUserText && entry?.type === 'event_msg' && entry?.payload?.type === 'user_message') {
+      initialUserText = stringifyProviderMessageContent(entry.payload.message || entry.payload.content || '');
+    }
+    if (!initialUserText && entry?.type === 'user' && entry?.message?.role === 'user') {
+      initialUserText = stringifyProviderMessageContent(entry.message.content);
+    }
+    if (!initialUserText && entry?.message?.role === 'user') {
+      initialUserText = stringifyProviderMessageContent(entry.message.content);
+    }
+    if (initialUserText) {
+      break;
+    }
+  }
+
+  return {
+    cwd,
+    text: initialUserText || fallbackText || preview,
+    preview,
+  };
+}
+
+function parseWorkflowRouteIndex(workflowId) {
+  /**
+   * PURPOSE: Mirror workflow artifact routing so recovery can match exact
+   * review/repair output paths without importing private workflow helpers.
+   */
+  const match = String(workflowId || '').match(/^w([1-9]\d*)$/);
+  if (!match) {
+    return null;
+  }
+  const routeIndex = Number(match[1]);
+  return Number.isInteger(routeIndex) && routeIndex > 0 ? routeIndex : null;
+}
+
+function getWorkflowArtifactDirectoryName(workflow) {
+  /**
+   * PURPOSE: Build the .ccflow artifact bucket name for a workflow.
+   */
+  return String(parseWorkflowRouteIndex(workflow?.id) || Number(workflow?.routeIndex) || 'unknown-workflow');
+}
+
+function hasWorkflowAutoPromptMatch(initialText, workflow, action) {
+  /**
+   * PURPOSE: Decide whether a provider session was launched by workflow
+   * automation using the initial user prompt only.
+   */
+  const stage = String(action?.stage || '');
+  const passIndex = getReviewPassFromStage(stage);
+  const artifactDir = getWorkflowArtifactDirectoryName(workflow);
+  const workflowTokens = [
+    workflow?.id,
+    workflow?.title,
+    workflow?.openspecChangeName,
+  ].filter(Boolean).map(String);
+  const hasWorkflowToken = workflowTokens.some((token) => initialText.includes(token));
+  const hasWorkflowPromptMarker = [
+    '当前工作流上下文',
+    '工作流 ID',
+    'OpenSpec change',
+  ].some((token) => initialText.includes(token));
+
+  if (stage.startsWith('review_') && Number.isInteger(passIndex)) {
+    const reviewPath = path.join('.ccflow', artifactDir, `review-${passIndex}.json`);
+    return initialText.includes(reviewPath)
+      && initialText.includes('输出格式')
+      && initialText.includes('findings');
+  }
+
+  if (stage.startsWith('repair_') && Number.isInteger(passIndex)) {
+    const reviewPath = path.join('.ccflow', artifactDir, `review-${passIndex}.json`);
+    const repairSummaryPath = path.join('.ccflow', artifactDir, `repair-${passIndex}-summary.md`);
+    return initialText.includes('Repair Target')
+      && initialText.includes(reviewPath)
+      && initialText.includes(repairSummaryPath);
+  }
+
+  if (stage === 'archive') {
+    const deliverySummaryPath = path.join('.ccflow', artifactDir, 'delivery-summary.md');
+    return initialText.includes('Delivery Target')
+      && initialText.includes(deliverySummaryPath)
+      && hasWorkflowToken;
+  }
+
+  return Boolean(stage)
+    && initialText.includes(stage)
+    && hasWorkflowToken
+    && hasWorkflowPromptMarker;
+}
+
 /**
  * PURPOSE: Collect provider sessions for one workflow action and annotate
  * whether they are already registered in the persisted workflow index.
  */
 export async function scanWorkflowProviderSessions(project, workflow, action) {
-  const provider = resolveWorkflowStageProvider(workflow, action.stage);
+  const provider = action?.provider === 'claude' || action?.provider === 'codex'
+    ? action.provider
+    : resolveWorkflowStageProvider(workflow, action.stage);
   const projectPath = project?.fullPath || project?.path || '';
   const scans = provider === 'claude'
     ? await scanClaudeProviderSessions(project)
     : await scanCodexProviderSessions(project);
   const registeredIds = new Set(getWorkflowIndexedSessions(workflow).map((session) => session.id).filter(Boolean));
-  const workflowTokens = [
-    workflow.id,
-    workflow.title,
-    workflow.openspecChangeName,
-    action.stage,
-  ].filter(Boolean).map(String);
   const candidates = [];
 
   for (const session of scans) {
     if (session.provider !== provider) {
       continue;
     }
-    const preview = await readProviderSessionPreview(session.sessionFilePath);
+    const initialContext = await readProviderSessionInitialContext(session.sessionFilePath);
     const belongsToProject = provider === 'claude'
       ? true
-      : (projectPath && preview.includes(projectPath));
+      : (projectPath && (initialContext.cwd === projectPath || initialContext.preview.includes(projectPath)));
     if (!belongsToProject) {
       continue;
     }
-    const hasHighConfidenceMatch = workflowTokens.some((token) => preview.includes(token));
+    const hasHighConfidenceMatch = hasWorkflowAutoPromptMatch(initialContext.text, workflow, action);
     if (!hasHighConfidenceMatch) {
       continue;
     }
@@ -946,6 +1157,19 @@ export async function runWorkflowAutoOnce(options = {}) {
             await recordWorkflowControllerEvent(project, workflow, recovery.event, logger);
             runnerState.completedKeys.delete(actionKey);
             rebuildAllowed = true;
+          }
+        }
+
+        if (!dedup.recoveryRequired) {
+          const orphanRecovery = await recoverUnindexedWorkflowActionSession({
+            project,
+            workflow,
+            action,
+            logger,
+          });
+          if (orphanRecovery.recovered || orphanRecovery.decision === 'ambiguous') {
+            stats.skipped += 1;
+            continue;
           }
         }
 

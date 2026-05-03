@@ -1,4 +1,4 @@
-import matter from 'gray-matter';
+import { parseFrontmatter } from './frontmatter.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
@@ -32,7 +32,7 @@ const BASH_COMMAND_ALLOWLIST = [
  */
 export function parseCommand(content) {
   try {
-    const parsed = matter(content);
+    const parsed = parseFrontmatter(content);
     return {
       data: parsed.data || {},
       content: parsed.content || '',

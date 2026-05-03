@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../../../utils/api';
 import type { Provider } from '../../types/types';
+import type { SessionProvider } from '../../../../types/app';
 
 type UsageRemainingValue = {
   value: number | null;
@@ -12,7 +13,7 @@ type UsageRemainingValue = {
 };
 
 type UsageRemainingPayload = {
-  provider: 'claude' | 'codex';
+  provider: SessionProvider;
   status: 'ok' | 'unavailable';
   source: string;
   updatedAt: string | null;
@@ -37,7 +38,7 @@ type RemainingPercentChipProps = {
 /**
  * Normalize provider value to the usage endpoint supported providers.
  */
-function normalizeUsageProvider(provider: Provider | string): 'claude' | 'codex' | null {
+function normalizeUsageProvider(provider: Provider | string): SessionProvider | null {
   if (provider === 'codex') {
     return 'codex';
   }
