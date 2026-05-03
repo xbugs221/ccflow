@@ -1,7 +1,7 @@
 执行 OpenSpec 变更中的任务
 
 ```bash
-openspec status --change "<name>" --json
+openspec status "<name>" --json
 ```
 
 解析 JSON 以了解：

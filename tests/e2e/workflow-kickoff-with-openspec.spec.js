@@ -34,7 +34,7 @@ function buildExpectedProjectRoutePrefix() {
  * Prepare OpenSpec change documents in the fixture project.
  */
 async function prepareOpenSpecChange() {
-  const changeRoot = path.join(PRIMARY_FIXTURE_PROJECT_PATH, 'openspec', 'changes', OPEN_SPEC_CHANGE_NAME);
+  const changeRoot = path.join(PRIMARY_FIXTURE_PROJECT_PATH, 'docs', 'changes', OPEN_SPEC_CHANGE_NAME);
   await fs.mkdir(changeRoot, { recursive: true });
   await fs.mkdir(path.join(changeRoot, 'specs'), { recursive: true });
 

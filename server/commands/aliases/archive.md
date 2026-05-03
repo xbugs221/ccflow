@@ -1,6 +1,6 @@
 归档已完成的变更，若无法从上下文中判断，运行 `openspec list` 获取可用变更
 
-运行 `openspec status --change "<name>" --json` 检查 artifact 完成情况。
+运行 `openspec status "<name>" --json` 检查 artifact 完成情况。
 
 解析 JSON 以了解：
 
@@ -25,7 +25,7 @@
 
 **若不存在任务文件：** 直接继续，无需任务相关警告。
 
-检查 `openspec/changes/<name>/specs/` 下是否有 delta specs，若无则直接继续。
+检查 `docs/changes/<name>/specs/` 下是否有 delta specs，若无则直接继续。
 
 **若存在 delta specs：**
 
@@ -36,7 +36,7 @@
 若不存在则创建归档目录：
 
 ```bash
-mkdir -p openspec/changes/archive
+mkdir -p docs/changes/archive
 ```
 
 使用当前日期生成目标名称：`YYYY-MM-DD-<change-name>`
@@ -47,7 +47,7 @@ mkdir -p openspec/changes/archive
 - 若不存在：移动变更目录到归档
 
 ```bash
-mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
+mv docs/changes/<name> docs/changes/archive/YYYY-MM-DD-<name>
 ```
 
 显示归档完成摘要，包括：

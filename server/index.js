@@ -3317,9 +3317,14 @@ async function startServer() {
                 console.info(`[SessionVisibility] Periodic scan enabled (${scanIntervalMs}ms)`);
             }
 
-            // Start watching the projects folder for changes
-            await setupProjectsWatcher();
             startWorkflowAutoRunner({ logger: console });
+
+            try {
+                // Start watching the projects folder for changes after the workflow runner is live.
+                await setupProjectsWatcher();
+            } catch (watcherError) {
+                console.error('[ERROR] Failed to setup provider project watchers:', watcherError);
+            }
         });
     } catch (error) {
         console.error('[ERROR] Failed to start server:', error);

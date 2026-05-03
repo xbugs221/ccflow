@@ -95,9 +95,9 @@ openspec list
 若用户提到某个变更或检测到相关变更：
 
 1. **读取现有 artifact 获取上下文**
-   - `openspec/changes/<name>/proposal.md`
-   - `openspec/changes/<name>/design.md`
-   - `openspec/changes/<name>/tasks.md`
+   - `docs/changes/<name>/proposal.md`
+   - `docs/changes/<name>/design.md`
+   - `docs/changes/<name>/tasks.md`
    - 等等
 
 2. **在对话中自然引用**

@@ -38,7 +38,8 @@ async function withTemporaryHome(testBody) {
  * Write one minimal OpenSpec tasks.md so `openspec list --json` can report task progress.
  */
 async function writeOpenSpecTasks(projectPath, changeName, completedFlags = []) {
-  const tasksPath = path.join(projectPath, 'openspec', 'changes', changeName, 'tasks.md');
+  const tasksPath = path.join(projectPath, 'docs', 'changes', changeName, 'tasks.md');
+  await fs.mkdir(path.dirname(tasksPath), { recursive: true });
   const lines = [
     '## 1. 测试任务',
     '',
@@ -263,7 +264,7 @@ test('createProjectWorkflow reserves an OpenSpec prefix and resolves the agent-c
 
     const changeName = `${workflow.openspecChangePrefix}-create-new-feature`;
     await execFileAsync('openspec', ['new', 'change', changeName], { cwd: projectPath });
-    await fs.writeFile(path.join(projectPath, 'openspec', 'changes', changeName, 'proposal.md'), '# proposal\n', 'utf8');
+    await fs.writeFile(path.join(projectPath, 'docs', 'changes', changeName, 'proposal.md'), '# proposal\n', 'utf8');
 
     const refreshedWorkflow = await getProjectWorkflow(project, workflow.id);
     assert.equal(refreshedWorkflow.openspecChangeName, changeName);
@@ -300,7 +301,7 @@ test('backend workflow auto runner launches planning only before a planning chil
     assert.equal(actionAfterSession, null);
 
     const existingChangeName = 'existing-openspec-change';
-    await fs.mkdir(path.join(projectPath, 'openspec', 'changes', existingChangeName), { recursive: true });
+    await execFileAsync('openspec', ['new', 'change', existingChangeName], { cwd: projectPath });
     const adoptedWorkflow = await createProjectWorkflow(project, {
       title: '复用已有变更',
       objective: '验证已有变更不会触发规划',
@@ -321,9 +322,9 @@ test('workflow stage tree exposes openspec proposal files when the change exists
 
     await fs.mkdir(projectPath, { recursive: true });
     await execFileAsync('openspec', ['new', 'change', changeName], { cwd: projectPath });
-    await fs.writeFile(path.join(projectPath, 'openspec', 'changes', changeName, 'proposal.md'), '# proposal\n', 'utf8');
-    await fs.writeFile(path.join(projectPath, 'openspec', 'changes', changeName, 'design.md'), '# design\n', 'utf8');
-    await fs.writeFile(path.join(projectPath, 'openspec', 'changes', changeName, 'tasks.md'), '# tasks\n', 'utf8');
+    await fs.writeFile(path.join(projectPath, 'docs', 'changes', changeName, 'proposal.md'), '# proposal\n', 'utf8');
+    await fs.writeFile(path.join(projectPath, 'docs', 'changes', changeName, 'design.md'), '# design\n', 'utf8');
+    await fs.writeFile(path.join(projectPath, 'docs', 'changes', changeName, 'tasks.md'), '# tasks\n', 'utf8');
     await fs.mkdir(path.dirname(workflowStorePath), { recursive: true });
     await fs.writeFile(
       workflowStorePath,
@@ -361,8 +362,8 @@ test('workflow stage tree exposes openspec proposal files when the change exists
     assert.equal(workflow.openspecChangeDetected, true);
     assert.equal(proposal.exists, true);
     assert.equal(proposal.status, 'ready');
-    assert.equal(proposal.path, path.join(projectPath, 'openspec', 'changes', changeName, 'proposal.md'));
-    assert.equal(proposal.relativePath, path.join('openspec', 'changes', changeName, 'proposal.md'));
+    assert.equal(proposal.path, path.join(projectPath, 'docs', 'changes', changeName, 'proposal.md'));
+    assert.equal(proposal.relativePath, path.join('docs', 'changes', changeName, 'proposal.md'));
   });
 });
 
@@ -373,7 +374,7 @@ test('workflow stage tree opens planning files after OpenSpec change is archived
     const workflowId = 'w1';
     const changeName = '2028-jsonl-agent-message-classification';
     const archivedChangeName = `2026-04-28-${changeName}`;
-    const archivedChangePath = path.join(projectPath, 'openspec', 'changes', 'archive', archivedChangeName);
+    const archivedChangePath = path.join(projectPath, 'docs', 'changes', 'archive', archivedChangeName);
     const { getProjectWorkflow } = await import(`../../server/workflows.js?home=${encodeURIComponent(`${homeDir}-archived-change`)}`);
 
     await fs.mkdir(path.join(archivedChangePath, 'specs'), { recursive: true });
@@ -418,7 +419,7 @@ test('workflow stage tree opens planning files after OpenSpec change is archived
     assert.equal(proposal.exists, true);
     assert.equal(proposal.status, 'ready');
     assert.equal(proposal.path, path.join(archivedChangePath, 'proposal.md'));
-    assert.equal(proposal.relativePath, path.join('openspec', 'changes', 'archive', archivedChangeName, 'proposal.md'));
+    assert.equal(proposal.relativePath, path.join('docs', 'changes', 'archive', archivedChangeName, 'proposal.md'));
   });
 });
 
@@ -430,6 +431,8 @@ test('createProjectWorkflow can adopt an existing OpenSpec change and mark it as
 
     await fs.mkdir(projectPath, { recursive: true });
     await execFileAsync('openspec', ['new', 'change', changeName], { cwd: projectPath });
+    await fs.writeFile(path.join(projectPath, 'docs', 'changes', changeName, 'proposal.md'), '# proposal\n', 'utf8');
+    await fs.writeFile(path.join(projectPath, 'docs', 'changes', changeName, 'design.md'), '# design\n', 'utf8');
 
     const workflow = await createProjectWorkflow(
       { fullPath: projectPath, path: projectPath },
@@ -460,6 +463,8 @@ test('createProjectWorkflow advances completed adopted OpenSpec change to initia
 
     await fs.mkdir(projectPath, { recursive: true });
     await execFileAsync('openspec', ['new', 'change', changeName], { cwd: projectPath });
+    await fs.writeFile(path.join(projectPath, 'docs', 'changes', changeName, 'proposal.md'), '# proposal\n', 'utf8');
+    await fs.writeFile(path.join(projectPath, 'docs', 'changes', changeName, 'design.md'), '# design\n', 'utf8');
     await writeOpenSpecTasks(projectPath, changeName, [true, true]);
 
     const workflow = await createProjectWorkflow(
@@ -865,9 +870,9 @@ test('substage inspections only complete evidence-backed deliverables for reache
 
     await fs.mkdir(projectPath, { recursive: true });
     await execFileAsync('openspec', ['new', 'change', changeName], { cwd: projectPath });
-    await fs.writeFile(path.join(projectPath, 'openspec', 'changes', changeName, 'proposal.md'), '# proposal\n', 'utf8');
-    await fs.writeFile(path.join(projectPath, 'openspec', 'changes', changeName, 'design.md'), '# design\n', 'utf8');
-    await fs.writeFile(path.join(projectPath, 'openspec', 'changes', changeName, 'tasks.md'), '# tasks\n', 'utf8');
+    await fs.writeFile(path.join(projectPath, 'docs', 'changes', changeName, 'proposal.md'), '# proposal\n', 'utf8');
+    await fs.writeFile(path.join(projectPath, 'docs', 'changes', changeName, 'design.md'), '# design\n', 'utf8');
+    await fs.writeFile(path.join(projectPath, 'docs', 'changes', changeName, 'tasks.md'), '# tasks\n', 'utf8');
     await fs.mkdir(path.join(projectPath, '.ccflow', '1'), { recursive: true });
     await fs.writeFile(path.join(projectPath, '.ccflow', '1', 'verification-evidence.json'), '{}\n', 'utf8');
     await fs.writeFile(path.join(projectPath, '.ccflow', '1', 'delivery-summary.md'), '# delivery\n', 'utf8');
@@ -1784,7 +1789,7 @@ test('archive stage stays pending until an archive child session exists', async 
     const archivedWorkflow = await getProjectWorkflow({ fullPath: projectPath, path: projectPath }, 'w1');
     assert.equal(archivedWorkflow.stageStatuses.find((stage) => stage.key === 'archive')?.status, 'active');
 
-    const archivedChangePath = path.join(projectPath, 'openspec', 'changes', 'archive', '2032-04-29-2032-archive-light');
+    const archivedChangePath = path.join(projectPath, 'docs', 'changes', 'archive', '2032-04-29-2032-archive-light');
     await fs.mkdir(archivedChangePath, { recursive: true });
     await fs.writeFile(
       path.join(archivedChangePath, 'tasks.md'),

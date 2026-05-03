@@ -137,6 +137,7 @@ const STAGE_TEMPLATES = [
 
 const PROJECT_CONFIG_SCHEMA_VERSION = 2;
 const WORKFLOW_ARTIFACT_ROOT = '.ccflow';
+const OPEN_SPEC_CHANGE_ROOT = path.join('docs', 'changes');
 const MANUAL_SESSION_DRAFTS_KEY = 'manualSessionDrafts';
 const SESSION_SUMMARY_BY_ID_KEY = 'sessionSummaryById';
 const LEGACY_SESSION_SUMMARY_OVERRIDE_BY_ID_KEY = 'sessionSummaryOverrideById';
@@ -164,10 +165,32 @@ const SUBSTAGE_FILE_DEFINITIONS = {
  * Build a stable kebab-case slug for one workflow title.
  */
 /**
+ * Read active OpenSpec changes through the CLI so ccflow follows OpenSpec's own discovery rules.
+ */
+async function listOpenSpecCliChanges(projectPath) {
+  /**
+   * PURPOSE: Use OpenSpec as the source of truth for active proposal discovery
+   * instead of duplicating its root/config resolution in ccflow.
+   */
+  if (!projectPath) {
+    return [];
+  }
+
+  try {
+    const { stdout } = await execFileAsync('openspec', ['list', '--json'], { cwd: projectPath });
+    const payload = JSON.parse(stdout || '{}');
+    return Array.isArray(payload?.changes)
+      ? payload.changes.map((change) => String(change?.name || '').trim()).filter(Boolean)
+      : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+/**
  * Compute the next available OpenSpec change numeric prefix for a workflow.
  */
 async function buildWorkflowOpenSpecChangePrefix(projectPath, workflows = []) {
-  const changesRoot = path.join(projectPath, 'openspec', 'changes');
   let maxSequence = 0;
 
   const collectSequence = (entryName) => {
@@ -177,22 +200,12 @@ async function buildWorkflowOpenSpecChangePrefix(projectPath, workflows = []) {
     }
   };
 
-  try {
-    const activeEntries = await fs.readdir(changesRoot, { withFileTypes: true });
-    for (const entry of activeEntries) {
-      if (!entry.isDirectory() || entry.name === 'archive') {
-        continue;
-      }
-      collectSequence(entry.name);
-    }
-  } catch (error) {
-    if (error?.code !== 'ENOENT') {
-      throw error;
-    }
+  for (const changeName of await listOpenSpecCliChanges(projectPath)) {
+    collectSequence(changeName);
   }
 
   try {
-    const archiveEntries = await fs.readdir(path.join(changesRoot, 'archive'), { withFileTypes: true });
+    const archiveEntries = await fs.readdir(path.join(projectPath, OPEN_SPEC_CHANGE_ROOT, 'archive'), { withFileTypes: true });
     for (const entry of archiveEntries) {
       if (!entry.isDirectory()) {
         continue;
@@ -223,20 +236,10 @@ async function findOpenSpecChangeByPrefix(projectPath, changePrefix) {
     return '';
   }
 
-  const changesRoot = path.join(projectPath, 'openspec', 'changes');
-  try {
-    const entries = await fs.readdir(changesRoot, { withFileTypes: true });
-    const matchedNames = entries
-      .filter((entry) => entry.isDirectory() && entry.name.startsWith(`${normalizedPrefix}-`))
-      .map((entry) => entry.name)
+  const matchedNames = (await listOpenSpecCliChanges(projectPath))
+      .filter((changeName) => changeName.startsWith(`${normalizedPrefix}-`))
       .sort((left, right) => left.localeCompare(right));
-    return matchedNames[0] || '';
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return '';
-    }
-    throw error;
-  }
+  return matchedNames[0] || '';
 }
 
 async function findArchivedOpenSpecChange(projectPath, changeName) {
@@ -249,7 +252,7 @@ async function findArchivedOpenSpecChange(projectPath, changeName) {
     return '';
   }
 
-  const archiveRoot = path.join(projectPath, 'openspec', 'changes', 'archive');
+  const archiveRoot = path.join(projectPath, OPEN_SPEC_CHANGE_ROOT, 'archive');
   try {
     const entries = await fs.readdir(archiveRoot, { withFileTypes: true });
     const matchedEntry = entries
@@ -269,7 +272,7 @@ async function findArchivedOpenSpecChange(projectPath, changeName) {
 async function resolveOpenSpecArtifactChangeName(projectPath, changeName) {
   /**
    * PURPOSE: Pick the OpenSpec directory used for read-only planning artifact
-   * links, accepting both active and archived change locations.
+   * links, accepting active and archived change locations in docs/changes.
    */
   const normalizedChangeName = String(changeName || '').trim();
   if (!projectPath || !normalizedChangeName) {
@@ -277,7 +280,7 @@ async function resolveOpenSpecArtifactChangeName(projectPath, changeName) {
   }
 
   try {
-    await fs.access(path.join(projectPath, 'openspec', 'changes', normalizedChangeName));
+    await fs.access(path.join(projectPath, OPEN_SPEC_CHANGE_ROOT, normalizedChangeName));
     return normalizedChangeName;
   } catch (error) {
     if (error?.code !== 'ENOENT') {
@@ -292,7 +295,7 @@ async function resolveOpenSpecArtifactChangeName(projectPath, changeName) {
  * Resolve the project-relative path for one OpenSpec planning artifact.
  */
 function buildOpenSpecArtifactRelativePath(changeName, hint = {}) {
-  return path.join('openspec', 'changes', changeName || 'unknown-change', hint.label || '');
+  return path.join(OPEN_SPEC_CHANGE_ROOT, changeName || 'unknown-change', hint.label || '');
 }
 
 /**
@@ -409,23 +412,38 @@ async function readWorkflowOpenSpecTaskProgress(projectPath, changeName) {
   }
 
   try {
-    const { stdout } = await execFileAsync('openspec', ['list', '--json'], { cwd: projectPath });
-    const payload = JSON.parse(stdout || '{}');
-    const matchedChange = Array.isArray(payload?.changes)
-      ? payload.changes.find((change) => change?.name === changeName)
-      : null;
-    if (!matchedChange) {
+    const activeChanges = await listOpenSpecCliChanges(projectPath);
+    if (!activeChanges.includes(changeName)) {
       return readArchivedWorkflowOpenSpecTaskProgress(projectPath, changeName);
     }
-    return {
-      name: matchedChange.name,
-      status: matchedChange.status || 'pending',
-      completedTasks: Number(matchedChange.completedTasks || 0),
-      totalTasks: Number(matchedChange.totalTasks || 0),
-      lastModified: matchedChange.lastModified || null,
-    };
+    return readOpenSpecTaskProgressFile(projectPath, changeName, changeName, 'pending');
   } catch (error) {
     return readArchivedWorkflowOpenSpecTaskProgress(projectPath, changeName);
+  }
+}
+
+async function readOpenSpecTaskProgressFile(projectPath, artifactChangeName, displayName, fallbackStatus = 'pending') {
+  /**
+   * PURPOSE: Derive task completion from tasks.md because current OpenSpec list
+   * JSON only reports change names and status JSON reports artifact state.
+   */
+  try {
+    const tasksPath = path.join(projectPath, OPEN_SPEC_CHANGE_ROOT, artifactChangeName, 'tasks.md');
+    const content = await fs.readFile(tasksPath, 'utf8');
+    const taskLines = content.split(/\r?\n/).filter((line) => /^\s*[-*]\s+\[[ xX]\]/.test(line));
+    if (taskLines.length === 0) {
+      return null;
+    }
+    const completedTasks = taskLines.filter((line) => /^\s*[-*]\s+\[[xX]\]/.test(line)).length;
+    return {
+      name: displayName,
+      status: completedTasks === taskLines.length ? 'completed' : fallbackStatus,
+      completedTasks,
+      totalTasks: taskLines.length,
+      lastModified: null,
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -439,24 +457,7 @@ async function readArchivedWorkflowOpenSpecTaskProgress(projectPath, changeName)
     return null;
   }
 
-  try {
-    const tasksPath = path.join(projectPath, 'openspec', 'changes', artifactChangeName, 'tasks.md');
-    const content = await fs.readFile(tasksPath, 'utf8');
-    const taskLines = content.split(/\r?\n/).filter((line) => /^\s*[-*]\s+\[[ xX]\]/.test(line));
-    if (taskLines.length === 0) {
-      return null;
-    }
-    const completedTasks = taskLines.filter((line) => /^\s*[-*]\s+\[[xX]\]/.test(line)).length;
-    return {
-      name: changeName,
-      status: 'archived',
-      completedTasks,
-      totalTasks: taskLines.length,
-      lastModified: null,
-    };
-  } catch {
-    return null;
-  }
+  return readOpenSpecTaskProgressFile(projectPath, artifactChangeName, changeName, 'archived');
 }
 
 function createEmptyStore() {
@@ -733,7 +734,7 @@ async function detectWorkflowOpenSpecChange(projectPath, changeName) {
   try {
     const { stdout } = await execFileAsync(
       'openspec',
-      ['status', '--change', changeName, '--json'],
+      ['status', changeName, '--json'],
       {
         cwd: projectPath,
         timeout: 5000,
@@ -982,17 +983,6 @@ async function listAdoptableOpenSpecChanges(projectPath) {
     return [];
   }
 
-  const changesRoot = path.join(projectPath, 'openspec', 'changes');
-  let entries = [];
-  try {
-    entries = await fs.readdir(changesRoot, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return [];
-    }
-    throw error;
-  }
-
   const workflows = await listProjectWorkflows(projectPath);
   const claimedChangeNames = new Set(
     workflows
@@ -1000,9 +990,7 @@ async function listAdoptableOpenSpecChanges(projectPath) {
       .filter(Boolean),
   );
 
-  return entries
-    .filter((entry) => entry.isDirectory() && entry.name !== 'archive')
-    .map((entry) => entry.name)
+  return (await listOpenSpecCliChanges(projectPath))
     .filter((changeName) => !claimedChangeNames.has(changeName))
     .sort((left, right) => right.localeCompare(left));
 }

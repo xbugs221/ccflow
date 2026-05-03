@@ -13,10 +13,10 @@
 openspec new change "<name>"
 ```
 
-在 `openspec/changes/<name>/` 创建含 `.openspec.yaml` 的脚手架变更。
+在 `docs/changes/<name>/` 创建含 `.openspec.yaml` 的脚手架变更。
 
 ```bash
-openspec status --change "<name>" --json
+openspec status "<name>" --json
 ```
 
 解析 JSON 获取：
@@ -50,7 +50,7 @@ a. **对每个 `ready` 状态的 artifact（依赖已满足）**：
 
 b. **继续直到所有 `applyRequires` artifact 完成**
 
-- 创建每个 artifact 后，重新运行 `openspec status --change "<name>" --json`
+- 创建每个 artifact 后，重新运行 `openspec status "<name>" --json`
 - 检查 `applyRequires` 中的每个 artifact ID 是否在 artifacts 数组中有 `status: "done"`
 - 所有 applyRequires artifact 完成后停止
 
@@ -152,7 +152,7 @@ pytest tests/spec/ -v --tb=short
 **每个功能组的最后一个 task 必须是运行对应测试文件并确认通过。**
 
 ```bash
-openspec status --change "<name>"
+openspec status "<name>"
 ```
 
 **输出**
