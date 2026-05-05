@@ -29,6 +29,7 @@ export default function SidebarCollapsed({
       <div className="nav-divider w-6 my-1" />
 
       <button
+        data-testid="open-chat-history-search"
         onClick={onOpenChatHistorySearch}
         className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-accent/80 transition-colors group"
         aria-label={t('search.placeholder')}

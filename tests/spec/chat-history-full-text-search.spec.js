@@ -15,6 +15,7 @@ import {
 const CHAT_SEARCH_INPUT = '[data-testid="chat-history-search-input"]';
 const CHAT_SEARCH_RESULTS = '[data-testid="chat-history-search-results"]';
 const CHAT_SEARCH_RESULT = '[data-testid="chat-history-search-result"]';
+const OPEN_CHAT_SEARCH = '[data-testid="open-chat-history-search"]';
 const CHAT_SEARCH_HIGHLIGHT = '.chat-search-highlight';
 
 /**
@@ -138,6 +139,7 @@ function buildCodexTranscript({ sessionId, records }) {
  */
 async function runChatSearch(page, query) {
   await page.goto('/', { waitUntil: 'networkidle' });
+  await page.locator(OPEN_CHAT_SEARCH).first().click();
   await expect(page.locator(CHAT_SEARCH_INPUT)).toBeVisible();
   await page.locator(CHAT_SEARCH_INPUT).fill(query);
   await page.locator(CHAT_SEARCH_INPUT).press('Enter');

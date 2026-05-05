@@ -31,18 +31,6 @@ const NETWORK_DISCONNECTED_MESSAGE =
   '与服务端的实时连接已断开，本次请求已停止等待。请确认公网反代支持 WebSocket 后重试。';
 const SESSION_STATUS_RECONCILE_INTERVAL_MS = 4_000;
 
-type ChatSearchResult = {
-  projectName: string;
-  projectDisplayName: string;
-  provider: SessionProvider;
-  sessionId: string;
-  sessionSummary: string;
-  messageKey: string;
-  snippet: string;
-};
-
-type ChatSearchStatus = 'idle' | 'loading' | 'success-empty' | 'success-hit' | 'error';
-
 const isTemporarySessionId = (sessionId?: string | null): boolean =>
   Boolean(sessionId && (sessionId.startsWith('new-session-') || /^c\d+$/.test(sessionId)));
 
@@ -96,46 +84,6 @@ const resolveWorkflowSessionContext = (
     workflowId: typeof selectedSession?.workflowId === 'string' ? selectedSession.workflowId : '',
     workflowStageKey: typeof selectedSession?.stageKey === 'string' ? selectedSession.stageKey : '',
   };
-};
-
-/**
- * Validate the chat-search API contract so HTML fallback pages and malformed JSON
- * surface as explicit errors instead of being treated as empty search results.
- */
-const parseChatSearchResponse = async (response: Response): Promise<ChatSearchResult[]> => {
-  const contentType = response.headers.get('content-type') || '';
-  const isJsonResponse = contentType.toLowerCase().includes('application/json');
-
-  if (!isJsonResponse) {
-    throw new Error('Search endpoint returned HTML instead of JSON');
-  }
-
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new Error('Search endpoint returned invalid JSON');
-  }
-
-  const errorMessage = typeof payload === 'object' && payload !== null && 'error' in payload
-    && typeof payload.error === 'string' && payload.error
-    ? payload.error
-    : null;
-
-  if (!response.ok) {
-    throw new Error(errorMessage || 'Failed to search chat history');
-  }
-
-  if (
-    typeof payload !== 'object'
-    || payload === null
-    || !('results' in payload)
-    || !Array.isArray(payload.results)
-  ) {
-    throw new Error('Search endpoint returned an unexpected payload');
-  }
-
-  return payload.results as ChatSearchResult[];
 };
 
 /**
@@ -196,13 +144,7 @@ function ChatInterface({
   const surfacedWorkflowApplyFailuresRef = useRef<Set<string>>(new Set());
   const pendingNetworkTimeoutRef = useRef<number | null>(null);
   const awaitingBackendResponseRef = useRef(false);
-  const chatSearchInputRef = useRef<HTMLInputElement | null>(null);
   const [workflowTurnOutcomes, setWorkflowTurnOutcomes] = useState<Record<string, 'completed' | 'failed'>>({});
-  const [chatSearchQuery, setChatSearchQuery] = useState('');
-  const [chatSearchResults, setChatSearchResults] = useState<ChatSearchResult[]>([]);
-  const [chatSearchStatus, setChatSearchStatus] = useState<ChatSearchStatus>('idle');
-  const [chatSearchError, setChatSearchError] = useState('');
-  const [isChatSearchOpen, setIsChatSearchOpen] = useState(false);
   const [isFollowingLatest, setIsFollowingLatest] = useState(false);
 
   const activeSearchTarget = useMemo(() => {
@@ -1058,47 +1000,6 @@ function ChatInterface({
   }, [resetStreamingState]);
 
   useEffect(() => {
-    if (!isChatSearchOpen) {
-      return;
-    }
-
-    chatSearchInputRef.current?.focus();
-    chatSearchInputRef.current?.select();
-  }, [isChatSearchOpen]);
-
-  useEffect(() => {
-    if (!isChatSearchOpen) {
-      return;
-    }
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') {
-        return;
-      }
-
-      event.preventDefault();
-      setIsChatSearchOpen(false);
-    };
-
-    document.addEventListener('keydown', handleEscape, { capture: true });
-    return () => {
-      document.removeEventListener('keydown', handleEscape, { capture: true });
-    };
-  }, [isChatSearchOpen]);
-
-  useEffect(() => {
-    window.openChatHistorySearch = () => {
-      setIsChatSearchOpen(true);
-    };
-
-    return () => {
-      if (window.openChatHistorySearch) {
-        delete window.openChatHistorySearch;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     if (!activeSearchTarget || !selectedSession?.id) {
       return;
     }
@@ -1245,32 +1146,6 @@ function ChatInterface({
     scrollToBottom,
     setIsUserScrolledUp,
   ]);
-
-  const runChatSearch = useCallback(async () => {
-    const trimmedQuery = chatSearchQuery.trim();
-    if (!trimmedQuery) {
-      setChatSearchResults([]);
-      setChatSearchError('');
-      setChatSearchStatus('idle');
-      return;
-    }
-
-    setChatSearchResults([]);
-    setChatSearchError('');
-    setChatSearchStatus('loading');
-    try {
-      const response = await api.chatSearch(trimmedQuery);
-      const results = await parseChatSearchResponse(response);
-      setChatSearchResults(results);
-      setChatSearchStatus(results.length > 0 ? 'success-hit' : 'success-empty');
-    } catch (error) {
-      console.error('Error searching chat history:', error);
-      setChatSearchResults([]);
-      setChatSearchError(error instanceof Error ? error.message : 'Failed to search chat history');
-      setChatSearchStatus('error');
-    } finally {
-    }
-  }, [chatSearchQuery]);
 
   if (!selectedProject) {
     const selectedProviderLabel =
@@ -1420,98 +1295,6 @@ function ChatInterface({
           onTranscript={handleTranscript}
         />
       </div>
-
-      {isChatSearchOpen && (
-        <div className="fixed inset-0 z-[110] bg-black/20 backdrop-blur-[1px]">
-          <div
-            className="absolute inset-0"
-            onClick={() => setIsChatSearchOpen(false)}
-          />
-          <div className="relative mx-auto mt-16 w-[min(42rem,calc(100vw-1rem))] rounded-lg border border-border bg-background shadow-xl">
-            <form
-              className="border-b border-border/50 p-3"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void runChatSearch();
-              }}
-            >
-              <input
-                ref={chatSearchInputRef}
-                data-testid="chat-history-search-input"
-                type="search"
-                value={chatSearchQuery}
-                onChange={(event) => setChatSearchQuery(event.target.value)}
-                placeholder={t('search.placeholder')}
-                className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-            </form>
-
-            <div
-              data-testid="chat-history-search-results"
-              className="max-h-[min(60vh,28rem)] overflow-y-auto"
-            >
-              {chatSearchStatus === 'idle' && (
-                <div className="px-4 py-4 text-sm text-muted-foreground">
-                  {t('search.enterPrompt')}
-                </div>
-              )}
-
-              {chatSearchStatus === 'loading' && (
-                <div
-                  data-testid="chat-history-search-loading"
-                  className="px-4 py-4 text-sm text-muted-foreground"
-                >
-                  {t('search.searching')}
-                </div>
-              )}
-
-              {chatSearchStatus === 'success-empty' && (
-                <div
-                  data-testid="chat-history-search-empty"
-                  className="px-4 py-4 text-sm text-muted-foreground"
-                >
-                  {t('search.noMatches')}
-                </div>
-              )}
-
-              {chatSearchStatus === 'error' && (
-                <div
-                  data-testid="chat-history-search-error"
-                  className="px-4 py-4 text-sm text-destructive"
-                >
-                  {chatSearchError}
-                </div>
-              )}
-
-              {chatSearchStatus === 'success-hit' && chatSearchResults.map((result) => (
-                <button
-                  key={`${result.sessionId}:${result.messageKey}`}
-                  type="button"
-                  data-testid="chat-history-search-result"
-                  className="w-full border-b border-border/40 px-4 py-3 text-left transition-colors hover:bg-muted/40 last:border-b-0"
-                  onClick={() => {
-                    setIsChatSearchOpen(false);
-                    onNavigateToSession?.(result.sessionId, {
-                      projectName: result.projectName,
-                      provider: result.provider,
-                      routeSearch: {
-                        chatSearch: chatSearchQuery.trim(),
-                        messageKey: result.messageKey,
-                      },
-                    });
-                  }}
-                >
-                  <div className="text-xs text-muted-foreground">
-                    {result.projectDisplayName} · {result.provider === 'codex' ? 'Codex' : 'Claude'}
-                  </div>
-                  <div className="text-sm font-medium">{result.sessionSummary}</div>
-                  <div className="text-sm text-muted-foreground">{result.snippet}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

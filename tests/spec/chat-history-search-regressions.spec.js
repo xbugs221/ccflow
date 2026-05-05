@@ -18,6 +18,7 @@ const CHAT_SEARCH_RESULT = '[data-testid="chat-history-search-result"]';
 const CHAT_SEARCH_LOADING = '[data-testid="chat-history-search-loading"]';
 const CHAT_SEARCH_EMPTY = '[data-testid="chat-history-search-empty"]';
 const CHAT_SEARCH_ERROR = '[data-testid="chat-history-search-error"]';
+const OPEN_CHAT_SEARCH = '[data-testid="open-chat-history-search"]';
 
 /**
  * Encode an absolute project path the same way Claude stores project folders.
@@ -118,6 +119,7 @@ function buildCodexTranscript({ sessionId, records }) {
  */
 async function runChatSearch(page, query) {
   await page.goto('/', { waitUntil: 'networkidle' });
+  await page.locator(OPEN_CHAT_SEARCH).first().click();
   await expect(page.locator(CHAT_SEARCH_INPUT)).toBeVisible();
   await page.locator(CHAT_SEARCH_INPUT).fill(query);
   await page.locator(CHAT_SEARCH_INPUT).press('Enter');
@@ -209,6 +211,7 @@ test('shows a visible loading state while chat search is in flight', async ({ pa
   });
 
   await page.goto('/', { waitUntil: 'networkidle' });
+  await page.locator(OPEN_CHAT_SEARCH).first().click();
   await page.locator(CHAT_SEARCH_INPUT).fill('needle-loading-state');
   await page.locator(CHAT_SEARCH_INPUT).press('Enter');
 
@@ -226,6 +229,7 @@ test('shows an explicit empty state when chat search returns no matches', async 
   });
 
   await page.goto('/', { waitUntil: 'networkidle' });
+  await page.locator(OPEN_CHAT_SEARCH).first().click();
   await page.locator(CHAT_SEARCH_INPUT).fill('needle-empty-state');
   await page.locator(CHAT_SEARCH_INPUT).press('Enter');
 
@@ -243,6 +247,7 @@ test('shows an explicit error state when chat search fails', async ({ page }) =>
   });
 
   await page.goto('/', { waitUntil: 'networkidle' });
+  await page.locator(OPEN_CHAT_SEARCH).first().click();
   await page.locator(CHAT_SEARCH_INPUT).fill('needle-error-state');
   await page.locator(CHAT_SEARCH_INPUT).press('Enter');
 

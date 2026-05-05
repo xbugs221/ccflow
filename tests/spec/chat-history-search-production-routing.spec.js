@@ -12,6 +12,7 @@ const CHAT_SEARCH_INPUT = '[data-testid="chat-history-search-input"]';
 const CHAT_SEARCH_RESULTS = '[data-testid="chat-history-search-results"]';
 const CHAT_SEARCH_EMPTY = '[data-testid="chat-history-search-empty"]';
 const CHAT_SEARCH_ERROR = '[data-testid="chat-history-search-error"]';
+const OPEN_CHAT_SEARCH = '[data-testid="open-chat-history-search"]';
 
 test.beforeEach(async ({ page }) => {
   await authenticatePage(page);
@@ -28,6 +29,7 @@ test('shows an explicit error when chat search returns HTML with HTTP 200', asyn
   });
 
   await page.goto('/', { waitUntil: 'networkidle' });
+  await page.locator(OPEN_CHAT_SEARCH).first().click();
   await page.locator(CHAT_SEARCH_INPUT).fill('记忆');
   await page.locator(CHAT_SEARCH_INPUT).press('Enter');
 

@@ -2,11 +2,12 @@
  * Application shell composition.
  * Wires shared WebSocket state, project/session selection, and main layout containers together.
  */
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import Sidebar from '../sidebar/view/Sidebar';
 import MainContent from '../main-content/view/MainContent';
+import ChatHistorySearchDialog from '../chat/view/ChatHistorySearchDialog';
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
@@ -19,6 +20,7 @@ export default function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation('common');
+  const [isChatSearchOpen, setIsChatSearchOpen] = useState(false);
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const { ws, sendMessage, latestMessage, messageHistory } = useWebSocket();
   const {
@@ -81,6 +83,124 @@ export default function AppContent() {
     };
   }, [openSettings]);
 
+  useEffect(() => {
+    window.openChatHistorySearch = () => {
+      setIsChatSearchOpen(true);
+    };
+
+    return () => {
+      if (window.openChatHistorySearch) {
+        delete window.openChatHistorySearch;
+      }
+    };
+  }, []);
+
+  const handleNavigateToSession = useCallback((
+    targetSessionId: string,
+    options?: {
+      provider?: SessionProvider;
+      projectName?: string;
+      projectPath?: string;
+      workflowId?: string;
+      workflowStageKey?: string;
+      routeSearch?: Record<string, string>;
+    },
+  ) => {
+    /**
+     * PURPOSE: Resolve global session search hits and realtime-created session
+     * ids into the canonical project/workflow routes.
+     */
+    const allProjects = sidebarSharedProps.projects || [];
+    const matchingProject = allProjects.find((project) => (
+      project.name === options?.projectName
+      || project.fullPath === options?.projectPath
+      || project.path === options?.projectPath
+      || (project.sessions || []).some((session) => session.id === targetSessionId)
+      || (project.codexSessions || []).some((session) => session.id === targetSessionId)
+      || (project.workflows || []).some((workflow) => (
+        (workflow.childSessions || []).some((session) => session.id === targetSessionId)
+      ))
+    )) || selectedProject;
+    const targetSession = matchingProject
+      ? [
+          ...(matchingProject.sessions || []),
+          ...(matchingProject.codexSessions || []),
+        ].find((session) => session.id === targetSessionId) || null
+      : null;
+    const explicitWorkflowId = typeof options?.workflowId === 'string' ? options.workflowId : '';
+    const targetWorkflow = matchingProject
+      ? (matchingProject.workflows || []).find((workflow) => (
+          workflow.id === explicitWorkflowId
+          || (workflow.childSessions || []).some((session) => session.id === targetSessionId)
+        )) || null
+      : null;
+    const childSession = targetWorkflow
+      ? (targetWorkflow.childSessions || []).find((session) => session.id === targetSessionId) || null
+      : null;
+    const nextSearchParams = new URLSearchParams(options?.routeSearch || {});
+    const isConcreteSessionRoute = /\/c\d+$/.test(location.pathname);
+    const fallbackProject = matchingProject || selectedProject;
+    const fallbackSelectedSession = selectedSession?.routeIndex
+      ? {
+          ...selectedSession,
+          id: targetSessionId,
+        }
+      : null;
+    const workflowDraftSession = targetWorkflow && fallbackSelectedSession?.routeIndex
+      ? {
+          ...fallbackSelectedSession,
+          workflowId: targetWorkflow.id,
+          stageKey: options?.workflowStageKey || fallbackSelectedSession.stageKey,
+        }
+      : null;
+    const workflowRouteSession = childSession || workflowDraftSession;
+    if (matchingProject && targetWorkflow && workflowRouteSession) {
+      const route = buildWorkflowChildSessionRoute(
+        matchingProject,
+        targetWorkflow,
+        workflowRouteSession,
+      );
+      navigate(`${route}${nextSearchParams.toString() ? `?${nextSearchParams.toString()}` : ''}`, {
+        state: location.state,
+      });
+      return;
+    }
+    if (matchingProject && targetSession) {
+      const route = buildProjectSessionRoute(matchingProject, targetSession);
+      navigate(`${route}${nextSearchParams.toString() ? `?${nextSearchParams.toString()}` : ''}`, {
+        state: location.state,
+      });
+      return;
+    }
+    /**
+     * Keep the user on the draft route while the provider session is being
+     * indexed. Falling back to `/` here discards correct project context and
+     * can also misroute a concrete session page after the first message.
+     * If the user is already on a stable `.../cN` route, keep the current
+     * URL until project/session indexing catches up.
+     */
+    if (isConcreteSessionRoute) {
+      return;
+    }
+
+    if (fallbackProject && fallbackSelectedSession) {
+      const route = selectedWorkflow
+        ? buildWorkflowChildSessionRoute(fallbackProject, selectedWorkflow, fallbackSelectedSession)
+        : buildProjectSessionRoute(fallbackProject, fallbackSelectedSession);
+      navigate(`${route}${nextSearchParams.toString() ? `?${nextSearchParams.toString()}` : ''}`, {
+        state: location.state,
+      });
+    }
+  }, [
+    location.pathname,
+    location.state,
+    navigate,
+    selectedProject,
+    selectedSession,
+    selectedWorkflow,
+    sidebarSharedProps.projects,
+  ]);
+
   const mainContent = (
     <MainContent
       selectedProject={selectedProject}
@@ -102,100 +222,7 @@ export default function AppContent() {
       onSessionNotProcessing={markSessionAsNotProcessing}
       processingSessions={processingSessions}
       onReplaceTemporarySession={replaceTemporarySession}
-      onNavigateToSession={(
-        targetSessionId: string,
-        options?: {
-          provider?: SessionProvider;
-          projectName?: string;
-          projectPath?: string;
-          workflowId?: string;
-          workflowStageKey?: string;
-          routeSearch?: Record<string, string>;
-        },
-      ) => {
-        const allProjects = sidebarSharedProps.projects || [];
-        const matchingProject = allProjects.find((project) => (
-          project.name === options?.projectName
-          || project.fullPath === options?.projectPath
-          || project.path === options?.projectPath
-          || (project.sessions || []).some((session) => session.id === targetSessionId)
-          || (project.codexSessions || []).some((session) => session.id === targetSessionId)
-          || (project.workflows || []).some((workflow) => (
-            (workflow.childSessions || []).some((session) => session.id === targetSessionId)
-          ))
-        )) || selectedProject;
-        const targetSession = matchingProject
-          ? [
-              ...(matchingProject.sessions || []),
-              ...(matchingProject.codexSessions || []),
-            ].find((session) => session.id === targetSessionId) || null
-          : null;
-        const explicitWorkflowId = typeof options?.workflowId === 'string' ? options.workflowId : '';
-        const targetWorkflow = matchingProject
-          ? (matchingProject.workflows || []).find((workflow) => (
-              workflow.id === explicitWorkflowId
-              || (workflow.childSessions || []).some((session) => session.id === targetSessionId)
-            )) || null
-          : null;
-        const childSession = targetWorkflow
-          ? (targetWorkflow.childSessions || []).find((session) => session.id === targetSessionId) || null
-          : null;
-        const nextSearchParams = new URLSearchParams(options?.routeSearch || {});
-        const isConcreteSessionRoute = /\/c\d+$/.test(location.pathname);
-        const fallbackProject = matchingProject || selectedProject;
-        const fallbackSelectedSession = selectedSession?.routeIndex
-          ? {
-              ...selectedSession,
-              id: targetSessionId,
-            }
-          : null;
-        const workflowDraftSession = targetWorkflow && fallbackSelectedSession?.routeIndex
-          ? {
-              ...fallbackSelectedSession,
-              workflowId: targetWorkflow.id,
-              stageKey: options?.workflowStageKey || fallbackSelectedSession.stageKey,
-            }
-          : null;
-        const workflowRouteSession = childSession || workflowDraftSession;
-        if (matchingProject && targetWorkflow && workflowRouteSession) {
-          const route = buildWorkflowChildSessionRoute(
-            matchingProject,
-            targetWorkflow,
-            workflowRouteSession,
-          );
-          navigate(`${route}${nextSearchParams.toString() ? `?${nextSearchParams.toString()}` : ''}`, {
-            state: location.state,
-          });
-          return;
-        }
-        if (matchingProject && targetSession) {
-          const route = buildProjectSessionRoute(matchingProject, targetSession);
-          navigate(`${route}${nextSearchParams.toString() ? `?${nextSearchParams.toString()}` : ''}`, {
-            state: location.state,
-          });
-          return;
-        }
-        /**
-         * Keep the user on the draft route while the provider session is being
-         * indexed. Falling back to `/` here discards correct project context and
-         * can also misroute a concrete session page after the first message.
-         * If the user is already on a stable `.../cN` route, keep the current
-         * URL until project/session indexing catches up.
-         */
-        if (isConcreteSessionRoute) {
-          return;
-        }
-
-        if (fallbackProject && fallbackSelectedSession) {
-          const route = selectedWorkflow
-            ? buildWorkflowChildSessionRoute(fallbackProject, selectedWorkflow, fallbackSelectedSession)
-            : buildProjectSessionRoute(fallbackProject, fallbackSelectedSession);
-          navigate(`${route}${nextSearchParams.toString() ? `?${nextSearchParams.toString()}` : ''}`, {
-            state: location.state,
-          });
-          return;
-        }
-      }}
+      onNavigateToSession={handleNavigateToSession}
       onSelectSession={handleSessionSelect}
       onSelectWorkflow={handleWorkflowSelect}
       onNewSession={handleNewSession}
@@ -245,6 +272,12 @@ export default function AppContent() {
       <div className="flex-1 flex flex-col min-w-0">
         {mainContent}
       </div>
+
+      <ChatHistorySearchDialog
+        isOpen={isChatSearchOpen}
+        onClose={() => setIsChatSearchOpen(false)}
+        onNavigateToSession={handleNavigateToSession}
+      />
 
     </div>
   );

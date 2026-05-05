@@ -136,6 +136,7 @@ export default function SidebarHeader({
             <Button
               variant="ghost"
               size="sm"
+              data-testid="open-chat-history-search"
               className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-accent/80 rounded-lg"
               onClick={onOpenChatHistorySearch}
               title={t('search.placeholder')}
@@ -238,6 +239,7 @@ export default function SidebarHeader({
               <FolderSearch className="w-4 h-4 text-muted-foreground" />
             </button>
             <button
+              data-testid="open-chat-history-search"
               className="w-8 h-8 rounded-lg bg-muted/50 flex items-center justify-center active:scale-95 transition-all"
               onClick={onOpenChatHistorySearch}
               title={t('search.placeholder')}
