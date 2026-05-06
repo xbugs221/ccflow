@@ -19,17 +19,22 @@ let homeIsolationQueue = Promise.resolve();
 export async function withIsolatedProject(testBody) {
   const run = async () => {
     const originalHome = process.env.HOME;
+    const originalPath = process.env.PATH;
     const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-conf-v2-'));
+    const binDir = path.join(homeDir, 'bin');
     const projectPath = path.join(homeDir, 'workspace', 'project');
 
     process.env.HOME = homeDir;
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath || ''}`;
     clearProjectDirectoryCache();
     await fs.mkdir(projectPath, { recursive: true });
+    await writeFakeGoWorkflowTools(binDir);
 
     try {
       await testBody({ homeDir, projectPath });
     } finally {
       clearProjectDirectoryCache();
+      process.env.PATH = originalPath || '';
       if (originalHome) {
         process.env.HOME = originalHome;
       } else {
@@ -42,6 +47,79 @@ export async function withIsolatedProject(testBody) {
   const runPromise = homeIsolationQueue.then(run, run);
   homeIsolationQueue = runPromise.catch(() => {});
   return runPromise;
+}
+
+/**
+ * Write fake Go workflow CLIs for conf-v2 tests that create workflows.
+ */
+async function writeFakeGoWorkflowTools(binDir) {
+  await fs.mkdir(binDir, { recursive: true });
+  await fs.writeFile(
+    path.join(binDir, 'opsx'),
+    [
+      '#!/bin/sh',
+      'changes_dir="$PWD/docs/changes"',
+      'if [ "$1" = "--version" ]; then echo opsx-conf-test; exit 0; fi',
+      'if [ "$1" = "list" ]; then',
+      "  printf '{\"changes\":['",
+      '  first=1',
+      '  if [ -d "$changes_dir" ]; then',
+      '    for entry in "$changes_dir"/*; do',
+      '      [ -d "$entry" ] || continue',
+      '      [ "$(basename "$entry")" = "archive" ] && continue',
+      '      if [ "$first" -eq 0 ]; then printf ","; fi',
+      '      first=0',
+      "      printf '{\"name\":\"%s\"}' \"$(basename \"$entry\")\"",
+      '    done',
+      '  fi',
+      "  printf ']}\\n'",
+      '  exit 0',
+      'fi',
+      'if [ "$1" = "status" ]; then',
+      '  if [ -d "$changes_dir/$2" ]; then printf \'{"name":"%s","status":"active"}\\n\' "$2"; else exit 1; fi',
+      '  exit 0',
+      'fi',
+      'echo \'{}\'',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+  await fs.writeFile(
+    path.join(binDir, 'mc'),
+    [
+      '#!/bin/sh',
+      'run_id="conf-test-run-$(date +%s%N)"',
+      'if [ "$1" = "--version" ]; then echo mc-conf-test; exit 0; fi',
+      'if [ "$1" = "run" ]; then',
+      '  change=""',
+      '  while [ "$#" -gt 0 ]; do',
+      '    if [ "$1" = "--change" ]; then shift; change="$1"; fi',
+      '    shift || break',
+      '  done',
+      '  run_dir="$PWD/.ccflow/runs/$run_id"',
+      '  mkdir -p "$run_dir/logs"',
+      '  echo log > "$run_dir/logs/executor.log"',
+      '  cat > "$run_dir/state.json" <<JSON',
+      '{"runId":"$run_id","changeName":"$change","status":"running","stage":"execution","stages":{"execution":"running"},"paths":{"executor_log":".ccflow/runs/$run_id/logs/executor.log"},"sessions":{},"error":""}',
+      'JSON',
+      '  printf \'{"runId":"%s","changeName":"%s","status":"running","stage":"execution"}\\n\' "$run_id" "$change"',
+      '  exit 0',
+      'fi',
+      'echo "usage: mc run resume status abort --json --run-id --change"',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+}
+
+/**
+ * Create a valid docs/ OpenSpec change for Go-backed workflow tests.
+ */
+export async function writeActiveOpenSpecChange(projectPath, changeName = 'conf-v2-change') {
+  const changeRoot = path.join(projectPath, 'docs', 'changes', changeName);
+  await fs.mkdir(path.join(changeRoot, 'specs'), { recursive: true });
+  await fs.writeFile(path.join(changeRoot, 'proposal.md'), '# proposal\n', 'utf8');
+  await fs.writeFile(path.join(changeRoot, 'design.md'), '# design\n', 'utf8');
+  await fs.writeFile(path.join(changeRoot, 'tasks.md'), '- [ ] conf v2 workflow\n', 'utf8');
+  return changeName;
 }
 
 /**

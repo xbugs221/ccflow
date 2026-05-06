@@ -113,6 +113,7 @@ import {
 import {
     attachWorkflowMetadata,
     advanceWorkflow,
+    abortWorkflowRun,
     buildWorkflowLauncherConfig,
     createProjectWorkflow,
     deleteWorkflow,
@@ -122,12 +123,17 @@ import {
     markWorkflowRead,
     renameWorkflow,
     registerWorkflowChildSession,
+    resumeWorkflowRun,
     updateWorkflowGateDecision,
     updateWorkflowSchedule,
     updateWorkflowStageProviders,
     updateWorkflowUiState,
 } from './workflows.js';
-import { scheduleWorkflowAutoRun, startWorkflowAutoRunner, stopWorkflowAutoRunner } from './workflow-auto-runner.js';
+import { stopWorkflowAutoRunner } from './workflow-auto-runner.js';
+import {
+    checkRequiredRuntimeDependencies,
+    getRuntimeDependencyDiagnostics,
+} from './runtime-dependencies.js';
 
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true });
@@ -324,6 +330,8 @@ const WATCHER_IGNORED_PATTERNS = [
 const WATCHER_DEBOUNCE_MS = 300;
 let projectsWatchers = [];
 let projectsWatcherDebounceTimer = null;
+const goRunnerWatchers = new Map();
+let goRunnerWatcherDebounceTimer = null;
 const connectedClients = new Set();
 const chatClientUsers = new WeakMap();
 const recentChatRequestIds = new Map();
@@ -409,6 +417,42 @@ function broadcastSessionModelStateUpdated({ sourceUserId = null, projectName = 
 }
 
 /**
+ * Refresh project workflow metadata and broadcast it through the existing
+ * sidebar/detail refresh channel.
+ */
+async function broadcastProjectsUpdated({ changeType = 'change', changedFile = '', watchProvider = 'workflow' } = {}) {
+    if (isGetProjectsRunning) {
+        return;
+    }
+
+    try {
+        isGetProjectsRunning = true;
+        clearProjectDirectoryCache();
+        const updatedProjects = await attachWorkflowMetadata(
+            await getProjects(broadcastProgress)
+        );
+        const updateMessage = JSON.stringify({
+            type: 'projects_updated',
+            projects: updatedProjects,
+            timestamp: new Date().toISOString(),
+            changeType,
+            changedFile,
+            watchProvider
+        });
+
+        connectedClients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(updateMessage);
+            }
+        });
+    } catch (error) {
+        console.error('[ERROR] Error broadcasting project changes:', error);
+    } finally {
+        isGetProjectsRunning = false;
+    }
+}
+
+/**
  * Close all provider filesystem watchers and clear any pending debounce work.
  */
 async function closeProjectsWatchers() {
@@ -429,6 +473,107 @@ async function closeProjectsWatchers() {
     projectsWatchers = [];
 }
 
+/**
+ * Close all Go runner state/log watchers and clear pending broadcasts.
+ */
+async function closeGoRunnerWatchers() {
+    if (goRunnerWatcherDebounceTimer) {
+        clearTimeout(goRunnerWatcherDebounceTimer);
+        goRunnerWatcherDebounceTimer = null;
+    }
+
+    await Promise.all(
+        Array.from(goRunnerWatchers.values()).map(async (watcher) => {
+            try {
+                await watcher.close();
+            } catch (error) {
+                console.error('[WARN] Failed to close Go runner watcher:', error);
+            }
+        })
+    );
+    goRunnerWatchers.clear();
+}
+
+/**
+ * Debounce Go runner state/log changes into one project refresh broadcast.
+ */
+function scheduleGoRunnerProjectUpdate(eventType, filePath, runDir) {
+    if (goRunnerWatcherDebounceTimer) {
+        clearTimeout(goRunnerWatcherDebounceTimer);
+    }
+
+    goRunnerWatcherDebounceTimer = setTimeout(() => {
+        goRunnerWatcherDebounceTimer = null;
+        void broadcastProjectsUpdated({
+            changeType: eventType,
+            changedFile: path.relative(runDir, filePath),
+            watchProvider: 'go-runner'
+        });
+    }, WATCHER_DEBOUNCE_MS);
+}
+
+/**
+ * Watch one Go-backed workflow run directory for state.json and log/artifact
+ * changes that should refresh the workflow read model.
+ */
+async function watchGoWorkflowRun(project, workflow) {
+    const projectPath = project?.fullPath || project?.path || '';
+    const runId = String(workflow?.runId || '').trim();
+    if (workflow?.runner !== 'go' || !projectPath || !runId) {
+        return null;
+    }
+
+    const watcherKey = `${projectPath}:${runId}`;
+    if (goRunnerWatchers.has(watcherKey)) {
+        return goRunnerWatchers.get(watcherKey);
+    }
+
+    const chokidar = (await import('chokidar')).default;
+    const runDir = path.join(projectPath, '.ccflow', 'runs', runId);
+    await fsPromises.mkdir(runDir, { recursive: true });
+    const watcher = chokidar.watch(runDir, {
+        persistent: true,
+        ignoreInitial: true,
+        followSymlinks: false,
+        depth: 6,
+        awaitWriteFinish: {
+            stabilityThreshold: 100,
+            pollInterval: 50
+        }
+    });
+
+    watcher
+        .on('add', (filePath) => scheduleGoRunnerProjectUpdate('add', filePath, runDir))
+        .on('change', (filePath) => scheduleGoRunnerProjectUpdate('change', filePath, runDir))
+        .on('unlink', (filePath) => scheduleGoRunnerProjectUpdate('unlink', filePath, runDir))
+        .on('error', (error) => {
+            console.error(`[ERROR] Go runner watcher error for ${runId}:`, error);
+        });
+
+    goRunnerWatchers.set(watcherKey, watcher);
+    await new Promise((resolve) => {
+        const readyTimer = setTimeout(resolve, 1000);
+        watcher.once('ready', () => {
+            clearTimeout(readyTimer);
+            resolve();
+        });
+    });
+    return watcher;
+}
+
+/**
+ * Recreate Go runner watchers for all persisted Go-backed workflows on startup.
+ */
+async function setupGoRunnerWatchers() {
+    await closeGoRunnerWatchers();
+    const projects = await attachWorkflowMetadata(await getProjects());
+    for (const project of projects) {
+        for (const workflow of project.workflows || []) {
+            await watchGoWorkflowRun(project, workflow);
+        }
+    }
+}
+
 // Setup file system watchers for Claude and Codex project/session folders
 async function setupProjectsWatcher() {
     const chokidar = (await import('chokidar')).default;
@@ -441,43 +586,15 @@ async function setupProjectsWatcher() {
         }
 
         projectsWatcherDebounceTimer = setTimeout(async () => {
-            // Prevent reentrant calls
-            if (isGetProjectsRunning) {
-                return;
-            }
-
             try {
-                isGetProjectsRunning = true;
-
-                // Clear project directory cache when files change
-                clearProjectDirectoryCache();
-
-                // Get updated projects list
-                const updatedProjects = await attachWorkflowMetadata(
-                    await getProjects(broadcastProgress)
-                );
-
-                // Notify all connected clients about the project changes
-                const updateMessage = JSON.stringify({
-                    type: 'projects_updated',
-                    projects: updatedProjects,
-                    timestamp: new Date().toISOString(),
+                await broadcastProjectsUpdated({
                     changeType: eventType,
                     changedFile: path.relative(rootPath, filePath),
                     watchProvider: provider
                 });
 
-                connectedClients.forEach(client => {
-                    if (client.readyState === WebSocket.OPEN) {
-                        client.send(updateMessage);
-                    }
-                });
-                scheduleWorkflowAutoRun('project-change', { logger: console });
-
             } catch (error) {
                 console.error('[ERROR] Error handling project changes:', error);
-            } finally {
-                isGetProjectsRunning = false;
             }
         }, WATCHER_DEBOUNCE_MS);
     };
@@ -687,6 +804,14 @@ app.use('/api/commands', authenticateToken, commandsRoutes);
 // Settings API Routes (protected)
 app.use('/api/settings', authenticateToken, settingsRoutes);
 
+app.get('/api/diagnostics/runtime-dependencies', authenticateToken, async (req, res) => {
+    /**
+     * PURPOSE: Expose resolved Go CLI paths and versions for settings and
+     * diagnostics without allowing runtime path overrides.
+     */
+    res.json(getRuntimeDependencyDiagnostics());
+});
+
 // CLI Authentication API Routes (protected)
 app.use('/api/cli', authenticateToken, cliAuthRoutes);
 
@@ -830,7 +955,7 @@ app.post('/api/projects/:projectName/workflows', authenticateToken, async (req, 
             stageProviders: req.body?.stageProviders,
             scheduledAt: req.body?.scheduledAt,
         });
-        scheduleWorkflowAutoRun('workflow-create', { logger: console });
+        await watchGoWorkflowRun(project, workflow);
         res.status(201).json(workflow);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -884,7 +1009,6 @@ app.post('/api/projects/:projectName/workflows/:workflowId/mark-read', authentic
             return res.status(404).json({ error: 'Workflow not found' });
         }
 
-        scheduleWorkflowAutoRun('workflow-advance', { logger: console });
         res.json({ success: true, workflow });
     } catch (error) {
         res.status(error.statusCode || 500).json({ error: error.message });
@@ -1056,6 +1180,45 @@ app.post('/api/projects/:projectName/workflows/:workflowId/advance', authenticat
         res.json({ success: true, workflow });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/projects/:projectName/workflows/:workflowId/resume-run', authenticateToken, async (req, res) => {
+    try {
+        const projects = await attachWorkflowMetadata(await getProjects());
+        const project = findProjectByName(projects, req.params.projectName);
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        const workflow = await resumeWorkflowRun(project, req.params.workflowId);
+        if (!workflow) {
+            return res.status(404).json({ error: 'Workflow not found' });
+        }
+
+        await watchGoWorkflowRun(project, workflow);
+        res.json({ success: true, workflow });
+    } catch (error) {
+        res.status(error.statusCode || 500).json({ error: error.message });
+    }
+});
+
+app.post('/api/projects/:projectName/workflows/:workflowId/abort-run', authenticateToken, async (req, res) => {
+    try {
+        const projects = await attachWorkflowMetadata(await getProjects());
+        const project = findProjectByName(projects, req.params.projectName);
+        if (!project) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        const workflow = await abortWorkflowRun(project, req.params.workflowId);
+        if (!workflow) {
+            return res.status(404).json({ error: 'Workflow not found' });
+        }
+
+        res.json({ success: true, workflow });
+    } catch (error) {
+        res.status(error.statusCode || 500).json({ error: error.message });
     }
 });
 
@@ -3232,6 +3395,7 @@ async function shutdownServer(signal = 'SIGTERM') {
     clearSessionScanInterval();
     stopWorkflowAutoRunner();
     await closeProjectsWatchers();
+    await closeGoRunnerWatchers();
     closePtySessions();
     await closeWebSocketServer();
 
@@ -3271,6 +3435,9 @@ process.on('SIGTERM', async () => {
 // Initialize database and start server
 async function startServer() {
     try {
+        // Ensure required external binaries are available in PATH
+        checkRequiredRuntimeDependencies();
+
         // Initialize authentication database
         await initializeDatabase();
 
@@ -3317,13 +3484,14 @@ async function startServer() {
                 console.info(`[SessionVisibility] Periodic scan enabled (${scanIntervalMs}ms)`);
             }
 
-            startWorkflowAutoRunner({ logger: console });
+            console.info('[WorkflowAutoRunner] Disabled; Go runner mc is the workflow state machine.');
 
             try {
-                // Start watching the projects folder for changes after the workflow runner is live.
+                // Start watching provider and Go runner output folders after the workflow runner is live.
                 await setupProjectsWatcher();
+                await setupGoRunnerWatchers();
             } catch (watcherError) {
-                console.error('[ERROR] Failed to setup provider project watchers:', watcherError);
+                console.error('[ERROR] Failed to setup project watchers:', watcherError);
             }
         });
     } catch (error) {

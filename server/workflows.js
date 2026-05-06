@@ -7,14 +7,23 @@
 import os from 'os';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import {
   buildReviewPassStageKey,
   buildReviewPassSubstageKey,
   getReviewPassIndexForSubstage,
   getReviewPassSessions,
 } from './domains/workflows/review-stages.js';
+import {
+  getOpenSpecStatus,
+  listOpenSpecChanges,
+} from './domains/openspec/opsx-client.js';
+import {
+  abortGoWorkflowRun,
+  normalizeRunnerPath,
+  readGoWorkflowState,
+  resumeGoWorkflowRun,
+  startGoWorkflowRun,
+} from './domains/workflows/go-runner-client.js';
 import { isCodexSessionActive } from './openai-codex.js';
 import {
   getProjectLocalConfigPath,
@@ -22,7 +31,6 @@ import {
   writeProjectLocalConfig,
 } from './project-config-store.js';
 
-const execFileAsync = promisify(execFile);
 const PROMPT_TEMPLATE_PATHS = {
   planning: path.join(os.homedir(), '.config', 'ccflow-alias', 'explore.md'),
   execution: path.join(os.homedir(), '.config', 'ccflow-alias', 'apply.md'),
@@ -177,11 +185,7 @@ async function listOpenSpecCliChanges(projectPath) {
   }
 
   try {
-    const { stdout } = await execFileAsync('openspec', ['list', '--json'], { cwd: projectPath });
-    const payload = JSON.parse(stdout || '{}');
-    return Array.isArray(payload?.changes)
-      ? payload.changes.map((change) => String(change?.name || '').trim()).filter(Boolean)
-      : [];
+    return await listOpenSpecChanges(projectPath);
   } catch (error) {
     return [];
   }
@@ -732,16 +736,7 @@ async function detectWorkflowOpenSpecChange(projectPath, changeName) {
   }
 
   try {
-    const { stdout } = await execFileAsync(
-      'openspec',
-      ['status', changeName, '--json'],
-      {
-        cwd: projectPath,
-        timeout: 5000,
-        maxBuffer: 1024 * 1024,
-      },
-    );
-    return JSON.parse(stdout);
+    return await getOpenSpecStatus(projectPath, changeName);
   } catch (error) {
     return null;
   }
@@ -1126,6 +1121,10 @@ function compactWorkflowForStore(workflow = {}) {
   };
 
   if (workflow.objective && workflow.objective !== workflow.title) compact.objective = workflow.objective;
+  if (workflow.runner) compact.runner = workflow.runner;
+  if (workflow.runnerProvider) compact.runnerProvider = workflow.runnerProvider;
+  if (workflow.runId) compact.runId = workflow.runId;
+  if (workflow.runnerPid) compact.runnerPid = workflow.runnerPid;
   if (workflow.adoptsExistingOpenSpec === true) compact.adoptsExistingOpenSpec = true;
   if (workflow.openspecChangePrefix && !workflow.openspecChangeName) compact.openspecChangePrefix = workflow.openspecChangePrefix;
   if (workflow.openspecChangeName) compact.openspecChangeName = workflow.openspecChangeName;
@@ -1473,6 +1472,10 @@ function createWorkflowRecord(payload = {}) {
   return {
     id: workflowId,
     routeIndex: Number.isInteger(payload.routeIndex) ? payload.routeIndex : undefined,
+    runner: payload.runner || 'go',
+    runnerProvider: 'codex',
+    runId: String(payload.runId || '').trim(),
+    runnerPid: Number.isInteger(payload.runnerPid) ? payload.runnerPid : undefined,
     title,
     objective: String(payload.objective || title).trim(),
     adoptsExistingOpenSpec,
@@ -1485,7 +1488,7 @@ function createWorkflowRecord(payload = {}) {
     stageStatuses: getWorkflowStages().map((stage) => ({
       ...stage,
       status: stage.key === initialStage ? 'active' : 'pending',
-      provider: stageProviders[stage.key] || 'codex',
+      provider: 'codex',
     })),
     artifacts: [],
     childSessions: [],
@@ -1633,12 +1636,17 @@ async function normalizeArtifact(projectPath, artifact = {}) {
     }
   }
 
+  const normalizedStatus = exists
+    ? (artifact.status || 'ready')
+    : (artifact.status === 'ready' ? 'missing' : artifact.status);
+
   return {
     ...artifact,
     path: absolutePath || artifact.path,
     relativePath: artifactPath || undefined,
     type: inferredType,
     exists,
+    status: normalizedStatus,
   };
 }
 
@@ -2649,10 +2657,88 @@ function buildRecommendedActions(workflow, stageInspections) {
 }
 
 /**
+ * Map Go runner state into the stage status shape consumed by the existing UI.
+ */
+function buildGoRunnerStageStatuses(workflow, runnerState) {
+  const currentStage = String(runnerState?.stage || workflow.stage || 'execution').trim();
+  const runStatus = String(runnerState?.status || workflow.runState || 'running').trim().toLowerCase();
+  const stageOrder = getWorkflowStages().map((stage) => stage.key);
+  const currentIndex = stageOrder.indexOf(currentStage);
+  return getWorkflowStages().map((stage, index) => {
+    let status = 'pending';
+    if (runStatus === 'completed' || runStatus === 'done' || runStatus === 'archived') {
+      status = 'completed';
+    } else if (stage.key === currentStage) {
+      status = ['failed', 'error'].includes(runStatus) ? 'failed' : runStatus === 'aborted' ? 'blocked' : 'active';
+    } else if (currentIndex >= 0 && index < currentIndex) {
+      status = 'completed';
+    }
+    return {
+      ...stage,
+      status,
+      provider: 'codex',
+    };
+  });
+}
+
+/**
+ * Convert runner paths into workflow artifacts only when the files are real
+ * runner outputs.
+ */
+function buildGoRunnerArtifacts(runnerState) {
+  const paths = runnerState?.paths && typeof runnerState.paths === 'object' ? runnerState.paths : {};
+  return Object.entries(paths)
+    .filter(([, value]) => typeof value === 'string' && value.trim() && !value.endsWith('state.json'))
+    .map(([key, value]) => ({
+      id: `go-${key}`,
+      label: path.basename(value),
+      path: normalizeRunnerPath(value),
+      type: 'file',
+      stage: String(runnerState?.stage || 'execution'),
+      status: 'ready',
+    }));
+}
+
+/**
+ * Overlay sealed Go runner state onto the persisted workflow read model.
+ */
+async function applyGoRunnerReadModel(projectPath, workflow) {
+  if (workflow.runner !== 'go' || !workflow.runId) {
+    return workflow;
+  }
+  const runnerState = await readGoWorkflowState(projectPath, workflow.runId);
+  if (!runnerState) {
+    return {
+      ...workflow,
+      runState: 'blocked',
+      runnerError: `Go runner state not found for run ${workflow.runId}`,
+    };
+  }
+  const runnerStatus = String(runnerState.status || workflow.runState || 'running').toLowerCase();
+  return {
+    ...workflow,
+    openspecChangeName: String(runnerState.changeName || runnerState.change_name || workflow.openspecChangeName || ''),
+    stage: String(runnerState.stage || workflow.stage || 'execution'),
+    runState: ['completed', 'done', 'archived'].includes(runnerStatus)
+      ? 'completed'
+      : ['failed', 'error', 'aborted'].includes(runnerStatus)
+        ? 'blocked'
+        : 'running',
+    runnerState,
+    runnerError: runnerState.error || '',
+    stageStatuses: buildGoRunnerStageStatuses(workflow, runnerState),
+    artifacts: [
+      ...(Array.isArray(workflow.artifacts) ? workflow.artifacts : []),
+      ...buildGoRunnerArtifacts(runnerState),
+    ],
+  };
+}
+
+/**
  * Normalize one workflow into the read model consumed by the UI.
  */
 async function normalizeWorkflow(projectPath, workflow) {
-  const preparedWorkflow = prepareWorkflowRecord(workflow);
+  const preparedWorkflow = await applyGoRunnerReadModel(projectPath, prepareWorkflowRecord(workflow));
   const resolvedOpenSpecChangeName = preparedWorkflow.openspecChangeName
     || await findOpenSpecChangeByPrefix(projectPath, preparedWorkflow.openspecChangePrefix);
   const openspecChangeName = resolvedOpenSpecChangeName || '';
@@ -2698,11 +2784,12 @@ async function normalizeWorkflow(projectPath, workflow) {
     childSessions,
     reviewArtifacts,
   );
-  const taskAwareCurrentStageKey = resolveWorkflowStageKey(normalizedWorkflow, taskAwareStageStatuses);
+  const readModelStageStatuses = normalizedWorkflow.runner === 'go' ? stageStatuses : taskAwareStageStatuses;
+  const taskAwareCurrentStageKey = resolveWorkflowStageKey(normalizedWorkflow, readModelStageStatuses);
   const baseStageInspections = buildStageInspections(
     normalizedWorkflow,
     taskAwareCurrentStageKey,
-    taskAwareStageStatuses,
+    readModelStageStatuses,
     reviewArtifacts,
     childSessions,
     substageFileHints,
@@ -2710,20 +2797,25 @@ async function normalizeWorkflow(projectPath, workflow) {
   const controlPlaneReadModel = buildWorkflowControlPlaneReadModel({
     ...normalizedWorkflow,
     childSessions,
-    stageStatuses: taskAwareStageStatuses,
+    stageStatuses: readModelStageStatuses,
   });
   const stageInspections = mergeControlPlaneEventsIntoStageInspections(
     baseStageInspections,
     controlPlaneReadModel,
   );
   const effectiveStageStatuses = buildEffectiveStageStatuses(stageInspections);
-  const effectiveStageKey = resolveWorkflowStageKey(normalizedWorkflow, effectiveStageStatuses);
+  const finalStageStatuses = normalizedWorkflow.runner === 'go'
+    ? readModelStageStatuses
+    : effectiveStageStatuses;
+  const effectiveStageKey = resolveWorkflowStageKey(normalizedWorkflow, finalStageStatuses);
 
   return {
     ...normalizedWorkflow,
     stage: effectiveStageKey,
-    runState: deriveWorkflowRunState(normalizedWorkflow, stageInspections),
-    stageStatuses: effectiveStageStatuses,
+    runState: normalizedWorkflow.runner === 'go' && ['blocked', 'completed'].includes(normalizedWorkflow.runState)
+      ? normalizedWorkflow.runState
+      : deriveWorkflowRunState(normalizedWorkflow, stageInspections),
+    stageStatuses: finalStageStatuses,
     artifacts,
     childSessions,
     stageInspections,
@@ -2753,6 +2845,9 @@ export async function listProjectWorkflows(projectPath) {
     const normalizedWorkflow = await normalizeWorkflow(projectPath, workflow);
     const repairedWorkflow = {
       ...prepareWorkflowRecord(workflow),
+      runner: normalizedWorkflow.runner,
+      runnerProvider: normalizedWorkflow.runnerProvider,
+      runId: normalizedWorkflow.runId,
       openspecChangeName: normalizedWorkflow.openspecChangeName,
       stage: normalizedWorkflow.stage,
       runState: normalizedWorkflow.runState,
@@ -2830,9 +2925,17 @@ export async function createProjectWorkflow(project, payload = {}) {
   }, 0) + 1;
   const workflowId = buildWorkflowId(nextRouteIndex);
   const providedChangeName = await validateWorkflowOpenSpecChange(projectPath, payload.openspecChangeName);
+  if (!providedChangeName) {
+    throw new Error('Go-backed workflows require an active OpenSpec change. Create or select one from docs/changes first.');
+  }
   const openspecChangePrefix = providedChangeName
     ? String(providedChangeName).split('-')[0]
     : await buildWorkflowOpenSpecChangePrefix(projectPath, existingWorkflows);
+  const runResult = await startGoWorkflowRun(projectPath, providedChangeName);
+  const runId = String(runResult?.runId || runResult?.run_id || '').trim();
+  if (!runId) {
+    throw new Error('Go runner did not return runId for the new workflow run.');
+  }
   const workflow = createWorkflowRecord({
     ...payload,
     routeIndex: nextRouteIndex,
@@ -2840,6 +2943,9 @@ export async function createProjectWorkflow(project, payload = {}) {
     workflowId,
     openspecChangePrefix,
     openspecChangeName: providedChangeName,
+    runner: 'go',
+    runId,
+    runnerPid: Number.isInteger(runResult?.pid) ? runResult.pid : undefined,
   });
 
   entry.workflows = [workflow, ...existingWorkflows];
@@ -2883,6 +2989,14 @@ export async function updateWorkflowStageProviders(project, workflowId, stagePro
     if (workflow.id !== workflowId) {
       return workflow;
     }
+    if (
+      workflow.runner === 'go'
+      && Object.values(normalizedProviders).some((provider) => provider !== 'codex')
+    ) {
+      const error = new Error('Go-backed workflows only support Codex automatic stages.');
+      error.statusCode = 409;
+      throw error;
+    }
     const currentProviders = getWorkflowStageProviderMap(workflow);
     const stageStatuses = Array.isArray(workflow.stageStatuses)
       ? workflow.stageStatuses.map((stage) => ({
@@ -2922,6 +3036,54 @@ export async function updateWorkflowStageProviders(project, workflowId, stagePro
   return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
 }
 
+export async function resumeWorkflowRun(project, workflowId) {
+  /**
+   * PURPOSE: Resume a Go-backed workflow through the runner contract while
+   * keeping sealed state.json as the read-model source after the command exits.
+   */
+  const projectPath = project?.fullPath || project?.path || '';
+  if (!projectPath) {
+    return null;
+  }
+
+  const workflow = await getProjectWorkflow(project, workflowId);
+  if (!workflow) {
+    return null;
+  }
+  if (workflow.runner !== 'go' || !workflow.runId) {
+    const error = new Error('Workflow is not bound to a Go runner run.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  await resumeGoWorkflowRun(projectPath, workflow.runId);
+  return getProjectWorkflow(project, workflowId);
+}
+
+export async function abortWorkflowRun(project, workflowId) {
+  /**
+   * PURPOSE: Abort a Go-backed workflow through the runner contract so the
+   * runner updates state.json and ccflow only refreshes the read model.
+   */
+  const projectPath = project?.fullPath || project?.path || '';
+  if (!projectPath) {
+    return null;
+  }
+
+  const workflow = await getProjectWorkflow(project, workflowId);
+  if (!workflow) {
+    return null;
+  }
+  if (workflow.runner !== 'go' || !workflow.runId) {
+    const error = new Error('Workflow is not bound to a Go runner run.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  await abortGoWorkflowRun(projectPath, workflow.runId);
+  return getProjectWorkflow(project, workflowId);
+}
+
 export async function getWorkflowReviewResult(project, workflowId, passIndex) {
   const projectPath = project?.fullPath || project?.path || '';
   if (!projectPath) {
@@ -2945,6 +3107,11 @@ export async function buildWorkflowLauncherConfig(project, workflowId, stage) {
   const workflow = await getProjectWorkflow(project, workflowId);
   if (!workflow) {
     throw new Error('Workflow not found');
+  }
+  if (workflow.runner === 'go') {
+    const error = new Error('Go-backed workflows are controlled by the Go runner. Use resume-run, abort-run, or status endpoints instead of the legacy launcher.');
+    error.statusCode = 409;
+    throw error;
   }
 
   let normalizedStage = String(stage || '').trim();

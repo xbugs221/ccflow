@@ -94,8 +94,12 @@ test('creating a workflow with existing OpenSpec change binds correctly', async 
   await expect(page.getByTestId('workflow-stage-tree')).toBeVisible();
   await expect(page.getByTestId('project-workflow-group')).toContainText('会话卡片展示优化');
 
-  // Verify the workflow stage tree shows planning stage with detected OpenSpec
+  // Verify the workflow stage tree shows the Go runner-controlled execution stage.
   await expect(page.getByTestId('workflow-stage-planning')).toBeVisible();
+  await expect(page.getByTestId('workflow-stage-execution')).toBeVisible();
+  await expect(page.getByText(/Go runner: playwright-run-/)).toBeVisible();
+  await expect(page.getByText('阶段: review_1')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText('reviewer.log')).toBeVisible();
 
   // Verify via API that the workflow is bound to the OpenSpec change
   const project = await getFixtureProject(page.context().request);
@@ -111,23 +115,10 @@ test('creating a workflow with existing OpenSpec change binds correctly', async 
   expect(workflow.openspecChangeName).toBe(OPEN_SPEC_CHANGE_NAME);
   expect(workflow.adoptsExistingOpenSpec).toBe(true);
   expect(workflow.openspecChangeDetected).toBe(true);
-
-  // Wait for auto-runner to detect and advance the workflow
-  await page.waitForTimeout(3000);
-  await page.reload();
-  await expect(page.getByTestId('workflow-stage-tree')).toBeVisible();
-
-  // Poll workflow state until execution stage appears or timeout
-  let hasExecutionStage = false;
-  for (let i = 0; i < 10; i += 1) {
-    await page.waitForTimeout(2000);
-    await page.reload();
-    const executionStage = page.getByTestId('workflow-stage-execution');
-    if (await executionStage.isVisible().catch(() => false)) {
-      hasExecutionStage = true;
-      break;
-    }
-  }
-
-  expect(hasExecutionStage).toBe(true);
+  expect(workflow.runner).toBe('go');
+  expect(workflow.runnerProvider).toBe('codex');
+  expect(workflow.runId).toMatch(/^playwright-run-/);
+  expect(workflow.stageStatuses.some((stage) => stage.key === 'review_1' && stage.status === 'active')).toBe(true);
+  expect(workflow.artifacts.some((artifact) => artifact.relativePath?.includes('/logs/executor.log'))).toBe(true);
+  expect(workflow.artifacts.some((artifact) => artifact.relativePath?.includes('/logs/reviewer.log'))).toBe(true);
 });

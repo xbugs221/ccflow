@@ -10,6 +10,7 @@ import AgentsSettingsTab from '../view/tabs/agents-settings/AgentsSettingsTab';
 import AppearanceSettingsTab from '../view/tabs/AppearanceSettingsTab';
 import CredentialsSettingsTab from '../view/tabs/api-settings/CredentialsSettingsTab';
 import GitSettingsTab from '../view/tabs/git-settings/GitSettingsTab';
+import RuntimeDiagnosticsTab from '../view/tabs/RuntimeDiagnosticsTab';
 import { useSettingsController } from '../hooks/useSettingsController';
 import type { AgentProvider, SettingsProject, SettingsProps } from '../types/types';
 
@@ -25,6 +26,9 @@ type LoginModalProps = {
 const LoginModalComponent = LoginModal as unknown as (props: LoginModalProps) => JSX.Element;
 
 function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }: SettingsProps) {
+  /**
+   * Coordinate settings modal state and render the active settings panel.
+   */
   const { t } = useTranslation('settings');
   const {
     activeTab,
@@ -121,6 +125,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
             )}
 
             {activeTab === 'git' && <GitSettingsTab />}
+
+            {activeTab === 'diagnostics' && <RuntimeDiagnosticsTab />}
 
             {activeTab === 'agents' && (
               <AgentsSettingsTab

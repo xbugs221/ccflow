@@ -20,6 +20,7 @@ import {
 import {
   readProjectConf,
   withIsolatedProject,
+  writeActiveOpenSpecChange,
 } from './helpers/conf-v2-fixtures.js';
 
 test('Scenario: 新建工作流时使用数字 key 推导 wN', async () => {
@@ -100,7 +101,7 @@ test('Scenario: 工作流内部会话不推进手动会话编号', async () => {
   });
 });
 
-test('Scenario: 工作流写入后项目配置保存不刷新 conf.json', async () => {
+test('Scenario: Go-backed workflow 写入后项目配置保留 run 绑定', async () => {
   await withIsolatedProject(async ({ projectPath }) => {
     await saveProjectConfig({
       schemaVersion: 2,
@@ -109,23 +110,29 @@ test('Scenario: 工作流写入后项目配置保存不刷新 conf.json', async 
       },
     }, projectPath);
 
-    await createProjectWorkflow({ fullPath: projectPath }, { title: '需求1', objective: '需求1' });
-    const confPath = path.join(projectPath, '.ccflow', 'conf.json');
-    const firstStat = await fs.stat(confPath);
-
+    const changeName = await writeActiveOpenSpecChange(projectPath, 'conf-save-workflow');
+    await createProjectWorkflow({ fullPath: projectPath }, {
+      title: '需求1',
+      objective: '需求1',
+      openspecChangeName: changeName,
+    });
     await saveProjectConfig(await loadProjectConfig(projectPath), projectPath);
-    const secondStat = await fs.stat(confPath);
+    const persisted = await readProjectConf(projectPath);
 
-    assert.equal(secondStat.mtimeMs, firstStat.mtimeMs);
+    assert.equal(persisted.workflows['1'].runner, 'go');
+    assert.equal(persisted.workflows['1'].runnerProvider, 'codex');
+    assert.match(persisted.workflows['1'].runId, /^conf-test-run-/);
   });
 });
 
 test('Scenario: 删除工作流时同步删除该工作流产物目录', async () => {
   await withIsolatedProject(async ({ projectPath }) => {
     const project = await addProjectManually(projectPath, 'Workflow Artifact Cleanup Demo');
+    const changeName = await writeActiveOpenSpecChange(projectPath, 'cleanup-workflow-artifacts');
     const workflow = await createProjectWorkflow(project, {
       title: '清理旧产物',
       objective: '删除工作流后不能复用旧审核产物',
+      openspecChangeName: changeName,
     });
     const artifactDir = path.join(projectPath, '.ccflow', '1');
 

@@ -328,12 +328,16 @@ export default function ProjectWorkspaceNav({
       setIsCreatingWorkflow(true);
       setWorkflowComposerError('');
       const openspecChangeName = selectedOpenSpecChange.trim();
+      if (!openspecChangeName) {
+        setWorkflowComposerError('请选择一个已有 OpenSpec change 后启动 Go runner。');
+        return;
+      }
       const scheduledAt = workflowScheduledAtInput.trim() || undefined;
       const response = await api.createProjectWorkflow(project.name, {
         title,
         objective,
-        openspecChangeName: openspecChangeName || undefined,
-        stageProviders: buildExplicitStageProviders(workflowStageProviders, workflowStageConfigOpen),
+        openspecChangeName,
+        stageProviders: { planning: 'codex', execution: 'codex', review_1: 'codex', repair_1: 'codex', review_2: 'codex', repair_2: 'codex', review_3: 'codex', repair_3: 'codex', archive: 'codex' },
         scheduledAt,
       });
       if (!response.ok) {
@@ -523,7 +527,7 @@ export default function ProjectWorkspaceNav({
                   value={selectedOpenSpecChange}
                   onChange={(event) => setSelectedOpenSpecChange(event.target.value)}
                 >
-                  <option value="">新需求，先进入规划</option>
+                  <option value="">选择 active change</option>
                   {availableOpenSpecChanges.map((changeName) => (
                     <option key={changeName} value={changeName}>
                       {changeName}
@@ -540,35 +544,9 @@ export default function ProjectWorkspaceNav({
                   onChange={(event) => setWorkflowScheduledAtInput(event.target.value)}
                 />
               </label>
-              <details
-                className="rounded-md border border-border/60 p-2"
-                open={workflowStageConfigOpen}
-                onToggle={(event) => setWorkflowStageConfigOpen(event.currentTarget.open)}
-              >
-                <summary className="cursor-pointer text-xs font-medium text-foreground">阶段配置</summary>
-                <div className="mt-2 grid gap-2">
-                  {WORKFLOW_STAGE_PROVIDER_OPTIONS.map((stage) => (
-                    <label key={stage.key} className="flex items-center justify-between gap-2 text-xs text-foreground">
-                      <span>{stage.label}</span>
-                      <select
-                        data-testid={`workflow-stage-provider-${stage.key}`}
-                        className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-                        value={workflowStageProviders[stage.key] || 'codex'}
-                        onChange={(event) => {
-                          const provider = event.target.value === 'claude' ? 'claude' : 'codex';
-                          setWorkflowStageProviders((current) => ({
-                            ...current,
-                            [stage.key]: provider,
-                          }));
-                        }}
-                      >
-                        <option value="codex">codex</option>
-                        <option value="claude">claude</option>
-                      </select>
-                    </label>
-                  ))}
-                </div>
-              </details>
+              <div className="rounded-md border border-border/60 p-2 text-xs text-muted-foreground">
+                自动阶段由 Go runner 执行，provider 固定为 Codex。
+              </div>
               {workflowComposerError && <p className="text-xs text-destructive">{workflowComposerError}</p>}
               <div className="flex items-center justify-end gap-2">
                 <button

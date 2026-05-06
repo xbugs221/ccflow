@@ -4,6 +4,85 @@
  * machine a TCP connect to an unused localhost port can hang instead of failing fast.
  */
 import { execFileSync, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+
+/**
+ * Create fake opsx/mc binaries for the isolated Playwright server process.
+ * The scripts operate on real fixture docs/changes and .ccflow/runs files.
+ * @param {string} cwd - Repository root.
+ * @returns {string} Directory to prepend to PATH.
+ */
+function ensureWorkflowToolFixtures(cwd) {
+  const binDir = path.join(cwd, '.tmp', 'playwright-workflow-bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(binDir, 'opsx'),
+    [
+      '#!/bin/sh',
+      'changes_dir="$PWD/docs/changes"',
+      'case "$1" in',
+      '  --version) echo "opsx-playwright";;',
+      '  list)',
+      "    printf '{\"changes\":['",
+      '    first=1',
+      '    if [ -d "$changes_dir" ]; then',
+      '      for entry in "$changes_dir"/*; do',
+      '        [ -d "$entry" ] || continue',
+      '        [ "$(basename "$entry")" = "archive" ] && continue',
+      '        if [ "$first" -eq 0 ]; then printf ","; fi',
+      '        first=0',
+      "        printf '{\"name\":\"%s\"}' \"$(basename \"$entry\")\"",
+      '      done',
+      '    fi',
+      "    printf ']}\\n';;",
+      '  status)',
+      '    if [ -d "$changes_dir/$2" ]; then printf \'{"name":"%s","status":"active"}\\n\' "$2"; else exit 1; fi;;',
+      '  instructions) echo \'{"schemaName":"spec-driven","state":"ready","contextFiles":[],"progress":{"total":0,"completed":0,"remaining":0},"tasks":[]}\';;',
+      '  validate) echo \'{"ok":true}\';;',
+      '  archive) mkdir -p "$changes_dir/archive"; mv "$changes_dir/$2" "$changes_dir/archive/2026-05-06-$2"; echo \'{"ok":true}\';;',
+      '  *) echo \'{}\';;',
+      'esac',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(
+    path.join(binDir, 'mc'),
+    [
+      '#!/bin/sh',
+      'run_id="playwright-run-$(date +%s%N)"',
+      'if [ "$1" = "--version" ]; then echo "mc-playwright"; exit 0; fi',
+      'if [ "$1" = "contract" ]; then echo \'{"version":"mc-playwright","json":true,"capabilities":["list-changes","run","resume","status","abort"]}\'; exit 0; fi',
+      'if [ "$1" = "list-changes" ]; then opsx list --json; exit 0; fi',
+      'if [ "$1" = "run" ]; then',
+      '  change=""',
+      '  while [ "$#" -gt 0 ]; do',
+      '    if [ "$1" = "--change" ]; then shift; change="$1"; fi',
+      '    shift || break',
+      '  done',
+      '  run_dir="$PWD/.ccflow/runs/$run_id"',
+      '  mkdir -p "$run_dir/logs"',
+      '  echo "playwright runner log" > "$run_dir/logs/executor.log"',
+      '  cat > "$run_dir/state.json" <<JSON',
+      '{"runId":"$run_id","changeName":"$change","status":"running","stage":"execution","stages":{"execution":"running"},"paths":{"executor_log":".ccflow/runs/$run_id/logs/executor.log"},"sessions":{},"error":""}',
+      'JSON',
+      '  printf \'{"runId":"%s","changeName":"%s","status":"running","stage":"execution"}\\n\' "$run_id" "$change"',
+      '  (',
+      '    sleep 2',
+      '    echo "playwright review log" > "$run_dir/logs/reviewer.log"',
+      '    cat > "$run_dir/state.json" <<JSON',
+      '{"runId":"$run_id","changeName":"$change","status":"running","stage":"review_1","stages":{"execution":"completed","review_1":"running"},"paths":{"executor_log":".ccflow/runs/$run_id/logs/executor.log","reviewer_log":".ccflow/runs/$run_id/logs/reviewer.log"},"sessions":{},"error":""}',
+      'JSON',
+      '  ) >/dev/null 2>&1 &',
+      '  exit 0',
+      'fi',
+      'if [ "$1" = "resume" ] || [ "$1" = "status" ] || [ "$1" = "abort" ]; then echo "usage: mc $1 --json --run-id"; exit 0; fi',
+      'echo "usage: mc run resume status abort --json --run-id --change"',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+  return binDir;
+}
 
 /**
  * Check whether a URL responds successfully with a short hard timeout.
@@ -92,6 +171,7 @@ export default async function globalSetup() {
     PORT: serverPort,
     VITE_PORT: vitePort,
   };
+  childEnv.PATH = `${ensureWorkflowToolFixtures(cwd)}:${childEnv.PATH || ''}`;
 
   let serverProcess = null;
   let viteProcess = null;

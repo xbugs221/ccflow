@@ -39,14 +39,19 @@ let homeIsolationQueue = Promise.resolve();
 async function withTemporaryHome(testBody) {
   const run = async () => {
     const originalHome = process.env.HOME;
+    const originalPath = process.env.PATH;
     const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-session-rename-test-'));
+    const binDir = path.join(tempHome, 'bin');
 
     process.env.HOME = tempHome;
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath || ''}`;
     clearProjectDirectoryCache();
     try {
+      await writeFakeWorkflowTools(binDir);
       await testBody(tempHome);
     } finally {
       clearProjectDirectoryCache();
+      process.env.PATH = originalPath || '';
       if (originalHome) {
         process.env.HOME = originalHome;
       } else {
@@ -60,6 +65,82 @@ async function withTemporaryHome(testBody) {
   const runPromise = homeIsolationQueue.then(run, run);
   homeIsolationQueue = runPromise.catch(() => {});
   return runPromise;
+}
+
+/**
+ * Write fake opsx/mc commands so workflow child-session tests exercise the
+ * current Go-backed contract without requiring machine-global binaries.
+ */
+async function writeFakeWorkflowTools(binDir) {
+  await fs.mkdir(binDir, { recursive: true });
+  await fs.writeFile(
+    path.join(binDir, 'opsx'),
+    [
+      '#!/bin/sh',
+      'changes_dir="$PWD/docs/changes"',
+      'case "$1" in',
+      '  --version) echo "opsx-session-test";;',
+      '  list)',
+      "    printf '{\"changes\":['",
+      '    first=1',
+      '    if [ -d "$changes_dir" ]; then',
+      '      for entry in "$changes_dir"/*; do',
+      '        [ -d "$entry" ] || continue',
+      '        [ "$(basename "$entry")" = "archive" ] && continue',
+      '        if [ "$first" -eq 0 ]; then printf ","; fi',
+      '        first=0',
+      "        printf '{\"name\":\"%s\"}' \"$(basename \"$entry\")\"",
+      '      done',
+      '    fi',
+      "    printf ']}\\n';;",
+      '  status) if [ -d "$changes_dir/$2" ]; then printf \'{"name":"%s","status":"active"}\\n\' "$2"; else exit 1; fi;;',
+      '  *) echo \'{}\';;',
+      'esac',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+  await fs.writeFile(
+    path.join(binDir, 'mc'),
+    [
+      '#!/bin/sh',
+      'run_id="session-test-run-$(date +%s%N)"',
+      'if [ "$1" = "--version" ]; then echo "mc-session-test"; exit 0; fi',
+      'if [ "$1" = "list-changes" ]; then opsx list --json; exit 0; fi',
+      'if [ "$1" = "run" ]; then',
+      '  change=""',
+      '  while [ "$#" -gt 0 ]; do',
+      '    if [ "$1" = "--change" ]; then shift; change="$1"; fi',
+      '    shift || break',
+      '  done',
+      '  run_dir="$PWD/.ccflow/runs/$run_id"',
+      '  mkdir -p "$run_dir/logs"',
+      '  echo "session workflow log" > "$run_dir/logs/executor.log"',
+      '  cat > "$run_dir/state.json" <<JSON',
+      '{"runId":"$run_id","changeName":"$change","status":"running","stage":"execution","stages":{"execution":"running"},"paths":{"executor_log":".ccflow/runs/$run_id/logs/executor.log"},"sessions":{},"error":""}',
+      'JSON',
+      '  printf \'{"runId":"%s","changeName":"%s","status":"running","stage":"execution"}\\n\' "$run_id" "$change"',
+      '  exit 0',
+      'fi',
+      'echo "usage: mc run resume status abort --json --run-id --change"',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+}
+
+/**
+ * Create one active docs/ change before constructing a Go-backed workflow.
+ */
+async function createGoWorkflow(project, payload = {}) {
+  const changeName = `go-${String(payload.title || 'workflow').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workflow'}`;
+  const changeRoot = path.join(project.fullPath || project.path, 'docs', 'changes', changeName);
+  await fs.mkdir(path.join(changeRoot, 'specs'), { recursive: true });
+  await fs.writeFile(path.join(changeRoot, 'proposal.md'), '# proposal\n', 'utf8');
+  await fs.writeFile(path.join(changeRoot, 'design.md'), '# design\n', 'utf8');
+  await fs.writeFile(path.join(changeRoot, 'tasks.md'), '- [ ] session workflow setup\n', 'utf8');
+  return createProjectWorkflow(project, {
+    ...payload,
+    openspecChangeName: changeName,
+  });
 }
 
 /**
@@ -641,7 +722,7 @@ test('finalizing a workflow child draft replaces the temporary child session id'
     await fs.mkdir(projectPath, { recursive: true });
 
     const project = await addProjectManually(projectPath, 'Workflow Child Finalize Demo');
-    const workflow = await createProjectWorkflow(project, {
+    const workflow = await createGoWorkflow(project, {
       title: '重构精简仓库',
       objective: '验证工作流子会话 finalize 后仍稳定指向同一个内部会话槽位',
     });
@@ -680,7 +761,7 @@ test('finalizing an indexed review draft preserves the existing review child rou
     await fs.mkdir(projectPath, { recursive: true });
 
     const project = await addProjectManually(projectPath, 'Workflow Review Finalize Demo');
-    const workflow = await createProjectWorkflow(project, {
+    const workflow = await createGoWorkflow(project, {
       title: '重构精简仓库',
       objective: '验证初审 finalize 不会从 c3 漂移到 c4',
     });
@@ -731,7 +812,7 @@ test('workflow chat draft finalizes without a manual draft mirror', { concurrenc
     await fs.mkdir(projectPath, { recursive: true });
 
     const project = await addProjectManually(projectPath, 'Workflow Chat Draft Finalize Demo');
-    const workflow = await createProjectWorkflow(project, {
+    const workflow = await createGoWorkflow(project, {
       title: '清理技术债',
       objective: '验证 workflow 内部 cN 草稿能绑定真实 provider 会话',
     });
@@ -784,7 +865,7 @@ test('workflow orphan provider sessions stay out of manual session lists', { con
     await fs.mkdir(projectPath, { recursive: true });
 
     const project = await addProjectManually(projectPath, 'Workflow Orphan Filter Demo');
-    await createProjectWorkflow(project, {
+    await createGoWorkflow(project, {
       title: '实现工作流调度加购',
       objective: '验证未索引的内部会话不会进入手动会话区',
     });

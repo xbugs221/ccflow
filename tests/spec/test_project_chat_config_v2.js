@@ -18,6 +18,7 @@ import {
 import {
   readProjectConf,
   withIsolatedProject,
+  writeActiveOpenSpecChange,
 } from './helpers/conf-v2-fixtures.js';
 import {
   advanceWorkflow,
@@ -175,12 +176,14 @@ test('Scenario: workflow 归一化精简派生字段', async () => {
   });
 });
 
-test('Scenario: workflow 推进时保留已选 provider', async () => {
+test('Scenario: Go-backed workflow 推进时固定 Codex provider', async () => {
   await withIsolatedProject(async ({ projectPath }) => {
     const project = await addProjectManually(projectPath, 'Conf V2 Workflow Provider Demo');
+    const changeName = await writeActiveOpenSpecChange(projectPath, 'provider-fixed-codex');
     const workflow = await createProjectWorkflow(project, {
       title: '多 Claude 阶段',
-      objective: '验证推进后 provider 不回落为 codex',
+      objective: '验证 Go runner 自动阶段不会使用旧 provider 覆盖',
+      openspecChangeName: changeName,
       stageProviders: {
         planning: 'claude',
         execution: 'claude',
@@ -191,13 +194,10 @@ test('Scenario: workflow 推进时保留已选 provider', async () => {
     const advanced = await advanceWorkflow(project, workflow.id);
     const persisted = await readProjectConf(projectPath);
 
-    assert.equal(advanced.stageStatuses.find((stage) => stage.key === 'execution').provider, 'claude');
-    assert.deepEqual(persisted.workflows['1'].providers, {
-      planning: 'claude',
-      execution: 'claude',
-      archive: 'claude',
-    });
-    assert.equal('stageStatuses' in persisted.workflows['1'], false);
+    assert.equal(advanced.stageStatuses.find((stage) => stage.key === 'execution').provider, 'codex');
+    assert.equal('providers' in persisted.workflows['1'], false);
+    assert.equal(persisted.workflows['1'].runner, 'go');
+    assert.equal(persisted.workflows['1'].runnerProvider, 'codex');
   });
 });
 

@@ -488,6 +488,10 @@ function resolveContinueState(workflow: ProjectWorkflow, stageInspections: Workf
   );
   const hasPlanningSession = workflow.childSessions.some((session) => session.stageKey === 'planning');
 
+  if (workflow.runner === 'go') {
+    return { canContinue: false, disabled: true, label: 'Go runner 执行中' };
+  }
+
   if ((isCompletedStatus(getStageStatus('planning')) || hasPlanningSession || hasOpenSpecChange) && !executionStarted) {
     return {
       canContinue: true,
@@ -680,6 +684,32 @@ export default function WorkflowDetailView({
   }, [project.name, workflow.id, workflow.updatedAt, workflow.gateDecision, workflow.runState]);
   useEffect(() => {
     /**
+     * Keep Go runner-backed detail views in sync while state.json/log watchers
+     * broadcast sidebar updates through the shared projects channel.
+     */
+    if (currentWorkflow.runner !== 'go' || currentWorkflow.runState !== 'running') {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const refreshWorkflow = () => {
+      api.projectWorkflow(project.name, workflow.id)
+        .then(async (response) => {
+          if (!response.ok || cancelled) {
+            return;
+          }
+          setFreshWorkflow(await response.json());
+        })
+        .catch(() => undefined);
+    };
+    const intervalId = window.setInterval(refreshWorkflow, 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [currentWorkflow.runner, currentWorkflow.runState, project.name, workflow.id]);
+  useEffect(() => {
+    /**
      * PURPOSE: Close provider dropdown when clicking outside.
      */
     if (!openProviderDropdown) {
@@ -845,7 +875,12 @@ export default function WorkflowDetailView({
   };
 
   const renderNodeAnchor = (nodeId: string, status: string) => (
-    <span ref={registerNodeAnchor(nodeId)} className="relative z-10 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-background">
+    <span
+      ref={registerNodeAnchor(nodeId)}
+      data-node-id={nodeId}
+      data-node-status={normalizeLampStatus(status)}
+      className="relative z-10 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-background"
+    >
       {renderTodoMarker(status)}
     </span>
   );
@@ -1039,6 +1074,15 @@ export default function WorkflowDetailView({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className="text-xl font-semibold text-foreground">{currentWorkflow.title}</h2>
+              {currentWorkflow.runner === 'go' && (
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  <span>Go runner: {currentWorkflow.runId || '未绑定'}</span>
+                  <span>阶段: {currentWorkflow.stage}</span>
+                  <span>状态: {currentWorkflow.runState}</span>
+                  <span>Provider: Codex</span>
+                  {currentWorkflow.runnerError && <span className="text-destructive">{currentWorkflow.runnerError}</span>}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2">

@@ -73,6 +73,9 @@ export const api = {
   settings: {
     timeContext: () => authenticatedFetch('/api/settings/time-context'),
   },
+  diagnostics: {
+    runtimeDependencies: () => authenticatedFetch('/api/diagnostics/runtime-dependencies'),
+  },
 
   // Protected endpoints
   // config endpoint removed - no longer needed (frontend uses window.location)
@@ -123,6 +126,14 @@ export const api = {
     }),
   advanceProjectWorkflow: (projectName, workflowId) =>
     authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/advance`, {
+      method: 'POST',
+    }),
+  resumeProjectWorkflowRun: (projectName, workflowId) =>
+    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/resume-run`, {
+      method: 'POST',
+    }),
+  abortProjectWorkflowRun: (projectName, workflowId) =>
+    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/abort-run`, {
       method: 'POST',
     }),
   projectWorkflowLauncherConfig: (projectName, workflowId, payload) =>

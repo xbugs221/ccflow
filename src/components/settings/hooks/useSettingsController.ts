@@ -91,7 +91,7 @@ type CodexSettingsStorage = {
 
 type ActiveLoginProvider = AgentProvider | '';
 
-const KNOWN_MAIN_TABS: SettingsMainTab[] = ['appearance', 'git', 'api', 'agents'];
+const KNOWN_MAIN_TABS: SettingsMainTab[] = ['appearance', 'git', 'api', 'agents', 'diagnostics'];
 
 /**
  * Resolve external settings tab names into a supported panel, using appearance

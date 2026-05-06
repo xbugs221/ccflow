@@ -1,4 +1,4 @@
-import { GitBranch, Key } from 'lucide-react';
+import { Activity, GitBranch, Key } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { SettingsMainTab } from '../types/types';
 
@@ -10,17 +10,23 @@ type SettingsMainTabsProps = {
 type MainTabConfig = {
   id: SettingsMainTab;
   labelKey: string;
+  defaultLabel: string;
   icon?: typeof GitBranch;
 };
 
 const TAB_CONFIG: MainTabConfig[] = [
-  { id: 'appearance', labelKey: 'mainTabs.appearance' },
-  { id: 'git', labelKey: 'mainTabs.git', icon: GitBranch },
-  { id: 'api', labelKey: 'mainTabs.apiTokens', icon: Key },
-  { id: 'agents', labelKey: 'mainTabs.agents' },
+  { id: 'appearance', labelKey: 'mainTabs.appearance', defaultLabel: 'Appearance' },
+  { id: 'git', labelKey: 'mainTabs.git', defaultLabel: 'Git', icon: GitBranch },
+  { id: 'api', labelKey: 'mainTabs.apiTokens', defaultLabel: 'API Keys', icon: Key },
+  { id: 'agents', labelKey: 'mainTabs.agents', defaultLabel: 'Agents' },
+  { id: 'diagnostics', labelKey: 'mainTabs.diagnostics', defaultLabel: 'Diagnostics', icon: Activity },
 ];
 
 export default function SettingsMainTabs({ activeTab, onChange }: SettingsMainTabsProps) {
+  /**
+   * Render top-level settings tabs including runtime diagnostics for external
+   * workflow binaries.
+   */
   const { t } = useTranslation('settings');
 
   return (
@@ -43,7 +49,7 @@ export default function SettingsMainTabs({ activeTab, onChange }: SettingsMainTa
               }`}
             >
               {Icon && <Icon className="w-4 h-4 inline mr-2" />}
-              {t(tab.labelKey)}
+              {t(tab.labelKey, { defaultValue: tab.defaultLabel })}
             </button>
           );
         })}

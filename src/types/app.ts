@@ -79,6 +79,11 @@ export interface ProjectWorkflow {
   openspecChangePrefix?: string;
   openspecChangeName?: string;
   openspecChangeDetected?: boolean;
+  runner?: string;
+  runnerProvider?: SessionProvider | string;
+  runId?: string;
+  runnerPid?: number;
+  runnerError?: string;
   stage: string;
   runState: string;
   hasUnreadActivity?: boolean;
