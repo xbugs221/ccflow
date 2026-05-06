@@ -90,6 +90,20 @@ async function completeOpenSpecChangeTasks(projectPath) {
   );
 }
 
+/**
+ * Write an externally-created mc state file without touching Web workflow config.
+ */
+async function writeExternalRunState(projectPath, runId, runnerState) {
+  /**
+   * PURPOSE: Model a run started from another terminal where only the Go runner
+   * sealed state exists before the Web control plane lists workflows.
+   */
+  const runDir = path.join(projectPath, '.ccflow', 'runs', runId);
+  await fs.mkdir(path.join(runDir, 'logs'), { recursive: true });
+  await fs.writeFile(path.join(runDir, 'logs', 'executor.log'), 'runner log\n', 'utf8');
+  await fs.writeFile(path.join(runDir, 'state.json'), JSON.stringify(runnerState), 'utf8');
+}
+
 test('Go-backed workflow persists run id and maps state.json into the read model', async () => {
   await withFakeGoWorkflowTools(async (tempRoot) => {
     const projectPath = path.join(tempRoot, 'project');
@@ -324,6 +338,219 @@ test('Go-backed workflow preserves runner child-session routeIndex across proces
     assert.equal(secondRead.childSessions.find((session) => session.id === 'codex-exec-thread')?.routeIndex, 1);
     assert.equal(secondRead.childSessions.find((session) => session.id === 'codex-review-thread')?.routeIndex, 2);
     assert.equal(secondRead.childSessions.find((session) => session.id === 'codex-repair-thread')?.routeIndex, 3);
+  });
+});
+
+test('Go-backed workflow discovers and persists external running mc runs', async () => {
+  await withFakeGoWorkflowTools(async (tempRoot) => {
+    const projectPath = path.join(tempRoot, 'project');
+    await fs.mkdir(projectPath, { recursive: true });
+    await writeOpenSpecChange(projectPath);
+    await writeExternalRunState(projectPath, 'external-run-a', {
+      runId: 'external-run-a',
+      changeName: 'go-change',
+      status: 'running',
+      stage: 'execution',
+      stages: { execution: 'running' },
+      paths: { executor_log: '.ccflow/runs/external-run-a/logs/executor.log' },
+      sessions: {},
+    });
+
+    const importKey = encodeURIComponent(`${tempRoot}-external-running`);
+    const { listProjectWorkflows } = await import(`../../server/workflows.js?go=${importKey}`);
+    const workflows = await listProjectWorkflows(projectPath);
+
+    assert.equal(workflows.length, 1);
+    assert.equal(workflows[0].id, 'w1');
+    assert.equal(workflows[0].runner, 'go');
+    assert.equal(workflows[0].runId, 'external-run-a');
+    assert.equal(workflows[0].openspecChangeName, 'go-change');
+    assert.equal(workflows[0].stage, 'execution');
+    assert.equal(workflows[0].runState, 'running');
+    assert.equal(workflows[0].adoptsExternalGoRun, true);
+    assert.equal(workflows[0].controllerEvents.at(-1)?.type, 'external_go_run_adopted');
+
+    const stored = JSON.parse(await fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'));
+    assert.equal(stored.workflows['1'].runId, 'external-run-a');
+    assert.equal(stored.workflows['1'].adoptsExternalGoRun, true);
+  });
+});
+
+test('Go-backed workflow maps snake_case external state into the read model', async () => {
+  await withFakeGoWorkflowTools(async (tempRoot) => {
+    const projectPath = path.join(tempRoot, 'project');
+    await fs.mkdir(projectPath, { recursive: true });
+    await writeOpenSpecChange(projectPath);
+    await writeExternalRunState(projectPath, 'snake-dir-run', {
+      run_id: 'snake-dir-run',
+      change_name: 'go-change',
+      status: 'done',
+      stage: 'archive',
+      stages: { archive: 'completed' },
+      paths: { executor_log: '.ccflow/runs/snake-dir-run/logs/executor.log' },
+      sessions: {},
+    });
+
+    const importKey = encodeURIComponent(`${tempRoot}-external-snake`);
+    const { listProjectWorkflows } = await import(`../../server/workflows.js?go=${importKey}`);
+    const workflow = (await listProjectWorkflows(projectPath))[0];
+
+    assert.equal(workflow.runId, 'snake-dir-run');
+    assert.equal(workflow.openspecChangeName, 'go-change');
+    assert.equal(workflow.stage, 'archive');
+    assert.equal(workflow.runState, 'completed');
+    assert.ok(workflow.artifacts.some((artifact) => artifact.relativePath === '.ccflow/runs/snake-dir-run/logs/executor.log'));
+  });
+});
+
+test('Go-backed workflow discovery is idempotent and reuses registered runs', async () => {
+  await withFakeGoWorkflowTools(async (tempRoot) => {
+    const projectPath = path.join(tempRoot, 'project');
+    await fs.mkdir(projectPath, { recursive: true });
+    await writeOpenSpecChange(projectPath);
+    await writeExternalRunState(projectPath, 'external-run-a', {
+      run_id: 'external-run-a',
+      change_name: 'go-change',
+      status: 'running',
+      stage: 'execution',
+      stages: { execution: 'running' },
+      paths: {},
+      sessions: {},
+    });
+
+    const importKey = encodeURIComponent(`${tempRoot}-external-idempotent`);
+    const { listProjectWorkflows } = await import(`../../server/workflows.js?go=${importKey}`);
+    const firstRead = await listProjectWorkflows(projectPath);
+    const secondRead = await listProjectWorkflows(projectPath);
+
+    assert.equal(firstRead.length, 1);
+    assert.equal(secondRead.length, 1);
+    assert.equal(firstRead[0].id, 'w1');
+    assert.equal(secondRead[0].id, 'w1');
+
+    const stored = JSON.parse(await fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'));
+    assert.deepEqual(Object.keys(stored.workflows), ['1']);
+  });
+});
+
+test('Go-backed workflow discovery skips already-bound and corrupt external runs', async () => {
+  await withFakeGoWorkflowTools(async (tempRoot) => {
+    const projectPath = path.join(tempRoot, 'project');
+    await fs.mkdir(path.join(projectPath, '.ccflow', 'runs', 'run-abc'), { recursive: true });
+    await writeOpenSpecChange(projectPath);
+    await writeExternalRunState(projectPath, 'run-abc', {
+      run_id: 'run-abc',
+      change_name: 'go-change',
+      status: 'running',
+      stage: 'execution',
+      stages: { execution: 'running' },
+      paths: {},
+      sessions: {},
+    });
+    await fs.mkdir(path.join(projectPath, '.ccflow', 'runs', 'bad-run'), { recursive: true });
+    await fs.writeFile(path.join(projectPath, '.ccflow', 'runs', 'bad-run', 'state.json'), '{bad json', 'utf8');
+    await fs.writeFile(
+      path.join(projectPath, '.ccflow', 'conf.json'),
+      JSON.stringify({
+        version: 2,
+        workflows: {
+          1: {
+            id: 'w1',
+            routeIndex: 1,
+            runner: 'go',
+            runnerProvider: 'codex',
+            runId: 'run-abc',
+            title: 'Existing',
+            objective: 'Existing route',
+            openspecChangeName: 'go-change',
+            stage: 'execution',
+            runState: 'running',
+            chat: {},
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    const importKey = encodeURIComponent(`${tempRoot}-external-dedupe`);
+    const { listProjectWorkflows } = await import(`../../server/workflows.js?go=${importKey}`);
+    const workflows = await listProjectWorkflows(projectPath);
+
+    assert.equal(workflows.length, 1);
+    assert.equal(workflows[0].id, 'w1');
+    assert.equal(workflows[0].runId, 'run-abc');
+  });
+});
+
+test('Go-backed workflow list and detail expose external completed mc runs', async () => {
+  await withFakeGoWorkflowTools(async (tempRoot) => {
+    const projectPath = path.join(tempRoot, 'project');
+    const project = { name: 'project', fullPath: projectPath, path: projectPath };
+    await fs.mkdir(projectPath, { recursive: true });
+    await writeOpenSpecChange(projectPath);
+    await writeExternalRunState(projectPath, 'external-done', {
+      run_id: 'external-done',
+      change_name: 'go-change',
+      status: 'completed',
+      stage: 'archive',
+      stages: { archive: 'completed' },
+      paths: { executor_log: '.ccflow/runs/external-done/logs/executor.log' },
+      sessions: {},
+    });
+
+    const importKey = encodeURIComponent(`${tempRoot}-external-detail`);
+    const { getProjectWorkflow, listProjectWorkflows } = await import(`../../server/workflows.js?go=${importKey}`);
+    const listWorkflow = (await listProjectWorkflows(projectPath))[0];
+    const detailWorkflow = await getProjectWorkflow(project, listWorkflow.id);
+
+    assert.equal(listWorkflow.runState, 'completed');
+    assert.equal(detailWorkflow.runId, 'external-done');
+    assert.equal(detailWorkflow.openspecChangeName, 'go-change');
+    assert.equal(detailWorkflow.stage, 'archive');
+    assert.equal(detailWorkflow.runState, 'completed');
+    assert.ok(detailWorkflow.artifacts.some((artifact) => artifact.relativePath === '.ccflow/runs/external-done/logs/executor.log'));
+    assert.equal(detailWorkflow.controllerEvents.at(-1)?.type, 'external_go_run_adopted');
+  });
+});
+
+test('Go-backed workflow listing registers watchers for newly adopted external runs', async () => {
+  await withFakeGoWorkflowTools(async (tempRoot) => {
+    const projectPath = path.join(tempRoot, 'project');
+    const project = { name: 'project', fullPath: projectPath, path: projectPath };
+    await fs.mkdir(projectPath, { recursive: true });
+    await writeOpenSpecChange(projectPath);
+    await writeExternalRunState(projectPath, 'external-watch', {
+      run_id: 'external-watch',
+      change_name: 'go-change',
+      status: 'running',
+      stage: 'execution',
+      stages: { execution: 'running' },
+      paths: {},
+      sessions: {},
+    });
+
+    const importKey = encodeURIComponent(`${tempRoot}-external-watch`);
+    const { listProjectWorkflows } = await import(`../../server/workflows.js?go=${importKey}`);
+    const { ensureGoRunnerWatchersForProjects } = await import(`../../server/domains/workflows/go-runner-watchers.js?go=${importKey}`);
+    const projects = [{
+      ...project,
+      workflows: await listProjectWorkflows(projectPath),
+    }];
+    const watched = [];
+
+    await ensureGoRunnerWatchersForProjects(projects, async (watchedProject, workflow) => {
+      watched.push({
+        projectPath: watchedProject.fullPath,
+        runner: workflow.runner,
+        runId: workflow.runId,
+      });
+    });
+
+    assert.deepEqual(watched, [{
+      projectPath,
+      runner: 'go',
+      runId: 'external-watch',
+    }]);
   });
 });
 

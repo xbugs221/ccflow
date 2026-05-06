@@ -134,6 +134,7 @@ import {
     checkRequiredRuntimeDependencies,
     getRuntimeDependencyDiagnostics,
 } from './runtime-dependencies.js';
+import { ensureGoRunnerWatchersForProjects } from './domains/workflows/go-runner-watchers.js';
 
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true });
@@ -562,16 +563,12 @@ async function watchGoWorkflowRun(project, workflow) {
 }
 
 /**
- * Recreate Go runner watchers for all persisted Go-backed workflows on startup.
+ * Recreate Go runner watchers for all visible Go-backed workflows on startup.
  */
 async function setupGoRunnerWatchers() {
     await closeGoRunnerWatchers();
     const projects = await attachWorkflowMetadata(await getProjects());
-    for (const project of projects) {
-        for (const workflow of project.workflows || []) {
-            await watchGoWorkflowRun(project, workflow);
-        }
-    }
+    await ensureGoRunnerWatchersForProjects(projects, watchGoWorkflowRun);
 }
 
 // Setup file system watchers for Claude and Codex project/session folders
@@ -920,7 +917,9 @@ app.post('/api/system/update', authenticateToken, async (req, res) => {
 app.get('/api/projects', authenticateToken, async (req, res) => {
     try {
         const projects = await getProjects(broadcastProgress);
-        res.json(await attachWorkflowMetadata(projects));
+        const projectsWithWorkflows = await attachWorkflowMetadata(projects);
+        await ensureGoRunnerWatchersForProjects(projectsWithWorkflows, watchGoWorkflowRun);
+        res.json(projectsWithWorkflows);
     } catch (error) {
         res.status(error.statusCode || 500).json({ error: error.message });
     }
@@ -929,6 +928,7 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
 app.get('/api/projects/:projectName/workflows', authenticateToken, async (req, res) => {
     try {
         const projects = await attachWorkflowMetadata(await getProjects());
+        await ensureGoRunnerWatchersForProjects(projects, watchGoWorkflowRun);
         const project = findProjectByName(projects, req.params.projectName);
         if (!project) {
             return res.status(404).json({ error: 'Project not found' });

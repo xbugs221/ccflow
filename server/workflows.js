@@ -1025,6 +1025,176 @@ async function readWorkflowStore(projectPath) {
   };
 }
 
+/**
+ * Read one external Go runner state file without letting bad JSON affect the
+ * rest of workflow discovery.
+ */
+async function readExternalGoRunnerState(statePath) {
+  /**
+   * PURPOSE: Keep ccflow run state discovery isolated so a partial
+   * or corrupt runner write cannot break the whole project workflow list.
+   */
+  try {
+    return { state: JSON.parse(await fs.readFile(statePath, 'utf8')), error: '' };
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return { state: null, error: '' };
+    }
+    return { state: null, error: error?.message || String(error) };
+  }
+}
+
+/**
+ * Normalize the runner's camelCase and snake_case state fields into the Web
+ * workflow control-plane contract.
+ */
+function normalizeExternalGoRunnerState(runDirName, runnerState = {}) {
+  /**
+   * PURPOSE: Treat the run directory name as the final stable key while
+   * accepting both Go runner state field styles used by mc.
+   */
+  const runId = String(runnerState.runId || runnerState.run_id || runDirName || '').trim();
+  const changeName = String(runnerState.changeName || runnerState.change_name || '').trim();
+  const status = String(runnerState.status || '').trim().toLowerCase();
+  const stage = String(runnerState.stage || 'execution').trim() || 'execution';
+  return {
+    runId,
+    changeName,
+    status,
+    stage,
+    runState: ['completed', 'done', 'archived'].includes(status)
+      ? 'completed'
+      : ['failed', 'error', 'aborted'].includes(status)
+        ? 'blocked'
+        : 'running',
+  };
+}
+
+/**
+ * Discover external mc runs by scanning only the stable state file locations.
+ */
+async function discoverExternalGoRuns(projectPath) {
+  /**
+   * PURPOSE: Find runner-owned facts that were created outside the Web UI
+   * without recursively reading logs, artifacts, or provider session content.
+   */
+  const runsRoot = path.join(projectPath, '.ccflow', 'runs');
+  let entries = [];
+  try {
+    entries = await fs.readdir(runsRoot, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+
+  const discovered = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const runDirName = entry.name;
+    const { state, error } = await readExternalGoRunnerState(path.join(runsRoot, runDirName, 'state.json'));
+    if (!state) {
+      if (error) {
+        console.error(`[WARN] Skipping unreadable Go runner state for ${runDirName}: ${error}`);
+      }
+      continue;
+    }
+    const normalized = normalizeExternalGoRunnerState(runDirName, state);
+    if (!normalized.runId) {
+      continue;
+    }
+    discovered.push({
+      ...normalized,
+      runDirName,
+      runnerState: state,
+    });
+  }
+  return discovered.sort((left, right) => left.runDirName.localeCompare(right.runDirName));
+}
+
+/**
+ * Return the set of runner ids already owned by persisted workflow records.
+ */
+function collectRegisteredGoRunIds(workflows = []) {
+  /**
+   * PURPOSE: Prevent route duplication even when records use a mix of persisted
+   * run ids and runner state aliases.
+   */
+  const runIds = new Set();
+  for (const workflow of workflows) {
+    const candidates = [
+      workflow?.runId,
+      workflow?.runnerState?.runId,
+      workflow?.runnerState?.run_id,
+    ];
+    for (const candidate of candidates) {
+      const normalized = String(candidate || '').trim();
+      if (normalized) {
+        runIds.add(normalized);
+      }
+    }
+  }
+  return runIds;
+}
+
+/**
+ * Append minimal workflow records for external Go runner runs that are not yet
+ * present in `.ccflow/conf.json`.
+ */
+function adoptExternalGoRuns(workflows = [], externalRuns = []) {
+  /**
+   * PURPOSE: Give externally-started mc runs stable wN routes by persisting a
+   * small control-plane record before the normal read-model overlay runs.
+   */
+  const adoptedWorkflows = [...workflows];
+  const registeredRunIds = collectRegisteredGoRunIds(adoptedWorkflows);
+  let maxRouteIndex = adoptedWorkflows.reduce((maxValue, workflow) => {
+    const routeIndex = parseWorkflowRouteIndex(workflow?.id) || Number(workflow?.routeIndex);
+    return Number.isInteger(routeIndex) && routeIndex > maxValue ? routeIndex : maxValue;
+  }, 0);
+  let changed = false;
+
+  for (const run of externalRuns) {
+    const aliases = [run.runId, run.runDirName].map((value) => String(value || '').trim()).filter(Boolean);
+    if (aliases.some((alias) => registeredRunIds.has(alias))) {
+      continue;
+    }
+    maxRouteIndex += 1;
+    const workflowId = buildWorkflowId(maxRouteIndex);
+    const title = run.changeName || run.runId;
+    const adoptedAt = new Date().toISOString();
+    adoptedWorkflows.push({
+      id: workflowId,
+      routeIndex: maxRouteIndex,
+      runner: 'go',
+      runnerProvider: 'codex',
+      runId: run.runId,
+      title,
+      objective: title,
+      openspecChangeName: run.changeName,
+      stage: run.stage,
+      runState: run.runState,
+      adoptsExternalGoRun: true,
+      updatedAt: adoptedAt,
+      controllerEvents: [{
+        id: `external-go-run-${run.runId}`,
+        type: 'external_go_run_adopted',
+        title: '外部 mc run 已接管',
+        summary: `run ${run.runId} 来自 .ccflow/runs/${run.runDirName}/state.json`,
+        status: 'completed',
+        createdAt: adoptedAt,
+      }],
+    });
+    aliases.forEach((alias) => registeredRunIds.add(alias));
+    changed = true;
+  }
+
+  return { workflows: adoptedWorkflows, changed };
+}
+
 async function writeWorkflowStore(projectPath, store, options = {}) {
   const config = await readProjectConfig(projectPath);
   const nextConfig = {
@@ -1126,6 +1296,7 @@ function compactWorkflowForStore(workflow = {}) {
   if (workflow.runId) compact.runId = workflow.runId;
   if (workflow.runnerPid) compact.runnerPid = workflow.runnerPid;
   if (workflow.adoptsExistingOpenSpec === true) compact.adoptsExistingOpenSpec = true;
+  if (workflow.adoptsExternalGoRun === true) compact.adoptsExternalGoRun = true;
   if (workflow.openspecChangePrefix && !workflow.openspecChangeName) compact.openspecChangePrefix = workflow.openspecChangePrefix;
   if (workflow.openspecChangeName) compact.openspecChangeName = workflow.openspecChangeName;
   if (stage !== 'planning') compact.stage = stage;
@@ -2883,7 +3054,16 @@ async function applyGoRunnerReadModel(projectPath, workflow) {
   if (workflow.runner !== 'go' || !workflow.runId) {
     return workflow;
   }
-  const runnerState = await readGoWorkflowState(projectPath, workflow.runId);
+  let runnerState = null;
+  try {
+    runnerState = await readGoWorkflowState(projectPath, workflow.runId);
+  } catch (error) {
+    return {
+      ...workflow,
+      runState: 'blocked',
+      runnerError: `Go runner state is unreadable for run ${workflow.runId}: ${error?.message || String(error)}`,
+    };
+  }
   if (!runnerState) {
     return {
       ...workflow,
@@ -2896,6 +3076,7 @@ async function applyGoRunnerReadModel(projectPath, workflow) {
   const runnerProcesses = buildGoRunnerProcesses(runnerState, stageStatuses);
   return {
     ...workflow,
+    runId: String(runnerState.runId || runnerState.run_id || workflow.runId || ''),
     openspecChangeName: String(runnerState.changeName || runnerState.change_name || workflow.openspecChangeName || ''),
     stage: String(runnerState.stage || workflow.stage || 'execution'),
     runState: ['completed', 'done', 'archived'].includes(runnerStatus)
@@ -3013,9 +3194,14 @@ export async function listProjectWorkflows(projectPath) {
 
   const store = await readWorkflowStore(projectPath);
   const entry = store;
+  const discoveredGoRuns = await discoverExternalGoRuns(projectPath);
+  const adoptedGoRuns = adoptExternalGoRuns(Array.isArray(entry?.workflows) ? entry.workflows : [], discoveredGoRuns);
+  if (adoptedGoRuns.changed) {
+    entry.workflows = adoptedGoRuns.workflows;
+  }
   const indexedWorkflows = assignMissingWorkflowRouteIndices(Array.isArray(entry?.workflows) ? entry.workflows : []);
   const workflows = indexedWorkflows.workflows;
-  let storeChanged = false;
+  let storeChanged = adoptedGoRuns.changed;
   if (indexedWorkflows.changed) {
     storeChanged = true;
   }
