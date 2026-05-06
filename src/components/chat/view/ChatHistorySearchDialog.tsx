@@ -8,16 +8,23 @@ import type { SessionProvider } from '../../../types/app';
 import { api } from '../../../utils/api';
 
 type ChatSearchResult = {
+  resultType?: 'message' | 'session';
   projectName: string;
   projectDisplayName: string;
   provider: SessionProvider;
   sessionId: string;
+  routeIndex?: number;
+  workflowId?: string;
+  workflowRouteIndex?: number;
   sessionSummary: string;
-  messageKey: string;
+  messageKey?: string;
   snippet: string;
+  thread?: string;
+  sessionFileName?: string;
 };
 
 type ChatSearchStatus = 'idle' | 'loading' | 'success-empty' | 'success-hit' | 'error';
+type ChatSearchMode = 'jsonl' | 'content';
 
 type ChatHistorySearchDialogProps = {
   isOpen: boolean;
@@ -27,6 +34,9 @@ type ChatHistorySearchDialogProps = {
     options?: {
       provider?: SessionProvider;
       projectName?: string;
+      routeIndex?: number;
+      workflowId?: string;
+      workflowRouteIndex?: number;
       routeSearch?: Record<string, string>;
     },
   ) => void;
@@ -87,6 +97,7 @@ export default function ChatHistorySearchDialog({
   const [results, setResults] = useState<ChatSearchResult[]>([]);
   const [status, setStatus] = useState<ChatSearchStatus>('idle');
   const [error, setError] = useState('');
+  const [mode, setMode] = useState<ChatSearchMode>('jsonl');
 
   useEffect(() => {
     if (!isOpen) {
@@ -134,7 +145,7 @@ export default function ChatHistorySearchDialog({
     setError('');
     setStatus('loading');
     try {
-      const response = await api.chatSearch(trimmedQuery);
+      const response = await api.chatSearch(trimmedQuery, mode);
       const nextResults = await parseChatSearchResponse(response);
       setResults(nextResults);
       setStatus(nextResults.length > 0 ? 'success-hit' : 'success-empty');
@@ -144,7 +155,7 @@ export default function ChatHistorySearchDialog({
       setError(searchError instanceof Error ? searchError.message : 'Failed to search chat history');
       setStatus('error');
     }
-  }, [query]);
+  }, [mode, query]);
 
   if (!isOpen) {
     return null;
@@ -164,13 +175,38 @@ export default function ChatHistorySearchDialog({
             void runSearch();
           }}
         >
+          <div className="mb-3 flex rounded-md border border-border p-1">
+            {[
+              { value: 'jsonl' as const, label: 'JSONL 文件名/thread' },
+              { value: 'content' as const, label: '文件内容' },
+            ].map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                data-testid={`chat-history-search-mode-${option.value}`}
+                className={[
+                  'h-8 flex-1 rounded px-2 text-sm',
+                  mode === option.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted/60',
+                ].join(' ')}
+                onClick={() => {
+                  setMode(option.value);
+                  setResults([]);
+                  setError('');
+                  setStatus(query.trim() ? 'idle' : 'idle');
+                  inputRef.current?.focus();
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <input
             ref={inputRef}
             data-testid="chat-history-search-input"
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('search.placeholder')}
+            placeholder={mode === 'jsonl' ? '搜索 JSONL 文件名或 thread' : t('search.placeholder')}
             className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
         </form>
@@ -199,7 +235,7 @@ export default function ChatHistorySearchDialog({
               data-testid="chat-history-search-empty"
               className="px-4 py-4 text-sm text-muted-foreground"
             >
-              {t('search.noMatches')}
+              {mode === 'jsonl' ? '没有匹配的 JSONL 文件名或 thread。' : t('search.noMatches')}
             </div>
           )}
 
@@ -214,19 +250,25 @@ export default function ChatHistorySearchDialog({
 
           {status === 'success-hit' && results.map((result) => (
             <button
-              key={`${result.sessionId}:${result.messageKey}`}
+              key={`${result.sessionId}:${result.messageKey || result.sessionFileName || result.thread || 'session'}`}
               type="button"
               data-testid="chat-history-search-result"
               className="w-full border-b border-border/40 px-4 py-3 text-left transition-colors hover:bg-muted/40 last:border-b-0"
               onClick={() => {
                 onClose();
+                const routeSearch = result.resultType === 'session' || !result.messageKey
+                  ? undefined
+                  : {
+                      chatSearch: query.trim(),
+                      messageKey: result.messageKey,
+                    };
                 onNavigateToSession?.(result.sessionId, {
                   projectName: result.projectName,
                   provider: result.provider,
-                  routeSearch: {
-                    chatSearch: query.trim(),
-                    messageKey: result.messageKey,
-                  },
+                  routeIndex: result.routeIndex,
+                  workflowId: result.workflowId,
+                  workflowRouteIndex: result.workflowRouteIndex,
+                  routeSearch,
                 });
               }}
             >
@@ -234,6 +276,9 @@ export default function ChatHistorySearchDialog({
                 {result.projectDisplayName} · {result.provider === 'codex' ? 'Codex' : 'Claude'}
               </div>
               <div className="text-sm font-medium">{result.sessionSummary}</div>
+              {result.resultType === 'session' && result.thread && (
+                <div className="font-mono text-xs text-muted-foreground">thread: {result.thread}</div>
+              )}
               <div className="text-sm text-muted-foreground">{result.snippet}</div>
             </button>
           ))}

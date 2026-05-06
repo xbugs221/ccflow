@@ -452,6 +452,26 @@ function matchesSearchQuery(text, query) {
 }
 
 /**
+ * Derive the Codex resume thread from a JSONL file name.
+ * @param {string} filePath - Codex JSONL path or basename.
+ * @returns {{ thread: string, sessionFileName: string }} Resume thread and display filename.
+ */
+function deriveCodexThreadFromJsonlPath(filePath) {
+  const sessionFileName = path.basename(String(filePath || ''));
+  const rolloutMatch = sessionFileName.match(
+    /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(.+)\.jsonl$/,
+  );
+  const fallbackThread = sessionFileName.endsWith('.jsonl')
+    ? sessionFileName.slice(0, -'.jsonl'.length)
+    : sessionFileName;
+
+  return {
+    thread: rolloutMatch?.[1] || fallbackThread,
+    sessionFileName,
+  };
+}
+
+/**
  * Resolve a Codex session ID to its on-disk JSONL path with memoization.
  * @param {string} sessionId - Codex session identifier.
  * @returns {Promise<string | null>} Matching JSONL path if found.
@@ -4642,6 +4662,9 @@ async function buildCodexSessionsIndex() {
         lastActivity: sessionData.timestamp ? new Date(sessionData.timestamp) : new Date(),
         cwd: sessionData.cwd,
         model: sessionData.model,
+        thread: sessionData.thread,
+        sessionFileName: sessionData.sessionFileName,
+        sourceSessionId: sessionData.sourceSessionId,
         filePath,
         provider: 'codex',
       }, workflowMetadataById, 'codex');
@@ -4880,6 +4903,7 @@ async function populateProjectCollections(project, projectName, actualProjectDir
 // Parse a Codex session JSONL file to extract metadata
 async function parseCodexSessionFile(filePath) {
   try {
+    const { thread, sessionFileName } = deriveCodexThreadFromJsonlPath(filePath);
     const fileStream = fsSync.createReadStream(filePath);
     const rl = readline.createInterface({
       input: fileStream,
@@ -4944,6 +4968,10 @@ async function parseCodexSessionFile(filePath) {
     if (sessionMeta) {
       return {
         ...sessionMeta,
+        id: thread,
+        sourceSessionId: sessionMeta.id,
+        thread,
+        sessionFileName,
         createdAt: sessionMeta.timestamp || firstTimestamp || lastTimestamp,
         timestamp: lastTimestamp || sessionMeta.timestamp,
         summary: firstUserMessage ?
@@ -4957,9 +4985,10 @@ async function parseCodexSessionFile(filePath) {
       const fixtureProjectPath = path.join(os.homedir(), 'workspace', 'fixture-project');
       const fallbackCwd = inferredCwd || (fsSync.existsSync(fixtureProjectPath) ? fixtureProjectPath : null);
       if (fallbackCwd) {
-        const id = path.basename(filePath, '.jsonl');
         return {
-          id,
+          id: thread,
+          thread,
+          sessionFileName,
           cwd: fallbackCwd,
           model: null,
           createdAt: firstTimestamp || lastTimestamp || new Date().toISOString(),
@@ -5568,15 +5597,56 @@ function extractCodexSearchableMessages(rawMessages) {
 }
 
 /**
- * Search across visible Claude and Codex session transcripts.
+ * Find workflow routing metadata for a provider session id.
+ * @param {Record<string, unknown>} project - Project read model.
+ * @param {string} sessionId - Provider session id.
+ * @returns {{ workflowId: string, workflowRouteIndex: number | undefined, routeIndex: number | undefined } | null}
+ */
+function findWorkflowSessionRoute(project, sessionId) {
+  const workflows = Array.isArray(project?.workflows) ? project.workflows : [];
+  for (const workflow of workflows) {
+    const workflowRouteIndex = Number.isInteger(Number(workflow.routeIndex))
+      ? Number(workflow.routeIndex)
+      : Number.parseInt(String(workflow.id || '').replace(/^w/, ''), 10);
+    const childSession = Array.isArray(workflow.childSessions)
+      ? workflow.childSessions.find((session) => session?.id === sessionId)
+      : null;
+    if (childSession) {
+      return {
+        workflowId: workflow.id,
+        workflowRouteIndex,
+        routeIndex: childSession.routeIndex,
+      };
+    }
+    const runnerProcess = Array.isArray(workflow.runnerProcesses)
+      ? workflow.runnerProcesses.find((process) => process?.sessionId === sessionId)
+      : null;
+    if (runnerProcess) {
+      const routeIndex = Array.isArray(workflow.childSessions)
+        ? workflow.childSessions.find((session) => session?.id === sessionId)?.routeIndex
+        : undefined;
+      return {
+        workflowId: workflow.id,
+        workflowRouteIndex,
+        routeIndex,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Search across visible Claude/Codex transcripts or Codex JSONL identities.
  * @param {string} query
+ * @param {'content' | 'jsonl'} [mode='content']
  * @returns {Promise<Array<Record<string, unknown>>>}
  */
-async function searchChatHistory(query) {
+async function searchChatHistory(query, mode = 'content') {
   const trimmedQuery = String(query || '').trim();
   if (!trimmedQuery) {
     return [];
   }
+  const searchMode = mode === 'jsonl' ? 'jsonl' : 'content';
 
   clearProjectDirectoryCache();
   clearSessionPathExistenceCache();
@@ -5594,32 +5664,62 @@ async function searchChatHistory(query) {
     const claudeSessions = Array.isArray(claudeSessionResult?.sessions)
       ? claudeSessionResult.sessions
       : [];
-    for (const session of claudeSessions) {
-      const sessionPayload = await getSessionMessages(project.name, session.id, null, 0, null);
-      const rawMessages = Array.isArray(sessionPayload) ? sessionPayload : sessionPayload.messages || [];
-      const searchableMessages = extractClaudeSearchableMessages(rawMessages, session.id);
+    if (searchMode === 'content') {
+      for (const session of claudeSessions) {
+        const sessionPayload = await getSessionMessages(project.name, session.id, null, 0, null);
+        const rawMessages = Array.isArray(sessionPayload) ? sessionPayload : sessionPayload.messages || [];
+        const searchableMessages = extractClaudeSearchableMessages(rawMessages, session.id);
 
-      for (const message of searchableMessages) {
-        if (!matchesSearchQuery(message.text, trimmedQuery)) {
-          continue;
+        for (const message of searchableMessages) {
+          if (!matchesSearchQuery(message.text, trimmedQuery)) {
+            continue;
+          }
+
+          results.push({
+            resultType: 'message',
+            projectName: project.name,
+            projectDisplayName: project.displayName,
+            provider: 'claude',
+            sessionId: session.id,
+            sessionSummary: session.summary || session.title || 'Claude Session',
+            messageKey: message.messageKey,
+            snippet: buildSearchSnippet(message.text, trimmedQuery),
+            timestamp: message.timestamp || session.updated_at || session.lastActivity || session.createdAt || null,
+          });
         }
-
-        results.push({
-          projectName: project.name,
-          projectDisplayName: project.displayName,
-          provider: 'claude',
-          sessionId: session.id,
-          sessionSummary: session.summary || session.title || 'Claude Session',
-          messageKey: message.messageKey,
-          snippet: buildSearchSnippet(message.text, trimmedQuery),
-          timestamp: message.timestamp || session.updated_at || session.lastActivity || session.createdAt || null,
-        });
       }
     }
 
     const codexSessions = Array.isArray(project.codexSessions) ? project.codexSessions : [];
     for (const session of codexSessions) {
       seenCodexSessionIds.add(session.id);
+      if (searchMode === 'jsonl') {
+        const identityText = [
+          session.thread,
+          session.sessionFileName,
+          path.basename(session.sessionFileName || '', '.jsonl'),
+        ].filter(Boolean).join('\n');
+        if (!matchesSearchQuery(identityText, trimmedQuery)) {
+          continue;
+        }
+
+        results.push({
+          resultType: 'session',
+          projectName: project.name,
+          projectDisplayName: project.displayName,
+          provider: 'codex',
+          sessionId: session.id,
+          routeIndex: session.routeIndex,
+          ...findWorkflowSessionRoute(project, session.id),
+          sessionSummary: session.summary || session.title || 'Codex Session',
+          thread: session.thread || session.id,
+          sessionFileName: session.sessionFileName,
+          snippet: session.sessionFileName || session.thread || session.id,
+          timestamp: session.updated_at || session.lastActivity || session.createdAt || null,
+        });
+        continue;
+      }
+
       const sessionPayload = await getCodexSessionMessages(session.id, null, 0, null);
       const rawMessages = Array.isArray(sessionPayload?.messages) ? sessionPayload.messages : [];
       const searchableMessages = extractCodexSearchableMessages(rawMessages);
@@ -5630,10 +5730,12 @@ async function searchChatHistory(query) {
         }
 
         results.push({
+          resultType: 'message',
           projectName: project.name,
           projectDisplayName: project.displayName,
           provider: 'codex',
           sessionId: session.id,
+          routeIndex: session.routeIndex,
           sessionSummary: session.summary || session.title || 'Codex Session',
           messageKey: message.messageKey,
           snippet: buildSearchSnippet(message.text, trimmedQuery),
@@ -5645,6 +5747,7 @@ async function searchChatHistory(query) {
 
   const codexSessionFiles = await listCodexSessionFiles();
   for (const sessionFilePath of codexSessionFiles) {
+    const { thread, sessionFileName } = deriveCodexThreadFromJsonlPath(sessionFilePath);
     let sessionMeta = null;
 
     try {
@@ -5662,7 +5765,8 @@ async function searchChatHistory(query) {
         const entry = JSON.parse(line);
         if (entry.type === 'session_meta' && entry.payload?.id) {
           sessionMeta = {
-            id: entry.payload.id,
+            id: thread,
+            sourceSessionId: entry.payload.id,
             cwd: entry.payload.cwd || '',
           };
           break;
@@ -5677,6 +5781,30 @@ async function searchChatHistory(query) {
     }
 
     const project = projectByPath.get(normalizeComparablePath(sessionMeta.cwd || '')) || null;
+    if (searchMode === 'jsonl') {
+      const identityText = [thread, sessionFileName, path.basename(sessionFileName, '.jsonl')]
+        .filter(Boolean)
+        .join('\n');
+      if (!matchesSearchQuery(identityText, trimmedQuery)) {
+        continue;
+      }
+
+      results.push({
+        resultType: 'session',
+        projectName: project?.name || encodeProjectPathAsName(sessionMeta.cwd || ''),
+        projectDisplayName: project?.displayName || path.basename(sessionMeta.cwd || '') || 'Codex Session',
+        provider: 'codex',
+        sessionId: thread,
+        ...(project ? findWorkflowSessionRoute(project, thread) : null),
+        sessionSummary: 'Codex Session',
+        thread,
+        sessionFileName,
+        snippet: sessionFileName,
+        timestamp: null,
+      });
+      continue;
+    }
+
     const sessionPayload = await getCodexSessionMessages(sessionMeta.id, null, 0, null);
     const rawMessages = Array.isArray(sessionPayload?.messages) ? sessionPayload.messages : [];
     const searchableMessages = extractCodexSearchableMessages(rawMessages);
@@ -5687,10 +5815,11 @@ async function searchChatHistory(query) {
       }
 
       results.push({
+        resultType: 'message',
         projectName: project?.name || encodeProjectPathAsName(sessionMeta.cwd || ''),
         projectDisplayName: project?.displayName || path.basename(sessionMeta.cwd || '') || 'Codex Session',
         provider: 'codex',
-        sessionId: sessionMeta.id,
+        sessionId: thread,
         sessionSummary: 'Codex Session',
         messageKey: message.messageKey,
         snippet: buildSearchSnippet(message.text, trimmedQuery),

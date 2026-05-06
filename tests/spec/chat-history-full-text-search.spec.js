@@ -9,12 +9,15 @@ import { PLAYWRIGHT_FIXTURE_HOME } from '../e2e/helpers/playwright-fixture.js';
 import {
   PRIMARY_FIXTURE_PROJECT_PATH,
   authenticatePage,
+  openFixtureProject,
   resetWorkspaceProject,
 } from './helpers/spec-test-helpers.js';
 
 const CHAT_SEARCH_INPUT = '[data-testid="chat-history-search-input"]';
 const CHAT_SEARCH_RESULTS = '[data-testid="chat-history-search-results"]';
 const CHAT_SEARCH_RESULT = '[data-testid="chat-history-search-result"]';
+const CHAT_SEARCH_MODE_CONTENT = '[data-testid="chat-history-search-mode-content"]';
+const CHAT_SEARCH_MODE_JSONL = '[data-testid="chat-history-search-mode-jsonl"]';
 const OPEN_CHAT_SEARCH = '[data-testid="open-chat-history-search"]';
 const CHAT_SEARCH_HIGHLIGHT = '.chat-search-highlight';
 
@@ -83,6 +86,34 @@ async function writeCodexSession({ sessionId, entries }) {
 }
 
 /**
+ * Write one Codex JSONL fixture with a custom JSONL basename.
+ *
+ * @param {{
+ *   fileName: string,
+ *   entries: Array<Record<string, unknown>>,
+ * }} params
+ * @returns {Promise<void>}
+ */
+async function writeCodexSessionFile({ fileName, entries }) {
+  const codexDir = path.join(
+    PLAYWRIGHT_FIXTURE_HOME,
+    '.codex',
+    'sessions',
+    '2026',
+    '04',
+    '30',
+  );
+  const sessionPath = path.join(codexDir, fileName);
+
+  await fs.mkdir(codexDir, { recursive: true });
+  await fs.writeFile(
+    sessionPath,
+    entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n',
+    'utf8',
+  );
+}
+
+/**
  * Build a minimal Claude transcript with stable ordering and timestamps.
  *
  * @param {{
@@ -135,11 +166,15 @@ function buildCodexTranscript({ sessionId, records }) {
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} query
+ * @param {'content' | 'jsonl'} [mode]
  * @returns {Promise<import('@playwright/test').Locator>}
  */
-async function runChatSearch(page, query) {
+async function runChatSearch(page, query, mode = 'content') {
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.locator(OPEN_CHAT_SEARCH).first().click();
+  await expect(page.locator(CHAT_SEARCH_MODE_JSONL)).toBeVisible();
+  await expect(page.locator(CHAT_SEARCH_MODE_CONTENT)).toBeVisible();
+  await page.locator(mode === 'jsonl' ? CHAT_SEARCH_MODE_JSONL : CHAT_SEARCH_MODE_CONTENT).click();
   await expect(page.locator(CHAT_SEARCH_INPUT)).toBeVisible();
   await page.locator(CHAT_SEARCH_INPUT).fill(query);
   await page.locator(CHAT_SEARCH_INPUT).press('Enter');
@@ -392,4 +427,139 @@ test('opening a search result highlights every match occurrence inside the targe
   const targetMessage = page.locator('.chat-message').filter({ hasText: repeatedMessage }).first();
   await expect(targetMessage).toBeVisible();
   await expect(targetMessage.locator(CHAT_SEARCH_HIGHLIGHT)).toHaveCount(2);
+});
+
+test('search mode choices are visible before submitting a chat-history search', async ({ page }) => {
+  /** Scenario: 用户必须选择搜索模式 */
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.locator(OPEN_CHAT_SEARCH).first().click();
+
+  await expect(page.locator(CHAT_SEARCH_MODE_JSONL)).toHaveText('JSONL 文件名/thread');
+  await expect(page.locator(CHAT_SEARCH_MODE_CONTENT)).toHaveText('文件内容');
+  await expect(page.locator(CHAT_SEARCH_INPUT)).toHaveAttribute('placeholder', /JSONL 文件名或 thread/);
+});
+
+test('JSONL file name search opens Codex rollout thread without message targeting', async ({ page }) => {
+  /** Scenario: 搜索 Codex rollout 文件名中的 thread 段 */
+  /** Scenario: 搜索完整 Codex JSONL 文件名 */
+  /** Scenario: 会话级 thread 命中可以打开目标会话 */
+  const thread = '019dda10-ba67-7973-ac49-3ae9102d38cd';
+  const fileName = `rollout-2026-04-30T00-27-02-${thread}.jsonl`;
+
+  await writeCodexSessionFile({
+    fileName,
+    entries: buildCodexTranscript({
+      sessionId: 'payload-id-that-is-not-the-resume-thread',
+      records: [
+        {
+          timestamp: '2026-04-30T00:27:03.000Z',
+          type: 'event_msg',
+          payload: {
+            type: 'user_message',
+            message: 'This body intentionally omits the rollout thread token.',
+          },
+        },
+      ],
+    }),
+  });
+
+  const threadResults = await runChatSearch(page, thread, 'jsonl');
+  await expect(threadResults.filter({ hasText: thread })).toHaveCount(1);
+  await expect(threadResults.filter({ hasText: fileName })).toHaveCount(1);
+
+  await threadResults.first().click();
+  await expect(page).toHaveURL(new RegExp(`/session/${thread}\\?`));
+  await expect(page).not.toHaveURL(/messageKey=/);
+  await expect(page.getByText(`codex --dangerously-bypass-approvals-and-sandbox resume ${thread}`)).toBeVisible();
+
+  const fileNameResults = await runChatSearch(page, fileName, 'jsonl');
+  await expect(fileNameResults.filter({ hasText: thread })).toHaveCount(1);
+});
+
+test('content search does not match Codex rollout thread when only the file name contains it', async ({ page }) => {
+  /** Scenario: 文件内容模式不匹配 JSONL 文件名 */
+  const thread = '119dda10-ba67-7973-ac49-3ae9102d38cd';
+
+  await writeCodexSessionFile({
+    fileName: `rollout-2026-04-30T00-27-02-${thread}.jsonl`,
+    entries: buildCodexTranscript({
+      sessionId: 'payload-id-for-content-isolation',
+      records: [
+        {
+          timestamp: '2026-04-30T00:27:03.000Z',
+          type: 'event_msg',
+          payload: {
+            type: 'user_message',
+            message: 'The transcript has useful content but no rollout identifier.',
+          },
+        },
+      ],
+    }),
+  });
+
+  await runChatSearch(page, thread, 'content');
+  await expect(page.locator('[data-testid="chat-history-search-empty"]')).toBeVisible();
+});
+
+test('search mode keeps same thread token separated between JSONL and content results', async ({ page }) => {
+  /** Scenario: 同一字符串在不同模式下分别命中不同来源 */
+  const token = 'shared-thread-and-message-token';
+
+  await writeCodexSessionFile({
+    fileName: `rollout-2026-04-30T00-27-02-${token}.jsonl`,
+    entries: buildCodexTranscript({
+      sessionId: 'payload-id-for-shared-token',
+      records: [
+        {
+          timestamp: '2026-04-30T00:27:03.000Z',
+          type: 'event_msg',
+          payload: {
+            type: 'user_message',
+            message: `A visible message also contains ${token}.`,
+          },
+        },
+      ],
+    }),
+  });
+
+  const jsonlResults = await runChatSearch(page, token, 'jsonl');
+  await expect(jsonlResults).toHaveCount(1);
+  await expect(jsonlResults.first()).toContainText(`thread: ${token}`);
+
+  const contentResults = await runChatSearch(page, token, 'content');
+  await expect(contentResults).toHaveCount(1);
+  await expect(contentResults.first()).not.toContainText(`thread: ${token}`);
+});
+
+test('JSONL thread search opens a workflow child session when the runner owns the thread', async ({ page }) => {
+  /** Scenario: workflow runner 输出的 thread 可被搜索打开 */
+  const thread = 'codex-runner-execution-thread';
+
+  await openFixtureProject(page);
+  await writeCodexSessionFile({
+    fileName: `${thread}.jsonl`,
+    entries: buildCodexTranscript({
+      sessionId: thread,
+      records: [
+        {
+          timestamp: '2026-04-30T00:27:03.000Z',
+          type: 'event_msg',
+          payload: {
+            type: 'user_message',
+            message: 'Runner-owned Codex transcript for workflow navigation.',
+          },
+        },
+      ],
+    }),
+  });
+
+  await page.locator(OPEN_CHAT_SEARCH).first().click();
+  await page.locator(CHAT_SEARCH_MODE_JSONL).click();
+  await page.locator(CHAT_SEARCH_INPUT).fill(thread);
+  await page.locator(CHAT_SEARCH_INPUT).press('Enter');
+  const results = page.locator(CHAT_SEARCH_RESULT);
+  await expect(results.filter({ hasText: thread })).toHaveCount(1);
+
+  await results.first().click();
+  await expect(page).toHaveURL(/\/workspace\/fixture-project\/w1\/c\d+$/);
 });

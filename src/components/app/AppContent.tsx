@@ -102,7 +102,9 @@ export default function AppContent() {
       projectName?: string;
       projectPath?: string;
       workflowId?: string;
+      workflowRouteIndex?: number;
       workflowStageKey?: string;
+      routeIndex?: number;
       routeSearch?: Record<string, string>;
     },
   ) => {
@@ -127,11 +129,19 @@ export default function AppContent() {
           ...(matchingProject.codexSessions || []),
         ].find((session) => session.id === targetSessionId) || null
       : null;
+    const searchResultSession = matchingProject && !targetSession && Number.isInteger(options?.routeIndex)
+      ? {
+          id: targetSessionId,
+          routeIndex: options?.routeIndex,
+          __provider: options?.provider,
+        }
+      : null;
     const explicitWorkflowId = typeof options?.workflowId === 'string' ? options.workflowId : '';
     const targetWorkflow = matchingProject
       ? (matchingProject.workflows || []).find((workflow) => (
           workflow.id === explicitWorkflowId
           || (workflow.childSessions || []).some((session) => session.id === targetSessionId)
+          || (workflow.runnerProcesses || []).some((process) => process.sessionId === targetSessionId)
         )) || null
       : null;
     const childSession = targetWorkflow
@@ -154,19 +164,46 @@ export default function AppContent() {
         }
       : null;
     const workflowRouteSession = childSession || workflowDraftSession;
-    if (matchingProject && targetWorkflow && workflowRouteSession) {
+    const searchResultWorkflow = matchingProject && !targetWorkflow && Number.isInteger(options?.workflowRouteIndex)
+      ? {
+          id: explicitWorkflowId,
+          routeIndex: options?.workflowRouteIndex,
+        }
+      : null;
+    const searchResultWorkflowSession = (targetWorkflow || searchResultWorkflow) && !workflowRouteSession && Number.isInteger(options?.routeIndex)
+      ? {
+          id: targetSessionId,
+          routeIndex: options?.routeIndex,
+          workflowId: explicitWorkflowId,
+          stageKey: options?.workflowStageKey,
+          provider: options?.provider,
+        }
+      : null;
+    const routeWorkflow = targetWorkflow || searchResultWorkflow;
+    const routeWorkflowSession = workflowRouteSession || searchResultWorkflowSession;
+    if (matchingProject && routeWorkflow && routeWorkflowSession) {
       const route = buildWorkflowChildSessionRoute(
         matchingProject,
-        targetWorkflow,
-        workflowRouteSession,
+        routeWorkflow,
+        routeWorkflowSession,
       );
       navigate(`${route}${nextSearchParams.toString() ? `?${nextSearchParams.toString()}` : ''}`, {
         state: location.state,
       });
       return;
     }
-    if (matchingProject && targetSession) {
-      const route = buildProjectSessionRoute(matchingProject, targetSession);
+    if (matchingProject && !targetSession && options?.provider) {
+      const legacyParams = new URLSearchParams(nextSearchParams);
+      legacyParams.set('projectPath', matchingProject.fullPath || matchingProject.path || options.projectPath || '');
+      legacyParams.set('provider', options.provider);
+      navigate(`/session/${encodeURIComponent(targetSessionId)}?${legacyParams.toString()}`, {
+        state: location.state,
+      });
+      return;
+    }
+    const routeSession = targetSession || searchResultSession;
+    if (matchingProject && routeSession) {
+      const route = buildProjectSessionRoute(matchingProject, routeSession);
       navigate(`${route}${nextSearchParams.toString() ? `?${nextSearchParams.toString()}` : ''}`, {
         state: location.state,
       });

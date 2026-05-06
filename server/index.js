@@ -1321,7 +1321,8 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
 app.get('/api/chat/search', authenticateToken, async (req, res) => {
     try {
         const query = typeof req.query.q === 'string' ? req.query.q : '';
-        const results = await searchChatHistory(query);
+        const mode = req.query.mode === 'jsonl' ? 'jsonl' : 'content';
+        const results = await searchChatHistory(query, mode);
         res.json({ success: true, results });
     } catch (error) {
         console.error('Error searching chat history:', error);

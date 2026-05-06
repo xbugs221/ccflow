@@ -148,8 +148,8 @@ export const api = {
     }),
   sessions: (projectName, limit = 5, offset = 0) =>
     authenticatedFetch(`${projectApiPath(projectName)}/sessions?limit=${limit}&offset=${offset}`),
-  chatSearch: (query) =>
-    authenticatedFetch(`/api/chat/search?q=${encodeURIComponent(String(query || ''))}`),
+  chatSearch: (query, mode = 'content') =>
+    authenticatedFetch(`/api/chat/search?q=${encodeURIComponent(String(query || ''))}&mode=${encodeURIComponent(String(mode || 'content'))}`),
   sessionMessages: (projectName, sessionId, limit = null, offset = 0, provider = 'claude', afterLine = null) => {
     const params = new URLSearchParams();
     if (afterLine !== null) {
