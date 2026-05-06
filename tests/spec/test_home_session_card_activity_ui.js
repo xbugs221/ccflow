@@ -89,7 +89,7 @@ test('project-home session cards are wired to production activity rendering', as
   assert.match(actionMenuSource, /<span>\{labels\.delete\}<\/span>/);
 });
 
-test('project-home and sidebar cards expose business sort choices without changing route numbers', async () => {
+test('project-home cards expose business sort choices while sidebar stays navigation-only', async () => {
   /**
    * Sorting must be a card-display concern. The visible #cN/#wN route numbers
    * remain sourced from routeIndex while users can sort by update time, title,
@@ -112,6 +112,9 @@ test('project-home and sidebar cards expose business sort choices without changi
   assert.match(overviewSource, /value: 'title', label: '标题'/);
   assert.match(overviewSource, /value: 'provider', label: 'Provider'/);
   assert.match(overviewSource, /compareSessionsByCardSortMode\(sessionA, sessionB, sessionSortMode, t\)/);
-  assert.match(sidebarSessionsSource, /aria-label="手动会话排序"/);
-  assert.match(sidebarWorkflowsSource, /aria-label="工作流排序"/);
+  assert.match(overviewSource, /min-w-\[9\.5rem\][^"]*pr-10/);
+  assert.doesNotMatch(sidebarSessionsSource, /aria-label="手动会话排序"/);
+  assert.doesNotMatch(sidebarWorkflowsSource, /aria-label="工作流排序"/);
+  assert.doesNotMatch(sidebarSessionsSource, /新建/);
+  assert.doesNotMatch(sidebarWorkflowsSource, /openWorkflowComposer|createProjectWorkflow/);
 });

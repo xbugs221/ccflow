@@ -3,6 +3,7 @@
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -10,6 +11,7 @@ import {
   createManualSessionDraft,
   deleteCodexSession,
   finalizeManualSessionDraft,
+  getSessions,
   loadProjectConfig,
   saveProjectConfig,
   updateSessionModelState,
@@ -243,6 +245,93 @@ test('Scenario: 单条普通会话聚合所有展示状态', async () => {
       ui: { favorite: true },
     });
     assert.equal(Object.prototype.hasOwnProperty.call(persisted.chat, draft.id), false);
+  });
+});
+
+test('Scenario: v2 会话 UI 状态按 provider 和项目路径写入并回读', async () => {
+  await withIsolatedProject(async ({ projectPath }) => {
+    const project = await addProjectManually(projectPath, 'Conf V2 Session UI Provider Demo');
+    const codexDraft = await createManualSessionDraft(project.name, projectPath, 'codex', 'Codex 会话');
+    const claudeDraft = await createManualSessionDraft(project.name, projectPath, 'claude', 'Claude 会话');
+
+    await updateSessionUiState(project.name, codexDraft.id, 'codex', { favorite: true, hidden: true });
+    await updateSessionUiState(project.name, claudeDraft.id, 'claude', { pending: true });
+
+    const persisted = await readProjectConf(projectPath);
+    assert.deepEqual(persisted.chat['1'].ui, { favorite: true, hidden: true });
+    assert.equal(persisted.chat['1'].provider, 'codex');
+    assert.deepEqual(persisted.chat['2'].ui, { pending: true });
+    assert.equal(persisted.chat['2'].provider, 'claude');
+    assert.equal('sessionUiStateByPath' in persisted, false);
+  });
+});
+
+test('Scenario: provider 缺省的 v2 Claude chat ui 仍能回填到会话', async () => {
+  await withIsolatedProject(async ({ homeDir, projectPath }) => {
+    const project = await addProjectManually(projectPath, 'Conf V2 Providerless Claude UI Demo');
+    const sessionId = 'providerless-claude-ui-session';
+    const projectDir = path.join(homeDir, '.claude', 'projects', project.name);
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, `${sessionId}.jsonl`),
+      [
+        JSON.stringify({
+          sessionId,
+          cwd: projectPath,
+          timestamp: '2026-05-06T01:00:00.000Z',
+          type: 'user',
+          message: {
+            role: 'user',
+            content: 'Providerless Claude UI state regression',
+          },
+        }),
+      ].join('\n') + '\n',
+      'utf8',
+    );
+    await saveProjectConfig({
+      schemaVersion: 2,
+      chat: {
+        1: {
+          sessionId,
+          title: 'Providerless Claude UI state regression',
+          ui: {
+            favorite: true,
+            hidden: true,
+          },
+        },
+      },
+    }, projectPath);
+
+    const result = await getSessions(project.name, 10, 0, { includeHidden: true });
+    const session = result.sessions.find((candidate) => candidate.id === sessionId);
+
+    assert.equal(session?.favorite, true);
+    assert.equal(session?.hidden, true);
+  });
+});
+
+test('Scenario: legacy sessionUiStateByPath 归一化保存时合并到 v2 chat ui', async () => {
+  await withIsolatedProject(async ({ projectPath }) => {
+    await saveProjectConfig({
+      schemaVersion: 2,
+      chat: {
+        1: {
+          sessionId: 'legacy-codex-session',
+          title: 'Legacy Codex 会话',
+          provider: 'codex',
+        },
+      },
+      sessionUiStateByPath: {
+        [`codex:${projectPath}:legacy-codex-session`]: {
+          favorite: true,
+          hidden: true,
+        },
+      },
+    }, projectPath);
+
+    const persisted = await readProjectConf(projectPath);
+    assert.deepEqual(persisted.chat['1'].ui, { favorite: true, hidden: true });
+    assert.equal('sessionUiStateByPath' in persisted, false);
   });
 });
 

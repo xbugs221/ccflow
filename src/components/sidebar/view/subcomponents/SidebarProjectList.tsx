@@ -185,7 +185,6 @@ export default function SidebarProjectList({
               isSessionPending={isSessionPending}
               onDeleteSession={onDeleteSession}
               onLoadMoreSessions={onLoadMoreSessions}
-              onNewSession={onNewSession}
               onEditingSessionNameChange={onEditingSessionNameChange}
               onStartEditingSession={onStartEditingSession}
               onCancelEditingSession={onCancelEditingSession}

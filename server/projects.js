@@ -954,22 +954,116 @@ function getNextWorkflowChatRouteIndex(workflow = {}) {
 }
 
 /**
- * PURPOSE: Locate the v2 chat bucket and route number for one session id.
+ * PURPOSE: Keep persisted session UI flags limited to meaningful true values.
  */
-function findProjectChatRecord(config, sessionId) {
+function normalizeSessionUiState(rawState = {}) {
+  const state = {};
+  if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) {
+    return state;
+  }
+  if (rawState.favorite === true) {
+    state.favorite = true;
+  }
+  if (rawState.pending === true) {
+    state.pending = true;
+  }
+  if (rawState.hidden === true) {
+    state.hidden = true;
+  }
+  return state;
+}
+
+/**
+ * PURPOSE: Resolve the provider stored on a v2 chat record.
+ */
+function normalizeProjectChatProvider(provider) {
+  return provider === 'claude' ? 'claude' : 'codex';
+}
+
+/**
+ * PURPOSE: Decode legacy UI-state map keys into provider/path/session parts.
+ */
+function parseSessionUiStateKey(stateKey) {
+  const [provider, ...rest] = String(stateKey || '').split(':');
+  const sessionId = rest.pop();
+  const projectPath = rest.join(':');
+  if (!provider || !projectPath || !sessionId) {
+    return null;
+  }
+  return {
+    provider: normalizeProjectChatProvider(provider),
+    projectPath,
+    sessionId,
+  };
+}
+
+/**
+ * PURPOSE: Find the v2 chat record for one provider session.
+ */
+function findProjectChatRecord(config, sessionId, provider = null) {
+  const providerMatches = (record) => {
+    if (!provider) {
+      return true;
+    }
+    return !record?.provider || normalizeProjectChatProvider(record.provider) === provider;
+  };
+
   for (const [routeIndex, record] of Object.entries(config?.chat || {})) {
-    if (record?.sessionId === sessionId) {
+    if (record?.sessionId === sessionId && providerMatches(record)) {
       return { scope: 'chat', routeIndex, record };
     }
   }
   for (const [workflowIndex, workflow] of Object.entries(config?.workflows || {})) {
     for (const [routeIndex, record] of Object.entries(workflow?.chat || {})) {
-      if (record?.sessionId === sessionId) {
+      if (record?.sessionId === sessionId && providerMatches(record)) {
         return { scope: 'workflow', workflowIndex, routeIndex, record };
       }
     }
   }
   return null;
+}
+
+/**
+ * PURPOSE: Write one normalized UI state onto a located v2 chat record.
+ */
+function writeProjectChatRecordUiState(record, provider, uiState) {
+  const nextState = normalizeSessionUiState(uiState);
+  if (provider) {
+    record.provider = provider;
+  }
+  if (Object.keys(nextState).length === 0) {
+    delete record.ui;
+    return;
+  }
+  record.ui = nextState;
+}
+
+/**
+ * PURPOSE: Migrate legacy sessionUiStateByPath entries into v2 chat records before saving.
+ */
+function mergeLegacySessionUiStateIntoProjectChat(config, normalizedConfig, projectPath = '') {
+  const legacyMap = config?.[SESSION_UI_STATE_BY_PATH_KEY];
+  if (!legacyMap || typeof legacyMap !== 'object' || Array.isArray(legacyMap)) {
+    return;
+  }
+
+  const normalizedProjectPath = normalizeComparablePath(projectPath);
+  Object.entries(legacyMap).forEach(([stateKey, rawState]) => {
+    const parsedKey = parseSessionUiStateKey(stateKey);
+    if (!parsedKey || parsedKey.projectPath !== normalizedProjectPath) {
+      return;
+    }
+
+    const location = findProjectChatRecord(normalizedConfig, parsedKey.sessionId, parsedKey.provider);
+    if (!location) {
+      return;
+    }
+
+    writeProjectChatRecordUiState(location.record, parsedKey.provider, {
+      ...normalizeSessionUiState(rawState),
+      ...normalizeSessionUiState(location.record.ui),
+    });
+  });
 }
 
 /**
@@ -1160,6 +1254,7 @@ function normalizeProjectConfigForSave(config, projectPath = '') {
     workflows[workflowIndex] = normalizeProjectWorkflowRecord(workflow);
     return workflows;
   }, {});
+  mergeLegacySessionUiStateIntoProjectChat(config, normalized, projectPath);
 
   delete normalized[LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY];
 
@@ -1183,7 +1278,7 @@ function normalizeProjectConfigForSave(config, projectPath = '') {
     normalized[SESSION_WORKFLOW_METADATA_BY_ID_KEY] = workflowMetadataById;
   }
   const modelStateById = getSessionModelStateMap(config);
-  const uiStateByPath = getSessionUiStateMap(config);
+  const uiStateByPath = getSessionUiStateMap(config, projectPath);
   const uiStateBySessionId = Object.entries(uiStateByPath).reduce((stateById, [key, state]) => {
     const sessionId = String(key).split(':').pop();
     if (sessionId && state && typeof state === 'object' && !Array.isArray(state)) {
@@ -1809,23 +1904,45 @@ function getManualDraftSessionsForProject(config, { projectName, projectPath, pr
 /**
  * Return the normalized persisted UI-state map for sessions.
  */
-function getSessionUiStateMap(config) {
+function getSessionUiStateMap(config, projectPath = '') {
   if (!config || typeof config !== 'object') {
     return {};
   }
   if (config.schemaVersion === PROJECT_CONFIG_SCHEMA_VERSION) {
     const uiByPath = {};
+    const addRecordState = (record) => {
+      const uiState = normalizeSessionUiState(record?.ui);
+      if (!record?.sessionId || Object.keys(uiState).length === 0) {
+        return;
+      }
+      const providers = typeof record.provider === 'string' && record.provider.trim()
+        ? [normalizeProjectChatProvider(record.provider)]
+        : ['claude', 'codex'];
+      providers.forEach((recordProvider) => {
+        const stateKey = buildSessionUiStateKey(projectPath, recordProvider, record.sessionId);
+        if (stateKey && !uiByPath[stateKey]) {
+          uiByPath[stateKey] = uiState;
+        }
+      });
+    };
     Object.values(config.chat || {}).forEach((record) => {
-      if (record?.sessionId && record?.ui) uiByPath[`codex:local:${record.sessionId}`] = record.ui;
+      addRecordState(record);
     });
     Object.values(config.workflows || {}).forEach((workflow) => {
       Object.values(workflow?.chat || {}).forEach((record) => {
-        if (record?.sessionId && record?.ui) uiByPath[`codex:local:${record.sessionId}`] = record.ui;
+        addRecordState(record);
       });
     });
     const rawMap = config[SESSION_UI_STATE_BY_PATH_KEY];
     if (rawMap && typeof rawMap === 'object' && !Array.isArray(rawMap)) {
-      Object.assign(uiByPath, rawMap);
+      Object.entries(rawMap).forEach(([stateKey, rawState]) => {
+        if (!uiByPath[stateKey]) {
+          const uiState = normalizeSessionUiState(rawState);
+          if (Object.keys(uiState).length > 0) {
+            uiByPath[stateKey] = uiState;
+          }
+        }
+      });
     }
     return uiByPath;
   }
@@ -1854,7 +1971,7 @@ function buildSessionUiStateKey(projectPath, provider, sessionId) {
  * Attach persisted UI flags to a session payload.
  */
 function applySessionUiState(session, projectPath, provider, config) {
-  const sessionUiStateMap = getSessionUiStateMap(config);
+  const sessionUiStateMap = getSessionUiStateMap(config, projectPath);
   const stateKey = buildSessionUiStateKey(projectPath, provider, session?.id);
   const persistedState = stateKey ? sessionUiStateMap[stateKey] : null;
 
@@ -2140,7 +2257,7 @@ async function cleanupDeletedSessionConfig(sessionId, projectPath = '', provider
     changed = deleteConfigMapEntry(config, SESSION_MODEL_STATE_BY_ID_KEY, sessionId) || changed;
     changed = deleteProjectChatRecords(config, sessionId, provider) || changed;
 
-    const uiStateMap = getSessionUiStateMap(config);
+    const uiStateMap = getSessionUiStateMap(config, configPath);
     Object.keys(uiStateMap).forEach((stateKey) => {
       const matchesProvider = !provider || stateKey.startsWith(`${provider}:`);
       if (matchesProvider && stateKey.endsWith(`:${sessionId}`)) {
@@ -2215,6 +2332,7 @@ function attachSessionRouteIndices(config, projectPath, provider, sessions = [])
         ...(config.chat[String(routeIndex)] || {}),
         sessionId: session.id,
         title: session.title || session.summary || session.name || config.chat[String(routeIndex)]?.title,
+        provider,
       };
       if (config.chat[String(routeIndex)]?.ui && Object.keys(config.chat[String(routeIndex)].ui).length > 0) {
         nextRecord.ui = config.chat[String(routeIndex)].ui;
@@ -2763,6 +2881,7 @@ async function getProjects(progressCallback = null) {
       // Project overview must surface every already-loaded manual session card.
       try {
         const sessionResult = await getSessions(entry.name, PROJECT_OVERVIEW_SESSION_LIMIT, 0, {
+          includeHidden: true,
           excludeWorkflowChildSessions: true,
         });
         project.sessions = sessionResult.sessions || [];
@@ -3831,6 +3950,16 @@ async function updateSessionUiState(projectName, sessionId, provider = 'claude',
   }
   if (uiState.hidden === true) {
     nextEntry.hidden = true;
+  }
+
+  if (config.schemaVersion === PROJECT_CONFIG_SCHEMA_VERSION) {
+    const location = findProjectChatRecord(config, sessionId, normalizedProvider);
+    if (location) {
+      writeProjectChatRecordUiState(location.record, normalizedProvider, nextEntry);
+      deleteConfigMapEntry(config, SESSION_UI_STATE_BY_PATH_KEY, stateKey);
+      await saveProjectConfig(config, projectPath);
+      return nextEntry;
+    }
   }
 
   if (!config[SESSION_UI_STATE_BY_PATH_KEY] || typeof config[SESSION_UI_STATE_BY_PATH_KEY] !== 'object') {

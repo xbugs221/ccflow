@@ -11,7 +11,6 @@ import { cn } from '../../../../lib/utils';
 import TaskIndicator from '../../../taskmaster/view/TaskIndicator';
 import type { Project, ProjectSession, ProjectWorkflow, SessionProvider } from '../../../../types/app';
 import type { MCPServerStatus, SessionWithProvider, TouchHandlerFactory } from '../../types/types';
-import type { NewSessionOptions } from '../../../../utils/workflowAutoStart';
 import { getTaskIndicatorStatus, isSessionActive } from '../../utils/utils';
 import SidebarProjectSessions from './SidebarProjectSessions';
 import SidebarProjectWorkflows from './SidebarProjectWorkflows';
@@ -58,7 +57,6 @@ type SidebarProjectItemProps = {
     projectPath?: string,
   ) => void;
   onLoadMoreSessions: (project: Project) => void;
-  onNewSession: (project: Project, provider?: SessionProvider, options?: NewSessionOptions) => void;
   onEditingSessionNameChange: (value: string) => void;
   onStartEditingSession: (sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
@@ -101,7 +99,6 @@ export default function SidebarProjectItem({
   isSessionPending,
   onDeleteSession,
   onLoadMoreSessions,
-  onNewSession,
   onEditingSessionNameChange,
   onStartEditingSession,
   onCancelEditingSession,
@@ -504,7 +501,6 @@ export default function SidebarProjectItem({
         selectedWorkflow={selectedWorkflow}
         onProjectSelect={onProjectSelect}
         onWorkflowSelect={onWorkflowSelect}
-        onNewSession={onNewSession}
         currentTime={currentTime}
         t={t}
       />
@@ -533,7 +529,6 @@ export default function SidebarProjectItem({
         isSessionPending={isSessionPending}
         onDeleteSession={onDeleteSession}
         onLoadMoreSessions={onLoadMoreSessions}
-        onNewSession={onNewSession}
         touchHandlerFactory={touchHandlerFactory}
         t={t}
       />

@@ -1,26 +1,18 @@
 /**
- * PURPOSE: Render the per-project manual session card list with local sorting
- * controls that do not change stable route numbers.
+ * PURPOSE: Render the per-project manual session card list for navigation while
+ * leaving sorting and creation controls on the project overview.
  */
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, MessageSquare, Plus } from 'lucide-react';
+import { ChevronDown, ChevronUp, MessageSquare } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { Button } from '../../../ui/button';
 import type { Project, ProjectSession, ProjectWorkflow, SessionProvider } from '../../../../types/app';
-import type { NewSessionOptions } from '../../../../utils/workflowAutoStart';
 import type { SessionWithProvider, TouchHandlerFactory } from '../../types/types';
 import { compareSessionsByCardSortMode, type SessionCardSortMode } from '../../utils/utils';
 import SidebarSessionItem from './SidebarSessionItem';
 
 /** 每个项目组默认显示的会话数量 */
 const DEFAULT_VISIBLE_SESSIONS = 5;
-
-const SESSION_SORT_OPTIONS: Array<{ value: SessionCardSortMode; label: string }> = [
-  { value: 'created', label: '创建时间' },
-  { value: 'updated', label: '最近消息' },
-  { value: 'title', label: '标题' },
-  { value: 'provider', label: 'Provider' },
-];
 
 type SidebarProjectSessionsProps = {
   project: Project;
@@ -52,7 +44,6 @@ type SidebarProjectSessionsProps = {
     projectPath?: string,
   ) => void;
   onLoadMoreSessions: (project: Project) => void;
-  onNewSession: (project: Project, provider?: SessionProvider, options?: NewSessionOptions) => void;
   touchHandlerFactory: TouchHandlerFactory;
   t: TFunction;
 };
@@ -117,14 +108,11 @@ export default function SidebarProjectSessions({
   isSessionPending,
   onDeleteSession,
   onLoadMoreSessions,
-  onNewSession,
   touchHandlerFactory,
   t,
 }: SidebarProjectSessionsProps) {
   /** 本地折叠状态：是否展开显示全部已加载的会话 */
   const [showAllLocal, setShowAllLocal] = useState(false);
-  /** 会话卡片排序只影响展示顺序，不参与 routeIndex 编号。 */
-  const [sortMode, setSortMode] = useState<SessionCardSortMode>('created');
 
   if (!isExpanded) {
     return null;
@@ -141,7 +129,7 @@ export default function SidebarProjectSessions({
       }
       return !isWorkflowChildSession(project, session);
     })
-    .sort((sessionA, sessionB) => compareSessionsByCardSortMode(sessionA, sessionB, sortMode, t));
+    .sort((sessionA, sessionB) => compareSessionsByCardSortMode(sessionA, sessionB, 'created' as SessionCardSortMode, t));
   const hasSessions = manualSessions.length > 0;
   const hasMoreSessions = project.sessionMeta?.hasMore === true;
 
@@ -156,30 +144,6 @@ export default function SidebarProjectSessions({
         <div className="flex items-center gap-2">
           <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
           <h4 className="text-xs font-medium text-foreground">手动会话</h4>
-        </div>
-        <div className="flex items-center gap-1">
-          <select
-            value={sortMode}
-            onChange={(event) => setSortMode(event.target.value as SessionCardSortMode)}
-            className="h-7 rounded border border-input bg-transparent px-1.5 text-[11px] text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
-            aria-label="手动会话排序"
-          >
-            {SESSION_SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-[11px]"
-            onClick={() => {
-              onProjectSelect(project);
-              onNewSession(project);
-            }}
-          >
-            <Plus className="h-3 w-3" />
-            新建
-          </Button>
         </div>
       </div>
       {!initialSessionsLoaded ? (

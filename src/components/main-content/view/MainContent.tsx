@@ -456,7 +456,7 @@ function MainContent({
             project={selectedProject}
             selectedSession={selectedSession}
             selectedWorkflow={selectedWorkflow}
-            sessions={getAllSessions(selectedProject, {})}
+            sessions={getAllSessions(selectedProject, {}, true)}
             onNewSession={onNewSession}
             onSelectSession={onSelectSession}
             onSelectWorkflow={onSelectWorkflow}

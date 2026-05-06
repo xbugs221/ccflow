@@ -1,6 +1,6 @@
 /**
- * PURPOSE: Render the per-project workflow list inside the left sidebar with
- * local "show more" expansion and direct workflow creation.
+ * PURPOSE: Render the per-project workflow navigation list inside the left
+ * sidebar while leaving sorting and creation controls on the project overview.
  */
 import {
   useEffect,
@@ -9,68 +9,18 @@ import {
   type MouseEvent as ReactMouseEvent,
   type TouchEvent as ReactTouchEvent,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronUp, Plus, Star, Clock, Workflow, Edit2, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Star, Clock, Workflow, Edit2, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { Button } from '../../../ui/button';
 import { cn } from '../../../../lib/utils';
-import type { Project, ProjectWorkflow, SessionProvider } from '../../../../types/app';
+import type { Project, ProjectWorkflow } from '../../../../types/app';
 import { api } from '../../../../utils/api';
-import { buildProjectWorkflowRoute } from '../../../../utils/projectRoute';
 import { formatTimeAgo } from '../../../../utils/dateUtils';
 import WorkflowStageProgress from '../../../workflow/WorkflowStageProgress';
 
 const DEFAULT_VISIBLE_WORKFLOWS = 5;
 const WORKFLOW_ACTION_LONG_PRESS_MS = 450;
 type WorkflowCardSortMode = 'created' | 'updated' | 'title' | 'provider';
-
-const WORKFLOW_SORT_OPTIONS: Array<{ value: WorkflowCardSortMode; label: string }> = [
-  { value: 'created', label: '创建时间' },
-  { value: 'updated', label: '最近消息' },
-  { value: 'title', label: '标题' },
-  { value: 'provider', label: 'Provider' },
-];
-
-const WORKFLOW_STAGE_PROVIDER_OPTIONS: Array<{ key: string; label: string }> = [
-  { key: 'planning', label: '规划提案' },
-  { key: 'execution', label: '执行' },
-  { key: 'review_1', label: '初审' },
-  { key: 'repair_1', label: '初修' },
-  { key: 'review_2', label: '再审' },
-  { key: 'repair_2', label: '再修' },
-  { key: 'review_3', label: '三审' },
-  { key: 'repair_3', label: '三修' },
-  { key: 'archive', label: '归档' },
-];
-
-function buildDefaultStageProviders(): Record<string, SessionProvider> {
-  /**
-   * PURPOSE: Initialize create-form provider choices for all workflow stages.
-   */
-  return Object.fromEntries(
-    WORKFLOW_STAGE_PROVIDER_OPTIONS.map((stage) => [stage.key, 'codex' as SessionProvider]),
-  );
-}
-
-function buildExplicitStageProviders(
-  stageProviders: Record<string, SessionProvider>,
-  enabled: boolean,
-): Record<string, SessionProvider> | undefined {
-  /**
-   * PURPOSE: Keep create payloads limited to explicit non-default provider choices.
-   */
-  if (!enabled) {
-    return undefined;
-  }
-  const explicitProviders = WORKFLOW_STAGE_PROVIDER_OPTIONS.reduce<Record<string, SessionProvider>>((providers, stage) => {
-    const provider = stageProviders[stage.key] === 'claude' ? 'claude' : 'codex';
-    if (provider !== 'codex') {
-      providers[stage.key] = provider;
-    }
-    return providers;
-  }, {});
-  return Object.keys(explicitProviders).length > 0 ? explicitProviders : undefined;
-}
 
 type WorkflowActionMenuState =
   | { isOpen: false; workflowId: null; x: number; y: number }
@@ -82,7 +32,6 @@ type SidebarProjectWorkflowsProps = {
   selectedWorkflow?: ProjectWorkflow | null;
   onProjectSelect: (project: Project) => void;
   onWorkflowSelect?: (project: Project, workflow: ProjectWorkflow) => void;
-  onNewSession: (project: Project, provider?: SessionProvider, options?: Record<string, unknown>) => void;
   currentTime: Date;
   t: TFunction;
 };
@@ -176,11 +125,9 @@ export default function SidebarProjectWorkflows({
   selectedWorkflow,
   onProjectSelect,
   onWorkflowSelect,
-  onNewSession: _onNewSession,
   currentTime,
   t,
 }: SidebarProjectWorkflowsProps) {
-  const navigate = useNavigate();
   const [showAllLocal, setShowAllLocal] = useState(false);
   const [workflowActionMenu, setWorkflowActionMenu] = useState<WorkflowActionMenuState>({
     isOpen: false,
@@ -188,21 +135,6 @@ export default function SidebarProjectWorkflows({
     x: 0,
     y: 0,
   });
-  /** 工作流卡片排序只影响展示顺序，不改变 wN routeIndex。 */
-  const [sortMode, setSortMode] = useState<WorkflowCardSortMode>('created');
-  const [composerOpen, setComposerOpen] = useState(false);
-  const [workflowTitleInput, setWorkflowTitleInput] = useState('');
-  const [workflowObjectiveInput, setWorkflowObjectiveInput] = useState('');
-  const [workflowStageProviders, setWorkflowStageProviders] = useState<Record<string, SessionProvider>>(
-    () => buildDefaultStageProviders(),
-  );
-  const [workflowStageConfigOpen, setWorkflowStageConfigOpen] = useState(false);
-  const [workflowScheduledAtInput, setWorkflowScheduledAtInput] = useState('');
-  const [availableOpenSpecChanges, setAvailableOpenSpecChanges] = useState<string[]>([]);
-  const [selectedOpenSpecChange, setSelectedOpenSpecChange] = useState('');
-  const [isLoadingOpenSpecChanges, setIsLoadingOpenSpecChanges] = useState(false);
-  const [isCreatingWorkflow, setIsCreatingWorkflow] = useState(false);
-  const [composerError, setComposerError] = useState('');
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -215,94 +147,13 @@ export default function SidebarProjectWorkflows({
       if (priority !== 0) {
         return priority;
       }
-      return compareWorkflowBySortMode(left, right, sortMode);
+      return compareWorkflowBySortMode(left, right, 'created' as WorkflowCardSortMode);
     });
 
   const hasWorkflows = workflows.length > 0;
   const hasHiddenWorkflows = workflows.length > DEFAULT_VISIBLE_WORKFLOWS;
   const visibleWorkflows = showAllLocal ? workflows : workflows.slice(0, DEFAULT_VISIBLE_WORKFLOWS);
   const hiddenCount = workflows.length - DEFAULT_VISIBLE_WORKFLOWS;
-
-  const openWorkflowComposer = async () => {
-    /**
-     * PURPOSE: Open the sidebar workflow composer and preload adoptable
-     * OpenSpec changes so the left navigation has feature parity with the
-     * project overview composer.
-     */
-    setComposerOpen(true);
-    setComposerError('');
-    setIsLoadingOpenSpecChanges(true);
-    try {
-      const response = await api.projectOpenSpecChanges(project.name);
-      const payload = response.ok ? await response.json() : { changes: [] };
-      const changes = Array.isArray(payload?.changes) ? payload.changes : [];
-      setAvailableOpenSpecChanges(changes);
-      setSelectedOpenSpecChange((current) => (changes.includes(current) ? current : ''));
-    } catch (error) {
-      console.error('Error loading OpenSpec changes from sidebar project list:', error);
-      setAvailableOpenSpecChanges([]);
-      setSelectedOpenSpecChange('');
-      setComposerError('无法读取可接手的 OpenSpec 提案。');
-    } finally {
-      setIsLoadingOpenSpecChanges(false);
-    }
-  };
-
-  const closeWorkflowComposer = () => {
-    setComposerOpen(false);
-    setWorkflowTitleInput('');
-    setWorkflowObjectiveInput('');
-    setWorkflowStageProviders(buildDefaultStageProviders());
-    setWorkflowStageConfigOpen(false);
-    setWorkflowScheduledAtInput('');
-    setAvailableOpenSpecChanges([]);
-    setSelectedOpenSpecChange('');
-    setComposerError('');
-  };
-
-  /**
-   * PURPOSE: Create a workflow directly from the project row.
-   */
-  const handleCreateWorkflow = async () => {
-    const title = workflowTitleInput.trim();
-    const objective = workflowObjectiveInput.trim();
-    if (!title) {
-      setComposerError('请先填写摘要。');
-      return;
-    }
-    if (!objective) {
-      setComposerError('请先填写需求正文。');
-      return;
-    }
-
-    try {
-      setIsCreatingWorkflow(true);
-      setComposerError('');
-      const openspecChangeName = selectedOpenSpecChange.trim();
-      const scheduledAt = workflowScheduledAtInput.trim() || undefined;
-      const response = await api.createProjectWorkflow(project.name, {
-        title,
-        objective,
-        openspecChangeName: openspecChangeName || undefined,
-        stageProviders: buildExplicitStageProviders(workflowStageProviders, workflowStageConfigOpen),
-        scheduledAt,
-      });
-      if (!response.ok) {
-        setComposerError('创建工作流失败，请稍后重试。');
-        return;
-      }
-
-      const workflow = await response.json();
-      await window.refreshProjects?.();
-      closeWorkflowComposer();
-      navigate(buildProjectWorkflowRoute(project, workflow));
-    } catch (error) {
-      console.error('Error creating workflow from sidebar project list:', error);
-      setComposerError('创建工作流失败，请稍后重试。');
-    } finally {
-      setIsCreatingWorkflow(false);
-    }
-  };
 
   /**
    * PURPOSE: Collapse the contextual workflow action menu.
@@ -513,114 +364,7 @@ export default function SidebarProjectWorkflows({
           <Workflow className="h-3.5 w-3.5 text-muted-foreground" />
           <h4 className="text-xs font-medium text-foreground">需求工作流</h4>
         </div>
-        <div className="flex items-center gap-1">
-          <select
-            value={sortMode}
-            onChange={(event) => setSortMode(event.target.value as WorkflowCardSortMode)}
-            className="h-7 rounded border border-input bg-transparent px-1.5 text-[11px] text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
-            aria-label="工作流排序"
-          >
-            {WORKFLOW_SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-[11px]"
-            onClick={() => void openWorkflowComposer()}
-          >
-            <Plus className="h-3 w-3" />
-            新建
-          </Button>
-        </div>
       </div>
-
-      {composerOpen && (
-        <div className="space-y-2 rounded-md border border-border/60 bg-background p-2">
-          <label className="grid gap-1 text-xs text-foreground">
-            <span>摘要</span>
-            <input
-              className="h-8 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-              value={workflowTitleInput}
-              placeholder="工作流摘要"
-              onChange={(event) => setWorkflowTitleInput(event.target.value)}
-            />
-          </label>
-          <label className="grid gap-1 text-xs text-foreground">
-            <span>需求正文</span>
-            <textarea
-              className="min-h-20 rounded-md border border-input bg-transparent px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
-              value={workflowObjectiveInput}
-              placeholder="写清楚问题、预期行为和验收条件"
-              onChange={(event) => setWorkflowObjectiveInput(event.target.value)}
-            />
-          </label>
-          <label className="grid gap-1 text-xs text-foreground">
-            <span>接手已有 OpenSpec</span>
-            <select
-              className="h-8 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-              disabled={isLoadingOpenSpecChanges}
-              value={selectedOpenSpecChange}
-              onChange={(event) => setSelectedOpenSpecChange(event.target.value)}
-            >
-              <option value="">新需求，先进入规划</option>
-              {availableOpenSpecChanges.map((changeName) => (
-                <option key={changeName} value={changeName}>
-                  {changeName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="grid gap-1 text-xs text-foreground">
-            <span>定时启动（可选）</span>
-            <input
-              type="datetime-local"
-              className="h-8 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-              value={workflowScheduledAtInput}
-              onChange={(event) => setWorkflowScheduledAtInput(event.target.value)}
-            />
-          </label>
-          <details
-            className="rounded-md border border-border/60 p-2"
-            open={workflowStageConfigOpen}
-            onToggle={(event) => setWorkflowStageConfigOpen(event.currentTarget.open)}
-          >
-            <summary className="cursor-pointer text-xs font-medium text-foreground">阶段配置</summary>
-            <div className="mt-2 grid gap-2">
-              {WORKFLOW_STAGE_PROVIDER_OPTIONS.map((stage) => (
-                <label key={stage.key} className="flex items-center justify-between gap-2 text-xs text-foreground">
-                  <span>{stage.label}</span>
-                  <select
-                    data-testid={`workflow-stage-provider-${stage.key}`}
-                    className="h-7 rounded-md border border-input bg-transparent px-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-                    value={workflowStageProviders[stage.key] || 'codex'}
-                    onChange={(event) => {
-                      const provider = event.target.value === 'claude' ? 'claude' : 'codex';
-                      setWorkflowStageProviders((current) => ({
-                        ...current,
-                        [stage.key]: provider,
-                      }));
-                    }}
-                  >
-                    <option value="codex">codex</option>
-                    <option value="claude">claude</option>
-                  </select>
-                </label>
-              ))}
-            </div>
-          </details>
-          {composerError && <p className="text-xs text-destructive">{composerError}</p>}
-          <div className="flex items-center justify-end gap-1">
-            <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={closeWorkflowComposer} disabled={isCreatingWorkflow}>
-              取消
-            </Button>
-            <Button type="button" size="sm" className="h-7 px-2 text-[11px]" onClick={() => void handleCreateWorkflow()} disabled={isCreatingWorkflow}>
-              {isCreatingWorkflow ? '创建中' : '创建'}
-            </Button>
-          </div>
-        </div>
-      )}
 
       {!hasWorkflows ? (
         <div className="py-2 px-3 text-left">

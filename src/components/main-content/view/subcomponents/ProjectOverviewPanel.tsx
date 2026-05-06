@@ -873,7 +873,7 @@ export default function ProjectOverviewPanel({
               <select
                 value={workflowSortMode}
                 onChange={(event) => setWorkflowSortMode(event.target.value as WorkflowCardSortMode)}
-                className="h-9 rounded-md border border-input bg-transparent px-2 text-sm text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
+                className="h-9 min-w-[9.5rem] rounded-md border border-input bg-transparent py-1 pl-3 pr-10 text-sm text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
                 aria-label="工作流排序"
               >
                 {CARD_SORT_OPTIONS.map((option) => (
@@ -1083,7 +1083,7 @@ export default function ProjectOverviewPanel({
                 <select
                   value={sessionSortMode}
                   onChange={(event) => setSessionSortMode(event.target.value as SessionCardSortMode)}
-                  className="h-9 rounded-md border border-input bg-transparent px-2 text-sm text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
+                  className="h-9 min-w-[9.5rem] rounded-md border border-input bg-transparent py-1 pl-3 pr-10 text-sm text-muted-foreground outline-none focus:ring-1 focus:ring-ring"
                   aria-label="手动会话排序"
                 >
                   {CARD_SORT_OPTIONS.map((option) => (
