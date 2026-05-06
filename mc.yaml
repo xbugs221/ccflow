@@ -1,0 +1,12 @@
+mc:
+  workflow:
+    max_review_iterations: 5
+    defaults:
+      tool: codex
+      reasoning: low
+      fast: false
+    stages:
+      planning:
+        reasoning: high
+      review:
+        reasoning: high
