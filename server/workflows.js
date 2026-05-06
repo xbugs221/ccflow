@@ -2699,6 +2699,183 @@ function buildGoRunnerArtifacts(runnerState) {
     }));
 }
 
+function inferRunnerProcessRole(stageKey = '', process = {}) {
+  /**
+   * PURPOSE: Infer the runner role used by Go state/session maps for one stage.
+   */
+  const explicitRole = String(process.role || process.name || '').trim();
+  if (explicitRole) {
+    return explicitRole;
+  }
+  return /^review_\d+$/.test(String(stageKey || '')) ? 'reviewer' : 'executor';
+}
+
+function resolveRunnerProcessLogPath(runnerState, stageKey = '', role = '') {
+  /**
+   * PURPOSE: Match Go runner path keys to a stage process without depending on
+   * one exact runner version's field names.
+   */
+  const paths = runnerState?.paths && typeof runnerState.paths === 'object' ? runnerState.paths : {};
+  const candidates = [
+    `${stageKey}_log`,
+    `${stageKey}_${role}_log`,
+    `${role}_log`,
+    `${stageKey}Log`,
+    `${role}Log`,
+  ];
+  for (const key of candidates) {
+    const value = paths[key];
+    if (typeof value === 'string' && value.trim()) {
+      return normalizeRunnerPath(value);
+    }
+  }
+  return '';
+}
+
+function isRoleScopedRunnerFallbackAllowed(runnerState, stages, stageKey = '') {
+  /**
+   * PURPOSE: Keep legacy role-scoped runner sessions/logs attached only to the
+   * current or already-started stage, so future pending stages stay inert rows.
+   */
+  const normalizedStage = normalizeWorkflowStageKey(stageKey);
+  const currentStage = normalizeWorkflowStageKey(runnerState?.stage || '');
+  const stageStatus = String(stages?.[normalizedStage] || '').trim();
+  return normalizedStage === currentStage || (stageStatus && stageStatus !== 'pending');
+}
+
+function resolveRunnerProcessFallbackLogPath(runnerState, stages, stageKey = '', role = '') {
+  /**
+   * PURPOSE: Resolve fallback log paths without copying role-scoped executor or
+   * reviewer logs onto pending stages that have not started.
+   */
+  const paths = runnerState?.paths && typeof runnerState.paths === 'object' ? runnerState.paths : {};
+  const stageCandidates = [
+    `${stageKey}_log`,
+    `${stageKey}_${role}_log`,
+    `${stageKey}Log`,
+  ];
+  for (const key of stageCandidates) {
+    const value = paths[key];
+    if (typeof value === 'string' && value.trim()) {
+      return normalizeRunnerPath(value);
+    }
+  }
+  if (!isRoleScopedRunnerFallbackAllowed(runnerState, stages, stageKey)) {
+    return '';
+  }
+  for (const key of [`${role}_log`, `${role}Log`]) {
+    const value = paths[key];
+    if (typeof value === 'string' && value.trim()) {
+      return normalizeRunnerPath(value);
+    }
+  }
+  return '';
+}
+
+function normalizeGoRunnerProcess(process = {}, runnerState = {}, stageStatuses = []) {
+  /**
+   * PURPOSE: Preserve the runner process contract while keeping the Web read
+   * model limited to stable workflow process fields.
+   */
+  const stage = normalizeWorkflowStageKey(process.stage || process.stageKey || runnerState.stage || 'execution');
+  const role = inferRunnerProcessRole(stage, process);
+  const status = String(
+    process.status
+    || stageStatuses.find((item) => item.key === stage)?.status
+    || runnerState.stages?.[stage]
+    || runnerState.status
+    || 'pending',
+  ).trim();
+  const normalized = {
+    stage,
+    role,
+    status,
+  };
+  const sessionId = String(process.sessionId || process.session_id || process.threadId || process.thread_id || '').trim();
+  const pid = process.pid ?? process.processId ?? process.process_id;
+  const exitCode = process.exitCode ?? process.exit_code;
+  const failed = process.failed;
+  const logPath = String(
+    process.logPath
+    || process.log_path
+    || (process.skipLogPathFallback ? '' : resolveRunnerProcessLogPath(runnerState, stage, role))
+    || '',
+  ).trim();
+  if (sessionId) normalized.sessionId = sessionId;
+  if (pid !== undefined && pid !== null && pid !== '') normalized.pid = pid;
+  if (exitCode !== undefined && exitCode !== null && exitCode !== '') normalized.exitCode = exitCode;
+  if (failed !== undefined) normalized.failed = Boolean(failed);
+  if (logPath) normalized.logPath = normalizeRunnerPath(logPath);
+  return normalized;
+}
+
+function buildGoRunnerProcesses(runnerState, stageStatuses) {
+  /**
+   * PURPOSE: Build workflow runner process rows from the Go runner contract,
+   * falling back to sessions/stages/paths when `processes` is unavailable.
+   */
+  if (Array.isArray(runnerState?.processes)) {
+    return runnerState.processes.map((process) => normalizeGoRunnerProcess(process, runnerState, stageStatuses));
+  }
+
+  const sessions = runnerState?.sessions && typeof runnerState.sessions === 'object' ? runnerState.sessions : {};
+  const stages = runnerState?.stages && typeof runnerState.stages === 'object' ? runnerState.stages : {};
+  const stageKeys = [...new Set([
+    ...Object.keys(stages).map((stageKey) => normalizeWorkflowStageKey(stageKey)),
+    normalizeWorkflowStageKey(runnerState?.stage || 'execution'),
+  ].filter(Boolean))];
+  return stageKeys.map((stageKey) => {
+    const role = inferRunnerProcessRole(stageKey);
+    const roleScopedFallbackAllowed = isRoleScopedRunnerFallbackAllowed(runnerState, stages, stageKey);
+    const sessionId = String(
+      sessions[stageKey]
+      || sessions[`${stageKey}_${role}`]
+      || (roleScopedFallbackAllowed ? sessions[role] : '')
+      || '',
+    ).trim();
+    return normalizeGoRunnerProcess({
+      stage: stageKey,
+      role,
+      status: stages[stageKey],
+      sessionId,
+      logPath: resolveRunnerProcessFallbackLogPath(runnerState, stages, stageKey, role),
+      skipLogPathFallback: true,
+    }, runnerState, stageStatuses);
+  });
+}
+
+function mergeRunnerProcessChildSessions(workflow = {}, runnerProcesses = []) {
+  /**
+   * PURPOSE: Make runner-owned Codex threads routable under their workflow while
+   * preserving any existing workflow child route indices.
+   */
+  const childSessions = Array.isArray(workflow.childSessions) ? [...workflow.childSessions] : [];
+  let maxRouteIndex = childSessions.reduce((maxValue, session) => (
+    Number.isInteger(Number(session?.routeIndex)) ? Math.max(maxValue, Number(session.routeIndex)) : maxValue
+  ), 0);
+  const findExisting = (process) => childSessions.find((session) => (
+    session?.id === process.sessionId && (session.provider || 'codex') === 'codex'
+  ));
+
+  runnerProcesses.forEach((process) => {
+    if (!process?.sessionId || findExisting(process)) {
+      return;
+    }
+    maxRouteIndex += 1;
+    const title = STAGE_LABELS[process.stage] || process.stage || '工作流子会话';
+    childSessions.push({
+      id: process.sessionId,
+      title,
+      summary: title,
+      provider: 'codex',
+      workflowId: workflow.id,
+      stageKey: process.stage,
+      routeIndex: maxRouteIndex,
+    });
+  });
+  return childSessions;
+}
+
 /**
  * Overlay sealed Go runner state onto the persisted workflow read model.
  */
@@ -2715,6 +2892,8 @@ async function applyGoRunnerReadModel(projectPath, workflow) {
     };
   }
   const runnerStatus = String(runnerState.status || workflow.runState || 'running').toLowerCase();
+  const stageStatuses = buildGoRunnerStageStatuses(workflow, runnerState);
+  const runnerProcesses = buildGoRunnerProcesses(runnerState, stageStatuses);
   return {
     ...workflow,
     openspecChangeName: String(runnerState.changeName || runnerState.change_name || workflow.openspecChangeName || ''),
@@ -2726,7 +2905,9 @@ async function applyGoRunnerReadModel(projectPath, workflow) {
         : 'running',
     runnerState,
     runnerError: runnerState.error || '',
-    stageStatuses: buildGoRunnerStageStatuses(workflow, runnerState),
+    runnerProcesses,
+    stageStatuses,
+    childSessions: mergeRunnerProcessChildSessions(workflow, runnerProcesses),
     artifacts: [
       ...(Array.isArray(workflow.artifacts) ? workflow.artifacts : []),
       ...buildGoRunnerArtifacts(runnerState),
@@ -2852,6 +3033,7 @@ export async function listProjectWorkflows(projectPath) {
       stage: normalizedWorkflow.stage,
       runState: normalizedWorkflow.runState,
       stageStatuses: normalizedWorkflow.stageStatuses,
+      childSessions: normalizedWorkflow.childSessions,
     };
     if (JSON.stringify(repairedWorkflow) !== JSON.stringify(workflow)) {
       storeChanged = true;
@@ -2869,9 +3051,22 @@ export async function listProjectWorkflows(projectPath) {
 }
 
 export async function attachWorkflowMetadata(projects) {
+  /**
+   * Add workflow read models without letting one corrupt project-local config
+   * break the global project list used by the WebUI sidebar.
+   */
   return Promise.all(
     projects.map(async (project) => {
-      const workflows = await listProjectWorkflows(project.fullPath || project.path || '');
+      const projectPath = project.fullPath || project.path || '';
+      let workflows = [];
+      try {
+        workflows = await listProjectWorkflows(projectPath);
+      } catch (error) {
+        console.error(
+          `Failed to load workflows for project ${project.name || projectPath}:`,
+          error,
+        );
+      }
       return {
         ...project,
         workflows,

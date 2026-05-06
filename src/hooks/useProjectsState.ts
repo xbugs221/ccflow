@@ -20,6 +20,7 @@ import {
   getProjectRoutePath,
   parseIndexedRouteSegment,
 } from '../utils/projectRoute';
+import { isWorkflowOwnedSession } from '../utils/workflowSessions';
 import {
   createWorkflowAutoStartDraft,
   type NewSessionOptions,
@@ -151,12 +152,6 @@ const findRefreshedSelectedSession = (
   )) || null;
 };
 
-const isWorkflowChildSession = (project: Project, sessionId: string): boolean => {
-  return (project.workflows || []).some((workflow) => (
-    (workflow.childSessions || []).some((session) => session.id === sessionId)
-  ));
-};
-
 const hasPlanningChildSession = (workflow: ProjectWorkflow | null): boolean => {
   /**
    * PURPOSE: Detect whether the workflow detail already has a routable planning
@@ -253,7 +248,7 @@ const resolveRouteSelection = (
 
   if (sessionRouteIndex && routeSegments.length === 1) {
     const session = getProjectSessions(matchedProject).find((entry) => (
-      entry.routeIndex === sessionRouteIndex && !isWorkflowChildSession(matchedProject, entry.id)
+      entry.routeIndex === sessionRouteIndex && !isWorkflowOwnedSession(matchedProject, entry)
     )) || null;
     return { project: matchedProject, workflow: null, session };
   }
@@ -494,15 +489,23 @@ export function useProjectsState({
     try {
       setIsLoadingProjects(true);
       const response = await api.projects();
-      const projectData = (await response.json()) as Project[];
+      if (!response.ok) {
+        throw new Error(`Failed to fetch projects: ${response.status}`);
+      }
+
+      const projectData = await response.json();
+      if (!Array.isArray(projectData)) {
+        throw new Error('Projects API returned a non-array response');
+      }
+      const fetchedProjects = projectData as Project[];
 
       setProjects((prevProjects) => {
         if (prevProjects.length === 0) {
-          return projectData;
+          return fetchedProjects;
         }
 
-        return projectsHaveChanges(prevProjects, projectData, true)
-          ? projectData
+        return projectsHaveChanges(prevProjects, fetchedProjects, true)
+          ? fetchedProjects
           : prevProjects;
       });
     } catch (error) {

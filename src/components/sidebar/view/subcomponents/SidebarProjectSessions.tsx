@@ -7,6 +7,7 @@ import { ChevronDown, ChevronUp, MessageSquare } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { Button } from '../../../ui/button';
 import type { Project, ProjectSession, ProjectWorkflow, SessionProvider } from '../../../../types/app';
+import { isWorkflowOwnedSession } from '../../../../utils/workflowSessions';
 import type { SessionWithProvider, TouchHandlerFactory } from '../../types/types';
 import { compareSessionsByCardSortMode, type SessionCardSortMode } from '../../utils/utils';
 import SidebarSessionItem from './SidebarSessionItem';
@@ -47,24 +48,6 @@ type SidebarProjectSessionsProps = {
   touchHandlerFactory: TouchHandlerFactory;
   t: TFunction;
 };
-
-/**
- * PURPOSE: Exclude workflow-owned sessions from the sidebar manual-session
- * group so project expansion only lists sessions that are truly standalone.
- */
-function isWorkflowChildSession(project: Project, session: SessionWithProvider): boolean {
-  if (session.workflowId || session.stageKey) {
-    return true;
-  }
-
-  const childSessionIds = new Set(
-    (project.workflows || []).flatMap((workflow) => (
-      (workflow.childSessions || []).map((childSession) => childSession.id)
-    )),
-  );
-
-  return childSessionIds.has(session.id);
-}
 
 function SessionListSkeleton() {
   return (
@@ -127,7 +110,7 @@ export default function SidebarProjectSessions({
       if (isCurrentWorkflowChildSession) {
         return false;
       }
-      return !isWorkflowChildSession(project, session);
+      return !isWorkflowOwnedSession(project, session);
     })
     .sort((sessionA, sessionB) => compareSessionsByCardSortMode(sessionA, sessionB, 'created' as SessionCardSortMode, t));
   const hasSessions = manualSessions.length > 0;

@@ -173,8 +173,34 @@ function writeWorkflowStoreFixture() {
   }
 
   fs.mkdirSync(path.join(fixtureProjectPath, 'workflow-output'), { recursive: true });
+  fs.mkdirSync(path.join(fixtureProjectPath, '.ccflow', 'runs', 'run-fixture', 'logs'), { recursive: true });
   fs.writeFileSync(path.join(fixtureProjectPath, 'SUMMARY.md'), '# Workflow summary fixture\n', 'utf8');
   fs.writeFileSync(path.join(fixtureProjectPath, 'workflow-output', 'result.txt'), 'workflow artifact folder fixture\n', 'utf8');
+  fs.writeFileSync(path.join(fixtureProjectPath, '.ccflow', 'runs', 'run-fixture', 'logs', 'executor.log'), 'executor log fixture\n', 'utf8');
+  fs.writeFileSync(path.join(fixtureProjectPath, '.ccflow', 'runs', 'run-fixture', 'state.json'), `${JSON.stringify({
+    runId: 'run-fixture',
+    changeName: 'fixture-change',
+    status: 'running',
+    stage: 'review_1',
+    stages: {
+      execution: 'completed',
+      review_1: 'running',
+    },
+    paths: {
+      executor_log: '.ccflow/runs/run-fixture/logs/executor.log',
+    },
+    sessions: {},
+    processes: [
+      {
+        stage: 'execution',
+        role: 'executor',
+        status: 'completed',
+        sessionId: 'codex-runner-execution-thread',
+        pid: 4321,
+        logPath: '.ccflow/runs/run-fixture/logs/executor.log',
+      },
+    ],
+  }, null, 2)}\n`, 'utf8');
 
   fs.writeFileSync(
     PROJECT_CONF_PATH,
@@ -184,8 +210,11 @@ function writeWorkflowStoreFixture() {
         1: {
           title: '登录升级',
           objective: '把登录升级需求从规划推进到验收',
-          stage: 'verification',
-          runState: 'verification',
+          runner: 'go',
+          runnerProvider: 'codex',
+          runId: 'run-fixture',
+          stage: 'review_1',
+          runState: 'running',
           hasUnreadActivity: true,
           updatedAt: '2026-04-19T10:00:00.000Z',
           gateDecision: 'pending',

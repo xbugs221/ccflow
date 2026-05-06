@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Keep all OpenSpec CLI access behind the Go opsx JSON contract.
+ * PURPOSE: Keep all OpenSpec CLI access behind the Go ox JSON contract.
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -7,10 +7,10 @@ import { promisify } from 'util';
 const execFileAsync = promisify(execFile);
 
 /**
- * Execute opsx with JSON output and parse the response payload.
+ * Execute ox with JSON output and parse the response payload.
  */
 async function runOpsxJson(args, projectPath) {
-  const { stdout } = await execFileAsync('opsx', args, {
+  const { stdout } = await execFileAsync('ox', args, {
     cwd: projectPath,
     timeout: 10000,
     maxBuffer: 1024 * 1024 * 4,

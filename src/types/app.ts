@@ -37,6 +37,17 @@ export interface WorkflowChildSession {
   url?: string;
 }
 
+export interface WorkflowRunnerProcess {
+  stage: string;
+  role: string;
+  status: string;
+  sessionId?: string;
+  pid?: number | string;
+  exitCode?: number | string;
+  failed?: boolean;
+  logPath?: string;
+}
+
 export interface WorkflowSubstageInspection {
   stageKey: string;
   substageKey: string;
@@ -95,6 +106,7 @@ export interface ProjectWorkflow {
   stageStatuses: WorkflowStageStatus[];
   artifacts: WorkflowArtifact[];
   childSessions: WorkflowChildSession[];
+  runnerProcesses?: WorkflowRunnerProcess[];
   openspecTaskProgress?: {
     name?: string;
     status?: string;

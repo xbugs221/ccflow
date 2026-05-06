@@ -19,6 +19,7 @@ import {
 import { formatTimeAgo } from '../../../../utils/dateUtils';
 import { api } from '../../../../utils/api';
 import { buildProjectWorkflowRoute } from '../../../../utils/projectRoute';
+import { isWorkflowOwnedSession } from '../../../../utils/workflowSessions';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import SessionActionIconMenu from '../../../session-actions/SessionActionIconMenu';
 import WorkflowStageProgress from '../../../workflow/WorkflowStageProgress';
@@ -165,27 +166,6 @@ function compareOverviewPriority(
 }
 
 /**
- * PURPOSE: Keep workflow child sessions inside workflow detail links instead of
- * duplicating them in the project homepage manual-session checklist.
- */
-function isWorkflowChildSession(
-  project: { workflows?: ProjectWorkflow[] | null | undefined },
-  session: ProjectSession & { __provider?: SessionProvider },
-): boolean {
-  if (session.workflowId || session.stageKey) {
-    return true;
-  }
-
-  const childSessionIds = new Set(
-    (project.workflows || []).flatMap((workflow) => (
-      (workflow.childSessions || []).map((childSession) => childSession.id)
-    )),
-  );
-
-  return childSessionIds.has(session.id);
-}
-
-/**
  * Resolve the effective timestamp for sorting workflows.
  */
 function getWorkflowUpdatedAt(workflow: ProjectWorkflow): number {
@@ -261,7 +241,7 @@ export default function ProjectOverviewPanel({
       if (selectedSession?.workflowId && selectedSession.id === session.id) {
         return false;
       }
-      return !isWorkflowChildSession(project, session);
+      return !isWorkflowOwnedSession(project, session);
     })
     .sort((sessionA, sessionB) => compareSessionsByCardSortMode(sessionA, sessionB, sessionSortMode, t));
   const visibleSessions = sessionEntries

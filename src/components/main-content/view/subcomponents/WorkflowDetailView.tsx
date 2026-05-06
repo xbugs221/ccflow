@@ -12,6 +12,7 @@ import type {
   SessionProvider,
   WorkflowArtifact,
   WorkflowChildSession,
+  WorkflowRunnerProcess,
   WorkflowStageInspection,
   WorkflowSubstageInspection,
 } from '../../../../types/app';
@@ -610,6 +611,96 @@ function renderSubstageSessions(
   );
 }
 
+function buildRunnerProcessSession(
+  workflow: ProjectWorkflow,
+  process: WorkflowRunnerProcess,
+): WorkflowChildSession | null {
+  /**
+   * PURPOSE: Resolve runner process thread rows to workflow child-session route
+   * records so process links enter `/wN/cM` instead of project manual routes.
+   */
+  if (!process.sessionId) {
+    return null;
+  }
+  return (workflow.childSessions || []).find((session) => (
+    session.id === process.sessionId && (session.provider || 'codex') === 'codex'
+  )) || {
+    id: process.sessionId,
+    title: process.stage,
+    provider: 'codex',
+    workflowId: workflow.id,
+    stageKey: process.stage,
+  };
+}
+
+function renderRunnerProcesses(
+  project: Project,
+  workflow: ProjectWorkflow,
+  onNavigateToSession: WorkflowDetailViewProps['onNavigateToSession'],
+  onOpenArtifactFile: WorkflowDetailViewProps['onOpenArtifactFile'],
+) {
+  /**
+   * PURPOSE: Show Go runner process rows from the backend read model without
+   * parsing terminal output in the browser.
+   */
+  const processes = Array.isArray(workflow.runnerProcesses) ? workflow.runnerProcesses : [];
+  if (processes.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="space-y-2" data-testid="workflow-runner-processes">
+      <h3 className="text-sm font-semibold text-foreground">进程</h3>
+      <div className="overflow-hidden rounded-md border border-border">
+        {processes.map((process, index) => {
+          const session = buildRunnerProcessSession(workflow, process);
+          const meta = [
+            process.role ? `role=${process.role}` : '',
+            process.pid !== undefined ? `pid=${process.pid}` : '',
+            process.exitCode !== undefined ? `exit=${process.exitCode}` : '',
+            process.failed !== undefined ? `failed=${process.failed ? 'true' : 'false'}` : '',
+          ].filter(Boolean).join(' ');
+          return (
+            <div
+              key={`${process.stage}-${process.role}-${process.sessionId || index}`}
+              className="grid gap-2 border-b border-border px-3 py-2 text-sm last:border-b-0 md:grid-cols-[minmax(7rem,1fr)_minmax(6rem,0.8fr)_minmax(10rem,1.3fr)_auto]"
+            >
+              <div className="font-medium text-foreground">{process.stage}</div>
+              <div className="text-muted-foreground">{process.status}</div>
+              <div className="min-w-0 text-muted-foreground">
+                {session ? (
+                  <button
+                    type="button"
+                    className="max-w-full truncate text-left text-indigo-600 underline decoration-current underline-offset-2 hover:text-violet-700 dark:text-violet-300"
+                    onClick={() => onNavigateToSession(
+                      session.id,
+                      buildWorkflowSessionRouteOptions(project, workflow, session),
+                    )}
+                  >
+                    thread={process.sessionId}
+                  </button>
+                ) : meta || 'pending'}
+                {session && meta ? <span className="ml-2">{meta}</span> : null}
+              </div>
+              <div className="flex justify-start md:justify-end">
+                {process.logPath ? (
+                  <button
+                    type="button"
+                    className="text-indigo-600 underline decoration-current underline-offset-2 hover:text-violet-700 dark:text-violet-300"
+                    onClick={() => onOpenArtifactFile(process.logPath || '')}
+                  >
+                    log
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function renderStageControlPlaneEvents(stage: WorkflowStageInspection) {
   /**
    * Render workflow controller warnings and recovery records beside the stage
@@ -1139,6 +1230,7 @@ export default function WorkflowDetailView({
               )}
             </div>
           </div>
+          {renderRunnerProcesses(project, currentWorkflow, onNavigateToSession, onOpenArtifactFile)}
           {stageTree}
         </div>
 

@@ -43,7 +43,7 @@ async function withFakeGoWorkflowTools(testBody) {
       '  mkdir -p "$run_dir/logs"',
       '  echo "runner log" > "$run_dir/logs/executor.log"',
       '  cat > "$state" <<JSON',
-      '{"runId":"run-abc","changeName":"go-change","status":"$1","stage":"$2","stages":{"execution":"$1"},"paths":{"executor_log":".ccflow/runs/run-abc/logs/executor.log"},"sessions":{},"error":"$3"}',
+      '{"runId":"run-abc","changeName":"go-change","status":"$1","stage":"$2","stages":{"execution":"$1","review_1":"pending","repair_1":"pending","archive":"pending"},"paths":{"executor_log":".ccflow/runs/run-abc/logs/executor.log"},"sessions":{"executor":"codex-exec-thread"},"error":"$3"}',
       'JSON',
       '}',
       'case "$1" in',
@@ -119,6 +119,44 @@ test('Go-backed workflow persists run id and maps state.json into the read model
     assert.equal(workflow.runState, 'running');
     assert.equal(workflow.stageStatuses.find((stage) => stage.key === 'execution')?.status, 'active');
     assert.ok(workflow.artifacts.some((artifact) => artifact.relativePath === '.ccflow/runs/run-abc/logs/executor.log'));
+    assert.deepEqual(
+      workflow.runnerProcesses.find((process) => process.stage === 'execution'),
+      {
+        stage: 'execution',
+        role: 'executor',
+        status: 'running',
+        sessionId: 'codex-exec-thread',
+        logPath: '.ccflow/runs/run-abc/logs/executor.log',
+      },
+    );
+    assert.deepEqual(
+      workflow.runnerProcesses.find((process) => process.stage === 'repair_1'),
+      {
+        stage: 'repair_1',
+        role: 'executor',
+        status: 'pending',
+      },
+    );
+    assert.deepEqual(
+      workflow.runnerProcesses.find((process) => process.stage === 'archive'),
+      {
+        stage: 'archive',
+        role: 'executor',
+        status: 'pending',
+      },
+    );
+    assert.deepEqual(
+      workflow.childSessions.find((session) => session.id === 'codex-exec-thread'),
+      {
+        id: 'codex-exec-thread',
+        routeIndex: 1,
+        title: '执行',
+        summary: '执行',
+        provider: 'codex',
+        workflowId: 'w1',
+        stageKey: 'execution',
+      },
+    );
 
     const stored = JSON.parse(await fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'));
     assert.equal(stored.workflows['1'].runner, 'go');
@@ -137,6 +175,214 @@ test('Go-backed workflow persists run id and maps state.json into the read model
     const refreshed = await getProjectWorkflow(project, workflow.id);
     assert.equal(refreshed.runId, 'run-abc');
     assert.equal(refreshed.runnerError, '');
+    assert.equal(refreshed.childSessions.find((session) => session.id === 'codex-exec-thread')?.routeIndex, 1);
+  });
+});
+
+test('Go-backed workflow prefers runner processes and preserves process metadata', async () => {
+  await withFakeGoWorkflowTools(async (tempRoot) => {
+    const projectPath = path.join(tempRoot, 'project');
+    const project = { name: 'project', fullPath: projectPath, path: projectPath };
+    await fs.mkdir(path.join(projectPath, '.ccflow', 'runs', 'run-abc', 'logs'), { recursive: true });
+    await writeOpenSpecChange(projectPath);
+    await fs.writeFile(
+      path.join(projectPath, '.ccflow', 'runs', 'run-abc', 'state.json'),
+      JSON.stringify({
+        runId: 'run-abc',
+        changeName: 'go-change',
+        status: 'running',
+        stage: 'review_1',
+        stages: { execution: 'completed', review_1: 'running' },
+        paths: { reviewer_log: '.ccflow/runs/run-abc/logs/reviewer.log' },
+        sessions: { reviewer: 'fallback-review-thread' },
+        processes: [{
+          stage: 'review_1',
+          role: 'reviewer',
+          status: 'running',
+          sessionId: 'codex-review-thread',
+          pid: 12345,
+          exitCode: 7,
+          failed: true,
+          logPath: '.ccflow/runs/run-abc/logs/reviewer.log',
+        }],
+      }),
+      'utf8',
+    );
+    await fs.writeFile(path.join(projectPath, '.ccflow', 'runs', 'run-abc', 'logs', 'reviewer.log'), 'runner log\n');
+
+    const importKey = encodeURIComponent(`${tempRoot}-processes`);
+    const { getProjectWorkflow } = await import(`../../server/workflows.js?go=${importKey}`);
+    await fs.writeFile(
+      path.join(projectPath, '.ccflow', 'conf.json'),
+      JSON.stringify({
+        version: 2,
+        workflows: {
+          1: {
+            id: 'w1',
+            routeIndex: 1,
+            runner: 'go',
+            runnerProvider: 'codex',
+            runId: 'run-abc',
+            title: 'Process metadata',
+            objective: 'Expose runner process rows',
+            openspecChangeName: 'go-change',
+            stage: 'execution',
+            runState: 'running',
+            chat: {},
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    const workflow = await getProjectWorkflow(project, 'w1');
+    assert.deepEqual(workflow.runnerProcesses, [{
+      stage: 'review_1',
+      role: 'reviewer',
+      status: 'running',
+      sessionId: 'codex-review-thread',
+      pid: 12345,
+      exitCode: 7,
+      failed: true,
+      logPath: '.ccflow/runs/run-abc/logs/reviewer.log',
+    }]);
+    assert.equal(workflow.childSessions.find((session) => session.id === 'codex-review-thread')?.stageKey, 'review_1');
+  });
+});
+
+test('Go-backed workflow preserves runner child-session routeIndex across process reorder', async () => {
+  await withFakeGoWorkflowTools(async (tempRoot) => {
+    const projectPath = path.join(tempRoot, 'project');
+    const project = { name: 'project', fullPath: projectPath, path: projectPath };
+    await fs.mkdir(path.join(projectPath, '.ccflow', 'runs', 'run-abc'), { recursive: true });
+    await writeOpenSpecChange(projectPath);
+    await fs.writeFile(
+      path.join(projectPath, '.ccflow', 'conf.json'),
+      JSON.stringify({
+        version: 2,
+        workflows: {
+          1: {
+            id: 'w1',
+            routeIndex: 1,
+            runner: 'go',
+            runnerProvider: 'codex',
+            runId: 'run-abc',
+            title: 'Stable child routes',
+            objective: 'Keep runner child routes stable',
+            openspecChangeName: 'go-change',
+            stage: 'execution',
+            runState: 'running',
+            chat: {},
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    const importKey = encodeURIComponent(`${tempRoot}-stable-routes`);
+    const { listProjectWorkflows } = await import(`../../server/workflows.js?go=${importKey}`);
+    await fs.writeFile(
+      path.join(projectPath, '.ccflow', 'runs', 'run-abc', 'state.json'),
+      JSON.stringify({
+        runId: 'run-abc',
+        changeName: 'go-change',
+        status: 'running',
+        stage: 'review_1',
+        stages: { execution: 'completed', review_1: 'running' },
+        paths: {},
+        sessions: {},
+        processes: [
+          { stage: 'execution', role: 'executor', status: 'completed', sessionId: 'codex-exec-thread' },
+          { stage: 'review_1', role: 'reviewer', status: 'running', sessionId: 'codex-review-thread' },
+        ],
+      }),
+      'utf8',
+    );
+    const firstRead = (await listProjectWorkflows(projectPath))[0];
+    assert.equal(firstRead.childSessions.find((session) => session.id === 'codex-exec-thread')?.routeIndex, 1);
+    assert.equal(firstRead.childSessions.find((session) => session.id === 'codex-review-thread')?.routeIndex, 2);
+
+    await fs.writeFile(
+      path.join(projectPath, '.ccflow', 'runs', 'run-abc', 'state.json'),
+      JSON.stringify({
+        runId: 'run-abc',
+        changeName: 'go-change',
+        status: 'running',
+        stage: 'repair_1',
+        stages: { execution: 'completed', review_1: 'completed', repair_1: 'running' },
+        paths: {},
+        sessions: {},
+        processes: [
+          { stage: 'repair_1', role: 'executor', status: 'running', sessionId: 'codex-repair-thread' },
+          { stage: 'review_1', role: 'reviewer', status: 'completed', sessionId: 'codex-review-thread' },
+          { stage: 'execution', role: 'executor', status: 'completed', sessionId: 'codex-exec-thread' },
+        ],
+      }),
+      'utf8',
+    );
+    const secondRead = (await listProjectWorkflows(projectPath))[0];
+    assert.equal(secondRead.childSessions.find((session) => session.id === 'codex-exec-thread')?.routeIndex, 1);
+    assert.equal(secondRead.childSessions.find((session) => session.id === 'codex-review-thread')?.routeIndex, 2);
+    assert.equal(secondRead.childSessions.find((session) => session.id === 'codex-repair-thread')?.routeIndex, 3);
+  });
+});
+
+test('Go-backed workflow maps runner execution, review, repair, and archive stage statuses', async () => {
+  await withFakeGoWorkflowTools(async (tempRoot) => {
+    const projectPath = path.join(tempRoot, 'project');
+    const project = { name: 'project', fullPath: projectPath, path: projectPath };
+    await fs.mkdir(path.join(projectPath, '.ccflow', 'runs', 'run-abc'), { recursive: true });
+    await writeOpenSpecChange(projectPath);
+    await fs.writeFile(
+      path.join(projectPath, '.ccflow', 'conf.json'),
+      JSON.stringify({
+        version: 2,
+        workflows: {
+          1: {
+            id: 'w1',
+            routeIndex: 1,
+            runner: 'go',
+            runnerProvider: 'codex',
+            runId: 'run-abc',
+            title: 'Stage mapping',
+            objective: 'Map all Go runner stages',
+            openspecChangeName: 'go-change',
+            stage: 'execution',
+            runState: 'running',
+            chat: {},
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    const importKey = encodeURIComponent(`${tempRoot}-stage-mapping`);
+    const { getProjectWorkflow } = await import(`../../server/workflows.js?go=${importKey}`);
+    const cases = [
+      ['execution', 'running', 'execution', 'active'],
+      ['review_1', 'running', 'review_1', 'active'],
+      ['repair_1', 'running', 'repair_1', 'active'],
+      ['archive', 'completed', 'archive', 'completed'],
+    ];
+
+    for (const [runnerStage, runnerStatus, expectedStage, expectedStatus] of cases) {
+      await fs.writeFile(
+        path.join(projectPath, '.ccflow', 'runs', 'run-abc', 'state.json'),
+        JSON.stringify({
+          runId: 'run-abc',
+          changeName: 'go-change',
+          status: runnerStatus,
+          stage: runnerStage,
+          stages: { [runnerStage]: runnerStatus },
+          paths: {},
+          sessions: {},
+        }),
+        'utf8',
+      );
+      const workflow = await getProjectWorkflow(project, 'w1');
+      assert.equal(workflow.stage, expectedStage);
+      assert.equal(workflow.stageStatuses.find((stage) => stage.key === expectedStage)?.status, expectedStatus);
+    }
   });
 });
 

@@ -11,6 +11,7 @@ import { api } from '../../utils/api';
 import { createSessionViewModel, getAllSessions, sortSessions } from '../sidebar/utils/utils';
 import type { SessionWithProvider } from '../sidebar/types/types';
 import { buildProjectRoute, buildProjectWorkflowRoute } from '../../utils/projectRoute';
+import { isWorkflowOwnedSession } from '../../utils/workflowSessions';
 import type { NewSessionOptions } from '../../utils/workflowAutoStart';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 
@@ -132,24 +133,6 @@ function formatWorkflowScheduleTime(workflow: ProjectWorkflow): string {
   return `${month}-${day} ${hour}:${minute}`;
 }
 
-/**
- * PURPOSE: Keep workflow child sessions inside workflow detail pages instead of
- * duplicating them under the manual-session navigation group.
- */
-function isWorkflowChildSession(project: Project, session: SessionWithProvider): boolean {
-  if (session.workflowId || session.stageKey) {
-    return true;
-  }
-
-  const childSessionIds = new Set(
-    (project.workflows || []).flatMap((workflow) => (
-      (workflow.childSessions || []).map((childSession) => childSession.id)
-    )),
-  );
-
-  return childSessionIds.has(session.id);
-}
-
 export default function ProjectWorkspaceNav({
   project,
   selectedSession,
@@ -245,7 +228,7 @@ export default function ProjectWorkspaceNav({
         if (isCurrentWorkflowChildSession) {
           return false;
         }
-        return !isWorkflowChildSession(project, session);
+        return !isWorkflowOwnedSession(project, session);
       }),
     (session) => ({
       favorite: session.favorite === true,

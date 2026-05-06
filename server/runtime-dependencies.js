@@ -4,7 +4,7 @@
  */
 import { execFileSync, spawnSync } from 'child_process';
 
-const REQUIRED_COMMANDS = ['opsx', 'mc'];
+const REQUIRED_COMMANDS = ['ox', 'mc'];
 const RUNNER_CONTRACT_COMMAND = ['contract', '--json'];
 const REQUIRED_RUNNER_CAPABILITIES = ['list-changes', 'run', 'resume', 'status', 'abort'];
 
@@ -86,8 +86,8 @@ export function checkRequiredRuntimeDependencies() {
     .filter(([, command]) => !command.path)
     .map(([name]) => name);
   const incompatible = [];
-  if (diagnostics.commands.opsx.path && !diagnostics.commands.opsx.version.ok) {
-    incompatible.push('opsx --version');
+  if (diagnostics.commands.ox.path && !diagnostics.commands.ox.version.ok) {
+    incompatible.push('ox --version');
   }
   if (diagnostics.commands.mc.path && !diagnostics.commands.mc.contract.ok) {
     incompatible.push(`mc contract: ${diagnostics.commands.mc.contract.missing.join(', ')}`);
@@ -97,7 +97,7 @@ export function checkRequiredRuntimeDependencies() {
       'Missing or incompatible required workflow binaries.',
       missing.length > 0 ? `Missing from PATH: ${missing.join(', ')}` : '',
       incompatible.length > 0 ? `Incompatible: ${incompatible.join('; ')}` : '',
-      'Install opsx and mc manually, then ensure the service process PATH can see them.',
+      'Install ox and mc manually, then ensure the service process PATH can see them.',
       `PATH=${process.env.PATH || ''}`,
     ].filter(Boolean).join(' '));
   }
@@ -123,7 +123,7 @@ export function getRuntimeDependencyDiagnostics() {
     : { ok: false, required: [`mc ${RUNNER_CONTRACT_COMMAND.join(' ')}`], missing: ['mc'] };
   return {
     ok: REQUIRED_COMMANDS.every((commandName) => Boolean(commands[commandName].path))
-      && commands.opsx.version.ok
+      && commands.ox.version.ok
       && commands.mc.contract.ok,
     commands,
     path: process.env.PATH || '',

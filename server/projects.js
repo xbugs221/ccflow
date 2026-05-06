@@ -1717,13 +1717,18 @@ function applySessionSummaryOverride(session, summaryOverrideById) {
 /**
  * Attach workflow ownership metadata captured while finalizing a draft session.
  */
-function applySessionWorkflowMetadata(session, workflowMetadataById) {
+function applySessionWorkflowMetadata(session, workflowMetadataById, provider = '') {
   if (!session || typeof session !== 'object') {
     return session;
   }
 
   const metadata = workflowMetadataById?.[session.id];
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return session;
+  }
+  const sessionProvider = String(provider || session.provider || '').trim();
+  const metadataProvider = String(metadata.provider || '').trim();
+  if (sessionProvider && metadataProvider && sessionProvider !== metadataProvider) {
     return session;
   }
 
@@ -1737,10 +1742,11 @@ function applySessionWorkflowMetadata(session, workflowMetadataById) {
 /**
  * Apply persisted UI-facing metadata to a provider session.
  */
-function applySessionMetadataOverrides(session, summaryOverrideById, workflowMetadataById) {
+function applySessionMetadataOverrides(session, summaryOverrideById, workflowMetadataById, provider = '') {
   return applySessionWorkflowMetadata(
     applySessionSummaryOverride(session, summaryOverrideById),
     workflowMetadataById,
+    provider,
   );
 }
 
@@ -1790,6 +1796,11 @@ function isWorkflowOwnedSession(session, workflowMetadataById = {}) {
   }
 
   const metadata = workflowMetadataById?.[session?.id];
+  const sessionProvider = String(session?.provider || '').trim();
+  const metadataProvider = String(metadata?.provider || '').trim();
+  if (sessionProvider && metadataProvider && sessionProvider !== metadataProvider) {
+    return false;
+  }
   return typeof metadata?.workflowId === 'string' && metadata.workflowId.trim();
 }
 
@@ -3300,7 +3311,7 @@ async function getSessions(projectName, limit = 5, offset = 0, options = {}) {
       return session;
     });
     let candidateSessions = [...latestFromGroups, ...standaloneSessionsArray]
-      .map((session) => applySessionMetadataOverrides(session, summaryOverrideById, workflowMetadataById))
+      .map((session) => applySessionMetadataOverrides(session, summaryOverrideById, workflowMetadataById, 'claude'))
       .concat(manualDraftSessions)
       .filter(session => !session.summary.startsWith('{ "'))
       .sort((a, b) => new Date(b.createdAt || b.lastActivity || 0) - new Date(a.createdAt || a.lastActivity || 0));
@@ -3313,7 +3324,7 @@ async function getSessions(projectName, limit = 5, offset = 0, options = {}) {
       const workflows = await listProjectWorkflows(fallbackProjectPath);
       const workflowClaudeSessionIds = new Set(
         workflows.flatMap((workflow) => (workflow.childSessions || []))
-          .filter((session) => session?.provider === 'claude' && session?.id)
+          .filter((session) => (!session?.provider || session.provider === 'claude') && session?.id)
           .map((session) => session.id),
       );
       candidateSessions = candidateSessions.filter((session) => (
@@ -4633,7 +4644,7 @@ async function buildCodexSessionsIndex() {
         model: sessionData.model,
         filePath,
         provider: 'codex',
-      }, workflowMetadataById);
+      }, workflowMetadataById, 'codex');
 
       if (!sessionsByProject.has(normalizedProjectPath)) {
         sessionsByProject.set(normalizedProjectPath, []);
@@ -4707,7 +4718,7 @@ async function getCodexSessions(projectPath, options = {}) {
 
     const sessionsByProject = indexRef?.sessionsByProject || await getCachedCodexSessionsIndex();
     const sessions = (sessionsByProject.get(normalizedProjectPath) || [])
-      .map((session) => applySessionMetadataOverrides(session, summaryOverrideById, workflowMetadataById))
+      .map((session) => applySessionMetadataOverrides(session, summaryOverrideById, workflowMetadataById, 'codex'))
       .map((session) => applySessionModelState(session, modelStateById));
     const manualDraftRecords = getManualDraftSessionsForProject(config, {
       projectName: null,
