@@ -1,3 +1,8 @@
+---
+url: https://github.com/xbugs221/ccflow
+origin: https://github.com/siteboon/claudecodeui
+---
+
 # ccflow
 
 ccflow 是基于 [ccui](https://github.com/siteboon/claudecodeui) 和 [OpenSpec](https://github.com/Fission-AI/OpenSpec) 改造的本地 Web 工作台，主要用于把 Claude Code、OpenAI Codex CLI 和自定义 OpenSpec 工作流放在同一个项目界面里使用。
@@ -72,4 +77,4 @@ pnpm test:e2e
 
 ## 备注
 
-项目仍偏自用，未做完整产品化。OpenSpec 文档根是 `docs/`，active changes 位于 `docs/changes`，归档目录保留历史变更依据。Go runner 的运行状态保存在 `.ccflow/runs/<run-id>/state.json`，日志和 review/repair/archive artifacts 使用同一 run 目录下的稳定相对路径。升级后旧 Node workflow 自动推进状态不再兼容，需要基于 active OpenSpec change 重新启动 Go runner。
+项目仍偏自用，未做完整产品化。OpenSpec 文档根是 `docs/`，active changes 位于 `docs/changes`，归档目录保留历史变更依据。Go runner 的运行状态保存在 `.ccflow/runs/<run-id>/state.json`，日志和 review/repair/archive artifacts 使用同一 run 目录下的稳定相对路径。升级后旧 Node workflow 自动推进状态不再兼容，需要基于 active OpenSpec change 重新启动 Go runner
