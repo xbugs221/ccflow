@@ -218,6 +218,10 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(page.getByRole('heading', { name: '登录升级' }).last()).toBeVisible();
     await expect(page.getByTestId('workflow-runner-processes')).toContainText('execution');
     await expect(page.getByText('阶段进度')).toHaveCount(0);
+    await expect(page.getByTestId('workflow-runner-diagnostics')).toContainText('state path');
+    await expect(page.getByTestId('workflow-runner-diagnostics')).toContainText('raw status');
+    await expect(page.getByTestId('workflow-runner-diagnostics')).toContainText('raw stage');
+    await expect(page.getByTestId('workflow-runner-diagnostics')).toContainText('mc contract');
     await expect(page.getByTestId('workflow-stage-tree')).toBeVisible();
     await expect(page.getByTestId('workflow-stage-execution')).toContainText('执行');
     await page.getByTestId('workflow-stage-planning').getByRole('button', { name: /规划/ }).click();
@@ -619,7 +623,9 @@ test.describe('项目内需求工作流控制面', () => {
 
   test('移动端项目操作默认隐藏并通过长按打开', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByRole('button', { name: 'Open menu' }).click({ force: true });
+    const visibleMenuButton = page.locator('button[aria-label="Open menu"]:visible').first();
+    await expect(visibleMenuButton).toBeVisible();
+    await visibleMenuButton.click({ force: true });
 
     await expect(page.getByTestId('project-list-item-fixture-project-context-menu')).toHaveCount(0);
     await expect(page).not.toHaveURL(/\/project\//);

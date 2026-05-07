@@ -5,7 +5,7 @@ import type { Project } from '../types/app';
 
 type ProjectRouteTarget = Pick<Project, 'fullPath' | 'path' | 'name'> & { routePath?: string };
 type WorkflowRouteTarget = { routeIndex?: number; id?: string; runId?: string };
-type SessionRouteTarget = { routeIndex?: number; id?: string; role?: string; stageKey?: string };
+type SessionRouteTarget = { routeIndex?: number; id?: string; role?: string; stageKey?: string; address?: string; routePath?: string };
 
 function normalizeSlashPath(value: string): string {
   /**
@@ -89,13 +89,17 @@ export function buildWorkflowChildSessionRoute(
   /**
    * Build the canonical route for one runner-owned workflow child chat session.
    */
-  const sessionAddress = String(session.stageKey || session.role || session.id || '').trim();
+  const backendRoutePath = String(session.routePath || '').trim();
+  if (backendRoutePath.startsWith('/runs/')) {
+    return appendRouteSegment(buildProjectRoute(project), backendRoutePath.replace(/^\/+/g, ''));
+  }
+  const sessionAddress = String(session.address || session.stageKey || session.role || session.id || '').trim();
   if (!sessionAddress) {
     throw new Error('Missing workflow child session address');
   }
   return appendRouteSegment(
     buildProjectWorkflowRoute(project, workflow),
-    `sessions/${encodeURIComponent(sessionAddress)}`,
+    `sessions/${sessionAddress.split('/').map(encodeURIComponent).join('/')}`,
   );
 }
 

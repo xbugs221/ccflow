@@ -21,10 +21,7 @@ import {
   parseIndexedRouteSegment,
 } from '../utils/projectRoute';
 import { isWorkflowOwnedSession } from '../utils/workflowSessions';
-import {
-  createWorkflowAutoStartDraft,
-  type NewSessionOptions,
-} from '../utils/workflowAutoStart';
+import type { NewSessionOptions } from '../utils/workflowAutoStart';
 import type {
   AppSocketMessage,
   AppTab,
@@ -253,20 +250,32 @@ const resolveRouteSelection = (
     return { project: matchedProject, workflow: null, session };
   }
 
-  if (workflowRunId && routeSegments.length === 4 && routeSegments[2] === 'sessions') {
+  if (workflowRunId && routeSegments.length >= 4 && routeSegments[2] === 'sessions') {
     const workflow = (matchedProject.workflows || []).find((entry) => entry.runId === workflowRunId || entry.id === workflowRunId) || null;
-    const childAddress = decodeURIComponent(routeSegments[3] || '').trim();
+    const childAddress = routeSegments.slice(3).map((segment) => decodeURIComponent(segment || '').trim()).filter(Boolean).join('/');
     if (!workflow || !childAddress) {
       return { project: matchedProject, workflow: null, session: null };
     }
 
+    const childAddressParts = childAddress.split('/').filter(Boolean);
+    const isByIdAddress = childAddressParts[0] === 'by-id' && childAddressParts.length >= 2;
+    const addressStage = isByIdAddress ? '' : childAddressParts[0] || '';
+    const addressRole = isByIdAddress ? '' : childAddressParts[1] || '';
+    const addressSessionId = isByIdAddress ? childAddressParts.slice(1).join('/') : '';
     const runnerProcess = (workflow.runnerProcesses || []).find((entry) => (
-      entry.role === childAddress || entry.stage === childAddress || entry.sessionId === childAddress
+      entry.sessionId === childAddress
+      || entry.sessionId === addressSessionId
+      || (entry.stage === addressStage && (!addressRole || entry.role === addressRole))
+      || (!addressStage && (entry.role === childAddress || entry.stage === childAddress))
     )) || null;
     const childSession = (workflow.childSessions || []).find((entry) => (
-      entry.role === childAddress
+      entry.address === childAddress
+      || entry.routePath?.endsWith(`/sessions/${childAddress}`)
+      || entry.id === addressSessionId
+      || entry.role === childAddress
       || entry.stageKey === childAddress
       || entry.id === childAddress
+      || (entry.stageKey === addressStage && (!addressRole || entry.role === addressRole))
       || entry.id === runnerProcess?.sessionId
       || (entry.stageKey === runnerProcess?.stage && entry.role === runnerProcess?.role)
     )) || null;
@@ -298,11 +307,10 @@ const resolveRouteSelection = (
             id: childSession?.id || runnerProcess?.sessionId || `${workflow.id}-${childAddress}`,
             title: childSession?.title,
             summary: childSession?.summary,
-            routeIndex: childSession?.routeIndex,
           };
           return {
             ...baseSession,
-            routeIndex: childSession?.routeIndex || projectSession?.routeIndex,
+            routeIndex: projectSession?.routeIndex,
             workflowId: childSession?.workflowId || projectSession?.workflowId || workflow.id,
             projectPath: childSession?.projectPath || projectSession?.projectPath || matchedProject.fullPath || matchedProject.path,
             role: childSession?.role || runnerProcess?.role,
@@ -827,7 +835,7 @@ export function useProjectsState({
 
   const handleNewSession = useCallback(
     async (project: Project, provider: SessionProvider = 'codex', options: NewSessionOptions = {}) => {
-      const isManualSessionDraft = !options.workflowId && !options.autoPrompt;
+      const isManualSessionDraft = !options.workflowId;
       const defaultSessionLabel = getNextManualSessionLabel(project);
       let sessionSummary = typeof options.sessionSummary === 'string' ? options.sessionSummary.trim() : '';
 
@@ -862,13 +870,6 @@ export function useProjectsState({
           draftSession = createdSession;
         } catch (error) {
           console.error('Error creating manual session draft:', error);
-          return;
-        }
-      } else if (options.workflowId) {
-        try {
-          draftSession = await createWorkflowAutoStartDraft(project, provider, options);
-        } catch (error) {
-          console.error('Error creating workflow draft session:', error);
           return;
         }
       }
@@ -936,31 +937,10 @@ export function useProjectsState({
       setSelectedSession(syntheticSession);
       setSelectedWorkflow(null);
       setActiveTab('chat');
-      if (options.autoPrompt && typeof window !== 'undefined') {
-        window.sessionStorage.setItem(
-          `workflow-autostart:${draftSession.id}`,
-          JSON.stringify({
-            prompt: options.autoPrompt,
-            stageKey: options.workflowStageKey,
-            repairPass: options.workflowRepairPass,
-            reviewProfile: options.workflowReviewProfile,
-          }),
-        );
-      }
       navigate(
         targetWorkflow
           ? buildWorkflowChildSessionRoute(projectWithSyntheticSession, targetWorkflow, syntheticSession)
           : buildProjectSessionRoute(projectWithSyntheticSession, syntheticSession),
-        {
-          state: options.autoPrompt
-            ? {
-                workflowAutoPrompt: options.autoPrompt,
-                workflowStageKey: options.workflowStageKey,
-                workflowRepairPass: options.workflowRepairPass,
-                workflowReviewProfile: options.workflowReviewProfile,
-              }
-            : undefined,
-        },
       );
 
       if (isMobile) {

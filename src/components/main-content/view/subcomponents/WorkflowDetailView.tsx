@@ -320,11 +320,7 @@ function getRenderableSubstageSessions(substage: WorkflowSubstageInspection, hid
     return sessions.filter((session) => session.id !== hiddenSessionId);
   }
 
-  const latestSession = [...sessions].sort((left, right) => {
-    const leftRoute = Number(left.routeIndex) || 0;
-    const rightRoute = Number(right.routeIndex) || 0;
-    return rightRoute - leftRoute;
-  })[0];
+  const latestSession = sessions.at(-1);
   if (latestSession?.id === hiddenSessionId) {
     return [];
   }
@@ -337,6 +333,32 @@ function buildSubstageStatusKey(stageKey: string, substageKey: string): string {
    * phases can reuse similar substage names across old workflow records.
    */
   return `${stageKey}:${substageKey}`;
+}
+
+function getWorkflowDiagnosticsValue(workflow: ProjectWorkflow, key: string): string {
+  /**
+   * Read display-only mc diagnostics without requiring the frontend to parse raw
+   * runner state or know the original state.json shape.
+   */
+  const diagnostics = (workflow.runnerDiagnostics || workflow.diagnostics || {}) as Record<string, unknown>;
+  const value = diagnostics[key];
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+  if (typeof value === 'number') {
+    return String(value);
+  }
+  return typeof value === 'string' && value.trim() ? value : '无';
+}
+
+function getWorkflowDiagnosticWarnings(workflow: ProjectWorkflow): string[] {
+  /**
+   * Normalize backend mapping warnings for the diagnostics section.
+   */
+  const diagnostics = (workflow.runnerDiagnostics || workflow.diagnostics || {}) as Record<string, unknown>;
+  return Array.isArray(diagnostics.warnings)
+    ? diagnostics.warnings.map((warning) => String(warning)).filter(Boolean)
+    : [];
 }
 
 function hasSubstageEvidence(substage: WorkflowSubstageInspection): boolean {
@@ -1101,6 +1123,32 @@ export default function WorkflowDetailView({
               )}
             </div>
           </div>
+          {currentWorkflow.runner === 'go' && (
+            <div
+              data-testid="workflow-runner-diagnostics"
+              className="mt-4 rounded-md border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground"
+            >
+              <div className="mb-2 font-medium text-foreground">Runner diagnostics</div>
+              <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+                <div><dt className="inline text-muted-foreground">state path: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'statePath')}</dd></div>
+                <div><dt className="inline text-muted-foreground">state mtime: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'stateMtime')}</dd></div>
+                <div><dt className="inline text-muted-foreground">raw status: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'rawStatus')}</dd></div>
+                <div><dt className="inline text-muted-foreground">raw stage: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'rawStage')}</dd></div>
+                <div><dt className="inline text-muted-foreground">mc contract: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'mcContractVersion')} / ok {getWorkflowDiagnosticsValue(currentWorkflow, 'mcContractOk')}</dd></div>
+                <div><dt className="inline text-muted-foreground">runner error: </dt><dd className="inline text-foreground">{currentWorkflow.runnerError || getWorkflowDiagnosticsValue(currentWorkflow, 'runnerError')}</dd></div>
+                <div><dt className="inline text-muted-foreground">paths: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'pathCount')}</dd></div>
+                <div><dt className="inline text-muted-foreground">sessions: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'sessionCount')}</dd></div>
+                <div><dt className="inline text-muted-foreground">processes: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'processCount')}</dd></div>
+              </dl>
+              {getWorkflowDiagnosticWarnings(currentWorkflow).length > 0 && (
+                <ul className="mt-2 list-disc space-y-1 pl-4">
+                  {getWorkflowDiagnosticWarnings(currentWorkflow).map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           {renderRunnerProcesses(project, currentWorkflow, onNavigateToSession, onOpenArtifactFile)}
           {stageTree}
         </div>

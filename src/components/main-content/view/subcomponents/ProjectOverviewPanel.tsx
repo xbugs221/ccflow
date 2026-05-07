@@ -110,7 +110,7 @@ function getWorkflowUpdatedAt(workflow: ProjectWorkflow): number {
 }
 
 /**
- * Sort workflow overview cards by the selected visible field without changing wN ids.
+ * Sort workflow overview cards by stable runner read-model fields.
  */
 function compareWorkflowBySortMode(
   workflowA: ProjectWorkflow,
@@ -134,7 +134,11 @@ function compareWorkflowBySortMode(
     return leftProvider.localeCompare(rightProvider) || String(workflowA.title || '').localeCompare(String(workflowB.title || ''));
   }
 
-  return Number(workflowB.routeIndex || 0) - Number(workflowA.routeIndex || 0);
+  return getWorkflowUpdatedAt(workflowB) - getWorkflowUpdatedAt(workflowA)
+    || String(workflowA.title || workflowA.runId || workflowA.id || '').localeCompare(String(workflowB.title || workflowB.runId || workflowB.id || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
 }
 
 export default function ProjectOverviewPanel({

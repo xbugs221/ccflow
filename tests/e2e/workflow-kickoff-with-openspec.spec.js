@@ -90,21 +90,20 @@ test('creating a workflow with existing OpenSpec change binds correctly', async 
   await page.getByRole('button', { name: '创建工作流' }).click();
 
   // Verify navigation to workflow detail page
-  await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/w\\d+$`));
+  await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/playwright-run-[^/]+$`));
   await expect(page.getByTestId('workflow-stage-tree')).toBeVisible();
-  await expect(page.getByTestId('project-workflow-group')).toContainText('会话卡片展示优化');
+  await expect(page.getByTestId('project-workflow-group')).toContainText(OPEN_SPEC_CHANGE_NAME);
 
   // Verify the workflow stage tree shows the Go runner-controlled execution stage.
   await expect(page.getByTestId('workflow-stage-planning')).toBeVisible();
   await expect(page.getByTestId('workflow-stage-execution')).toBeVisible();
   await expect(page.getByText(/Go runner: playwright-run-/)).toBeVisible();
   await expect(page.getByText('阶段: review_1')).toBeVisible({ timeout: 10000 });
-  await expect(page.getByText('reviewer.log')).toBeVisible();
 
   // Verify via API that the workflow is bound to the OpenSpec change
   const project = await getFixtureProject(page.context().request);
-  const workflowMatch = page.url().match(/w(\d+)$/);
-  const workflowId = workflowMatch ? `w${workflowMatch[1]}` : '';
+  const workflowMatch = page.url().match(/\/runs\/([^/]+)$/);
+  const workflowId = workflowMatch ? workflowMatch[1] : '';
 
   const workflowResponse = await page.context().request.get(
     `/api/projects/${project.name}/workflows/${workflowId}`,
@@ -119,6 +118,5 @@ test('creating a workflow with existing OpenSpec change binds correctly', async 
   expect(workflow.runnerProvider).toBe('codex');
   expect(workflow.runId).toMatch(/^playwright-run-/);
   expect(workflow.stageStatuses.some((stage) => stage.key === 'review_1' && stage.status === 'active')).toBe(true);
-  expect(workflow.artifacts.some((artifact) => artifact.relativePath?.includes('/logs/executor.log'))).toBe(true);
-  expect(workflow.artifacts.some((artifact) => artifact.relativePath?.includes('/logs/reviewer.log'))).toBe(true);
+  expect(workflow.runnerProcesses.some((process) => process.logPath?.includes('logs/reviewer.log'))).toBe(true);
 });

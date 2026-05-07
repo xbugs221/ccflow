@@ -2,7 +2,7 @@ mc:
   workflow:
     max_review_iterations: 9
     defaults:
-      tool: codex
+      tool: opencode
       reasoning: low
       fast: false
     stages:

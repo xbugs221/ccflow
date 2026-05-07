@@ -43,7 +43,7 @@ function getWorkflowUpdatedAt(workflow: ProjectWorkflow): number {
 }
 
 /**
- * PURPOSE: Sort workflow cards by the selected visible field without changing route ids.
+ * PURPOSE: Sort workflow cards by stable runner read-model fields.
  */
 function compareWorkflowBySortMode(
   left: ProjectWorkflow,
@@ -67,7 +67,11 @@ function compareWorkflowBySortMode(
     return leftProvider.localeCompare(rightProvider) || String(left.title || '').localeCompare(String(right.title || ''));
   }
 
-  return Number(right.routeIndex || 0) - Number(left.routeIndex || 0);
+  return getWorkflowUpdatedAt(right) - getWorkflowUpdatedAt(left)
+    || String(left.title || left.runId || left.id || '').localeCompare(String(right.title || right.runId || right.id || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
 }
 
 /**

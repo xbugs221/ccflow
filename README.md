@@ -77,4 +77,4 @@ pnpm test:e2e
 
 ## 备注
 
-项目仍偏自用，未做完整产品化。OpenSpec 文档根是 `docs/`，active changes 位于 `docs/changes`，归档目录保留历史变更依据。Go runner 的运行状态保存在 `.ccflow/runs/<run-id>/state.json`，日志和 review/repair/archive artifacts 使用同一 run 目录下的稳定相对路径。升级后旧 Node workflow 自动推进状态不再兼容，需要基于 active OpenSpec change 重新启动 Go runner
+项目仍偏自用，未做完整产品化。OpenSpec 文档根是 `docs/`，active changes 位于 `docs/changes`，归档目录保留历史变更依据。Go runner 的运行状态保存在 `.ccflow/runs/<run-id>/state.json`，这是 workflow 列表和详情的唯一 runner fact 来源；`.ccflow/conf.json.workflows` 不再参与 workflow 展示、排序或路由。workflow 主路由使用 `/runs/<runId>`，runner child session 使用后端 read model 提供的 `/runs/<runId>/sessions/...` 地址，手动会话仍使用 `cN`。日志和 review/repair/archive artifacts 使用同一 run 目录下的稳定相对路径。升级后旧 Node workflow 自动推进状态不再兼容，需要基于 active OpenSpec change 重新启动 Go runner。

@@ -1,0 +1,201 @@
+## 目标边界
+
+目标架构必须是单向依赖：
+
+```text
+React UI
+  -> ccflow HTTP/WebSocket control plane
+    -> ProjectWorkflow read model
+      -> mc read-model adapter
+        -> .ccflow/runs/<run-id>/state.json
+        -> mc run/resume/status/abort --json
+```
+
+`mc` 拥有 workflow identity、stage、status、processes、sessions、paths、error 和 runner lifecycle。ccflow 不拥有这些事实，只能在请求期间把它们映射为前端可用的 read model。
+
+## 允许保留的 ccflow 代码
+
+### Web 控制面
+
+- HTTP routes：列出 workflows、读取 workflow 详情、创建 run、恢复 run、中止 run。
+- WebSocket/project watcher：监听 `.ccflow/runs/<run-id>` 下 `state.json`、logs、artifacts 的变化，触发前端刷新。
+- runtime diagnostics：展示 `ox`、`mc` 路径、版本、contract 和错误。
+
+### Read model adapter
+
+后端可以把 runner state 归一化为前端字段：
+
+```text
+state.runId/run_id 或 run 目录名 -> ProjectWorkflow.id/runId
+state.changeName/change_name       -> title/objective/openspecChangeName
+state.stage                        -> stage
+state.status                       -> runState + stageStatuses
+state.stages                       -> stageStatuses + runnerProcesses
+state.processes                    -> runnerProcesses
+state.sessions                     -> childSessions + process session links
+state.paths                        -> logs/artifacts
+state.error                        -> runnerError/failureReason
+state.updatedAt 或 state file mtime -> updatedAt
+```
+
+该 adapter 应该是纯函数为主，文件系统只负责读取 state 文件、mtime 和 artifact existence。这样 server tests 可以直接用 runner state fixtures 验证映射结果。
+
+### 前端 UI
+
+前端可以继续展示：
+
+- workflow 列表
+- workflow 详情页
+- 阶段树
+- runner process 列表
+- artifact/log 链接
+- child session 跳转
+- diagnostics 面板
+
+前端不得根据 DOM、URL 片段、文件名猜测 runner 状态；必须消费后端 read model。
+
+## 必须删除或停用的残留
+
+### 旧自动阶段 launcher
+
+以下语义属于旧 Node/TS auto runner，不应保留在 workflow 自动执行路径：
+
+- planning/review/repair/archive prompt 拼装
+- `workflowAutoStart`
+- `autoPrompt`
+- `workflow-autostart:*` sessionStorage
+- 自动创建 workflow-owned draft session
+- 根据 review result 决定 repair/archive 的 Node 逻辑
+
+如果用户需要手动打开一个普通会话，应走手动会话创建流程；如果工作流需要继续，应走 `mc resume --run-id <runId> --json`。
+
+### ccflow workflow 镜像 store
+
+`.ccflow/conf.json.workflows` 不得作为 workflow 列表、详情或排序依据。以下写入链路必须删除或变成无调用代码后再移除：
+
+- workflow store write
+- workflow compact/persist
+- controller event 持久化到 workflow store
+- routeIndex/wN 分配
+- favorite/pending/hidden/rename 等 workflow UI 状态
+
+`.ccflow/conf.json` 仍可保存手动会话、会话标题、手动会话 `cN` 路由和 session metadata；但不能保存 runner facts 的镜像副本。
+
+### workflow routeIndex/wN
+
+workflow identity 必须是 `runId`。排序默认使用 `updatedAt`，其来源必须稳定：
+
+1. `state.updatedAt` 或 `state.updated_at`
+2. `state.json` 文件 mtime
+3. run directory name 的稳定字典序 fallback
+
+不得使用 workflow `routeIndex` 作为 workflow 默认排序或 URL 生成依据。
+
+## Runner state contract
+
+ccflow adapter 必须接受 camelCase 和 snake_case 字段：
+
+```json
+{
+  "runId": "run-abc",
+  "changeName": "42-improve-login",
+  "status": "running",
+  "stage": "execution",
+  "stages": {
+    "planning": "completed",
+    "execution": "running"
+  },
+  "processes": [
+    {
+      "stage": "execution",
+      "role": "executor",
+      "status": "running",
+      "sessionId": "codex-session-id",
+      "logPath": ".ccflow/runs/run-abc/logs/executor.log"
+    }
+  ],
+  "sessions": {
+    "execution": "codex-session-id"
+  },
+  "paths": {
+    "executor_log": ".ccflow/runs/run-abc/logs/executor.log",
+    "summary": ".ccflow/runs/run-abc/summary.md"
+  },
+  "error": ""
+}
+```
+
+Required for listing:
+
+- `runId` or run directory name
+- `status`
+- `stage`
+
+Optional but displayed when present:
+
+- `changeName`
+- `stages`
+- `processes`
+- `sessions`
+- `paths`
+- `error`
+- `updatedAt`
+
+Unreadable or invalid state files must not break the whole project. The read model should expose a diagnostic row or project-level warning for that run directory, while valid runs still render.
+
+## Artifact and log mapping
+
+Paths must be normalized to project-relative slash paths. Mapping rules:
+
+- keys ending in `_log` or `Log` become log links and may also appear under the process row
+- `summary`, `delivery_summary`, `repair_*_summary`, `review_*`, `workflow_output` become artifacts
+- `state`, `state_json`, lock files and empty paths are hidden
+- file existence should set `exists/status`, but missing files should still be diagnosable when the runner state references them
+
+The UI should label artifacts by semantic role first, basename second. A user should be able to tell whether a link is a log, review result, repair summary, delivery summary, or output directory.
+
+## Child session routing
+
+Primary route:
+
+```text
+/<project>/runs/<runId>/sessions/<stage>
+```
+
+When a stage has more than one role or more than one session, the read model must expose a stable address:
+
+```text
+/<project>/runs/<runId>/sessions/<stage>/<role>
+/<project>/runs/<runId>/sessions/by-id/<sessionId>
+```
+
+The first form is preferred for normal stage rows. The by-id form is the fallback for duplicate stage/role sessions. These routes must not require query params such as `provider`, `projectPath` or `workflowId`.
+
+## Diagnostics read model
+
+Workflow detail should expose diagnostics generated by the backend:
+
+- `statePath`
+- `stateMtime`
+- `rawStatus`
+- `rawStage`
+- `mcContractVersion`
+- `mcContractOk`
+- `runnerError`
+- counts for `paths`, `sessions`, `processes`
+- warnings for unknown stages, duplicate session addresses, missing referenced files, unreadable state
+
+Diagnostics are display-only. They must not become a second workflow state store.
+
+## Migration approach
+
+1. Add adapter tests before deleting code.
+2. Extract `mc-read-model` from the current mixed `server/workflows.js`.
+3. Switch workflow list/detail to only call the adapter output.
+4. Remove old auto prompt/session draft paths.
+5. Remove workflow store write paths.
+6. Clean frontend types and route assumptions.
+7. Update e2e/spec tests.
+
+This order keeps the UI usable while preventing a partial cleanup from accidentally losing workflow visibility.
+

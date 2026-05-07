@@ -131,7 +131,7 @@ test('Go-backed workflow persists run id and maps state.json into the read model
     assert.equal(workflow.stage, 'execution');
     assert.equal(workflow.runState, 'running');
     assert.equal(workflow.stageStatuses.find((stage) => stage.key === 'execution')?.status, 'active');
-    assert.ok(workflow.artifacts.some((artifact) => artifact.relativePath === '.ccflow/runs/run-abc/logs/executor.log'));
+    assert.ok(workflow.runnerProcesses.some((process) => process.logPath === '.ccflow/runs/run-abc/logs/executor.log'));
     assert.deepEqual(
       workflow.runnerProcesses.find((process) => process.stage === 'execution'),
       {
@@ -162,13 +162,14 @@ test('Go-backed workflow persists run id and maps state.json into the read model
       workflow.childSessions.find((session) => session.id === 'codex-exec-thread'),
       {
         id: 'codex-exec-thread',
-        routeIndex: 1,
         title: '执行',
         summary: '执行',
         provider: 'codex',
         role: 'executor',
         workflowId: 'run-abc',
         stageKey: 'execution',
+        address: 'execution',
+        routePath: '/runs/run-abc/sessions/execution',
       },
     );
 
@@ -180,7 +181,7 @@ test('Go-backed workflow persists run id and maps state.json into the read model
     const refreshed = await getProjectWorkflow(project, workflow.id);
     assert.equal(refreshed.runId, 'run-abc');
     assert.equal(refreshed.runnerError, '');
-    assert.equal(refreshed.childSessions.find((session) => session.id === 'codex-exec-thread')?.routeIndex, 1);
+    assert.equal(refreshed.childSessions.find((session) => session.id === 'codex-exec-thread')?.address, 'execution');
   });
 });
 
@@ -255,7 +256,66 @@ test('Go-backed workflow prefers runner processes and preserves process metadata
   });
 });
 
-test('Go-backed workflow preserves runner child-session routeIndex across process reorder', async () => {
+test('Go-backed workflow diagnostics warn about unknown paths and process fields', async () => {
+  await withFakeGoWorkflowTools(async (tempRoot) => {
+    const projectPath = path.join(tempRoot, 'project');
+    const project = { name: 'project', fullPath: projectPath, path: projectPath };
+    await fs.mkdir(path.join(projectPath, '.ccflow', 'runs', 'run-extra', 'logs'), { recursive: true });
+    await writeOpenSpecChange(projectPath);
+    await fs.writeFile(path.join(projectPath, '.ccflow', 'runs', 'run-extra', 'extra.txt'), 'extra report\n', 'utf8');
+    await fs.writeFile(path.join(projectPath, '.ccflow', 'runs', 'run-extra', 'logs', 'executor.log'), 'runner log\n', 'utf8');
+    await fs.writeFile(
+      path.join(projectPath, '.ccflow', 'runs', 'run-extra', 'state.json'),
+      JSON.stringify({
+        runId: 'run-extra',
+        changeName: 'go-change',
+        status: 'running',
+        stage: 'execution',
+        stages: { execution: 'running' },
+        paths: {
+          executor_log: '.ccflow/runs/run-extra/logs/executor.log',
+          extra_report: '.ccflow/runs/run-extra/extra.txt',
+        },
+        sessions: {},
+        processes: [{
+          stage: 'execution',
+          role: 'executor',
+          status: 'running',
+          sessionId: 'codex-extra-thread',
+          logPath: '.ccflow/runs/run-extra/logs/executor.log',
+          mystery_field: 'kept for future mc contract',
+        }],
+      }),
+      'utf8',
+    );
+
+    const importKey = encodeURIComponent(`${tempRoot}-diagnostic-unknown`);
+    const { getProjectWorkflow } = await import(`../../server/workflows.js?go=${importKey}`);
+    const workflow = await getProjectWorkflow(project, 'run-extra');
+
+    assert.ok(workflow.artifacts.some((artifact) => (
+      artifact.label === 'extra report'
+      && artifact.path === '.ccflow/runs/run-extra/extra.txt'
+      && artifact.exists === true
+    )));
+    assert.deepEqual(workflow.runnerProcesses, [{
+      stage: 'execution',
+      role: 'executor',
+      status: 'running',
+      sessionId: 'codex-extra-thread',
+      failed: false,
+      logPath: '.ccflow/runs/run-extra/logs/executor.log',
+    }]);
+    assert.ok(workflow.runnerDiagnostics.warnings.includes('Unknown runner path key: extra_report'));
+    assert.ok(workflow.runnerDiagnostics.warnings.includes('Unknown runner process field: mystery_field'));
+    assert.ok(workflow.controllerEvents.some((event) => event.message === 'Unknown runner path key: extra_report'));
+    assert.ok(workflow.stageInspections.some((stage) => (
+      stage.warnings.some((warning) => warning.message === 'Unknown runner process field: mystery_field')
+    )));
+  });
+});
+
+test('Go-backed workflow preserves runner child-session addresses across process reorder', async () => {
   await withFakeGoWorkflowTools(async (tempRoot) => {
     const projectPath = path.join(tempRoot, 'project');
     const project = { name: 'project', fullPath: projectPath, path: projectPath };
@@ -304,8 +364,8 @@ test('Go-backed workflow preserves runner child-session routeIndex across proces
       'utf8',
     );
     const firstRead = (await listProjectWorkflows(projectPath))[0];
-    assert.equal(firstRead.childSessions.find((session) => session.id === 'codex-exec-thread')?.routeIndex, 1);
-    assert.equal(firstRead.childSessions.find((session) => session.id === 'codex-review-thread')?.routeIndex, 2);
+    assert.equal(firstRead.childSessions.find((session) => session.id === 'codex-exec-thread')?.address, 'execution');
+    assert.equal(firstRead.childSessions.find((session) => session.id === 'codex-review-thread')?.address, 'review_1');
 
     await fs.writeFile(
       path.join(projectPath, '.ccflow', 'runs', 'run-abc', 'state.json'),
@@ -326,13 +386,13 @@ test('Go-backed workflow preserves runner child-session routeIndex across proces
       'utf8',
     );
     const secondRead = (await listProjectWorkflows(projectPath))[0];
-    assert.equal(secondRead.childSessions.find((session) => session.id === 'codex-exec-thread')?.routeIndex, 1);
-    assert.equal(secondRead.childSessions.find((session) => session.id === 'codex-review-thread')?.routeIndex, 2);
-    assert.equal(secondRead.childSessions.find((session) => session.id === 'codex-repair-thread')?.routeIndex, 3);
+    assert.equal(secondRead.childSessions.find((session) => session.id === 'codex-exec-thread')?.address, 'execution');
+    assert.equal(secondRead.childSessions.find((session) => session.id === 'codex-review-thread')?.address, 'review_1');
+    assert.equal(secondRead.childSessions.find((session) => session.id === 'codex-repair-thread')?.address, 'repair_1');
   });
 });
 
-test('Go-backed workflow discovers and persists external running mc runs', async () => {
+test('Go-backed workflow discovers external running mc runs without persisting conf workflows', async () => {
   await withFakeGoWorkflowTools(async (tempRoot) => {
     const projectPath = path.join(tempRoot, 'project');
     await fs.mkdir(projectPath, { recursive: true });
@@ -358,8 +418,7 @@ test('Go-backed workflow discovers and persists external running mc runs', async
     assert.equal(workflows[0].openspecChangeName, 'go-change');
     assert.equal(workflows[0].stage, 'execution');
     assert.equal(workflows[0].runState, 'running');
-    assert.equal(workflows[0].adoptsExternalGoRun, true);
-    assert.equal(workflows[0].controllerEvents.at(-1)?.type, 'external_go_run_adopted');
+    assert.equal(workflows[0].runnerDiagnostics.rawStatus, 'running');
 
     await assert.rejects(
       () => fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'),
@@ -391,7 +450,7 @@ test('Go-backed workflow maps snake_case external state into the read model', as
     assert.equal(workflow.openspecChangeName, 'go-change');
     assert.equal(workflow.stage, 'archive');
     assert.equal(workflow.runState, 'completed');
-    assert.ok(workflow.artifacts.some((artifact) => artifact.relativePath === '.ccflow/runs/snake-dir-run/logs/executor.log'));
+    assert.ok(workflow.runnerProcesses.some((process) => process.logPath === '.ccflow/runs/snake-dir-run/logs/executor.log'));
   });
 });
 
@@ -426,7 +485,7 @@ test('Go-backed workflow discovery is idempotent and reuses registered runs', as
   });
 });
 
-test('Go-backed workflow discovery skips already-bound and corrupt external runs', async () => {
+test('Go-backed workflow discovery exposes corrupt external runs as diagnostics', async () => {
   await withFakeGoWorkflowTools(async (tempRoot) => {
     const projectPath = path.join(tempRoot, 'project');
     await fs.mkdir(path.join(projectPath, '.ccflow', 'runs', 'run-abc'), { recursive: true });
@@ -469,9 +528,11 @@ test('Go-backed workflow discovery skips already-bound and corrupt external runs
     const { listProjectWorkflows } = await import(`../../server/workflows.js?go=${importKey}`);
     const workflows = await listProjectWorkflows(projectPath);
 
-    assert.equal(workflows.length, 1);
-    assert.equal(workflows[0].id, 'run-abc');
-    assert.equal(workflows[0].runId, 'run-abc');
+    assert.equal(workflows.length, 2);
+    assert.ok(workflows.some((workflow) => workflow.id === 'run-abc' && workflow.runId === 'run-abc'));
+    const corruptWorkflow = workflows.find((workflow) => workflow.id === 'bad-run');
+    assert.equal(corruptWorkflow?.runState, 'blocked');
+    assert.match(corruptWorkflow?.runnerDiagnostics?.runnerError || '', /Unreadable runner state/);
   });
 });
 
@@ -501,8 +562,8 @@ test('Go-backed workflow list and detail expose external completed mc runs', asy
     assert.equal(detailWorkflow.openspecChangeName, 'go-change');
     assert.equal(detailWorkflow.stage, 'archive');
     assert.equal(detailWorkflow.runState, 'completed');
-    assert.ok(detailWorkflow.artifacts.some((artifact) => artifact.relativePath === '.ccflow/runs/external-done/logs/executor.log'));
-    assert.equal(detailWorkflow.controllerEvents.at(-1)?.type, 'external_go_run_adopted');
+    assert.ok(detailWorkflow.runnerProcesses.some((process) => process.logPath === '.ccflow/runs/external-done/logs/executor.log'));
+    assert.equal(detailWorkflow.runnerDiagnostics.rawStatus, 'completed');
   });
 });
 

@@ -31,10 +31,11 @@ export interface WorkflowChildSession {
   summary?: string;
   provider?: SessionProvider | string;
   role?: string;
-  routeIndex?: number;
   workflowId?: string;
   projectPath?: string;
   stageKey?: string;
+  address?: string;
+  routePath?: string;
   url?: string;
 }
 
@@ -85,7 +86,6 @@ export interface WorkflowControllerEvent {
 
 export interface ProjectWorkflow {
   id: string;
-  routeIndex?: number;
   title: string;
   objective: string;
   openspecChangePrefix?: string;
@@ -100,14 +100,13 @@ export interface ProjectWorkflow {
   runState: string;
   hasUnreadActivity?: boolean;
   updatedAt?: string;
-  favorite?: boolean;
-  pending?: boolean;
-  hidden?: boolean;
   gateDecision?: string;
   stageStatuses: WorkflowStageStatus[];
   artifacts: WorkflowArtifact[];
   childSessions: WorkflowChildSession[];
   runnerProcesses?: WorkflowRunnerProcess[];
+  runnerDiagnostics?: Record<string, unknown>;
+  diagnostics?: Record<string, unknown>;
   openspecTaskProgress?: {
     name?: string;
     status?: string;
