@@ -1,3 +1,7 @@
+/**
+ * PURPOSE: Serve Codex provider configuration, session history, and MCP
+ * management HTTP endpoints for the ccflow web UI.
+ */
 import express from 'express';
 import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
@@ -6,6 +10,10 @@ import os from 'os';
 import TOML from '@iarna/toml';
 import { getCodexSessions, getCodexSessionMessages, deleteCodexSession, renameCodexSession } from '../projects.js';
 import { getCodexModelCatalog } from '../codex-models.js';
+import {
+  formatCodexCliNotFoundMessage,
+  resolveCodexCliPath,
+} from '../codex-cli.js';
 
 const router = express.Router();
 
@@ -18,6 +26,15 @@ function createCliResponder(res) {
     responded = true;
     res.status(status).json(payload);
   };
+}
+
+/**
+ * Spawn the resolved Codex CLI for MCP management routes.
+ */
+function spawnCodexCli(args) {
+  const cliPath = resolveCodexCliPath();
+  const proc = spawn(cliPath, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+  return { proc, cliPath };
 }
 
 router.get('/config', async (req, res) => {
@@ -130,7 +147,7 @@ router.delete('/sessions/:sessionId', async (req, res) => {
 router.get('/mcp/cli/list', async (req, res) => {
   try {
     const respond = createCliResponder(res);
-    const proc = spawn('codex', ['mcp', 'list'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const { proc, cliPath } = spawnCodexCli(['mcp', 'list']);
 
     let stdout = '';
     let stderr = '';
@@ -150,7 +167,7 @@ router.get('/mcp/cli/list', async (req, res) => {
       const isMissing = error?.code === 'ENOENT';
       respond(isMissing ? 503 : 500, {
         error: isMissing ? 'Codex CLI not installed' : 'Failed to run Codex CLI',
-        details: error.message,
+        details: isMissing ? formatCodexCliNotFoundMessage(cliPath) : error.message,
         code: error.code
       });
     });
@@ -181,7 +198,7 @@ router.post('/mcp/cli/add', async (req, res) => {
     }
 
     const respond = createCliResponder(res);
-    const proc = spawn('codex', cliArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const { proc, cliPath } = spawnCodexCli(cliArgs);
 
     let stdout = '';
     let stderr = '';
@@ -201,7 +218,7 @@ router.post('/mcp/cli/add', async (req, res) => {
       const isMissing = error?.code === 'ENOENT';
       respond(isMissing ? 503 : 500, {
         error: isMissing ? 'Codex CLI not installed' : 'Failed to run Codex CLI',
-        details: error.message,
+        details: isMissing ? formatCodexCliNotFoundMessage(cliPath) : error.message,
         code: error.code
       });
     });
@@ -215,7 +232,7 @@ router.delete('/mcp/cli/remove/:name', async (req, res) => {
     const { name } = req.params;
 
     const respond = createCliResponder(res);
-    const proc = spawn('codex', ['mcp', 'remove', name], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const { proc, cliPath } = spawnCodexCli(['mcp', 'remove', name]);
 
     let stdout = '';
     let stderr = '';
@@ -235,7 +252,7 @@ router.delete('/mcp/cli/remove/:name', async (req, res) => {
       const isMissing = error?.code === 'ENOENT';
       respond(isMissing ? 503 : 500, {
         error: isMissing ? 'Codex CLI not installed' : 'Failed to run Codex CLI',
-        details: error.message,
+        details: isMissing ? formatCodexCliNotFoundMessage(cliPath) : error.message,
         code: error.code
       });
     });
@@ -249,7 +266,7 @@ router.get('/mcp/cli/get/:name', async (req, res) => {
     const { name } = req.params;
 
     const respond = createCliResponder(res);
-    const proc = spawn('codex', ['mcp', 'get', name], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const { proc, cliPath } = spawnCodexCli(['mcp', 'get', name]);
 
     let stdout = '';
     let stderr = '';
@@ -269,7 +286,7 @@ router.get('/mcp/cli/get/:name', async (req, res) => {
       const isMissing = error?.code === 'ENOENT';
       respond(isMissing ? 503 : 500, {
         error: isMissing ? 'Codex CLI not installed' : 'Failed to run Codex CLI',
-        details: error.message,
+        details: isMissing ? formatCodexCliNotFoundMessage(cliPath) : error.message,
         code: error.code
       });
     });

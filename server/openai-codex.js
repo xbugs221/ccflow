@@ -23,6 +23,10 @@ import {
   getCodexSessionTokenUsage,
 } from './session-token-usage.js';
 import { appendAttachmentNote } from './chat-attachments.js';
+import {
+  formatCodexCliNotFoundMessage,
+  resolveCodexCliPath,
+} from './codex-cli.js';
 
 // Track active sessions
 const activeCodexSessions = new Map();
@@ -389,7 +393,7 @@ async function runCodexCliFallback({
       approvalPolicy,
     });
 
-    const codexCliPath = process.env.CODEX_CLI_PATH || 'codex';
+    const codexCliPath = resolveCodexCliPath({ env: childEnv });
     const child = spawn(codexCliPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: childEnv
@@ -462,6 +466,10 @@ async function runCodexCliFallback({
     });
 
     child.on('error', (err) => {
+      if (err?.code === 'ENOENT') {
+        finish(new Error(formatCodexCliNotFoundMessage(codexCliPath, childEnv)));
+        return;
+      }
       finish(err);
     });
 
