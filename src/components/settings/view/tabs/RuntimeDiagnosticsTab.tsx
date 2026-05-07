@@ -52,7 +52,7 @@ function RuntimeCommandRow({ command }: { command: RuntimeCommandDiagnostics }) 
 export default function RuntimeDiagnosticsTab() {
   /**
    * Fetch server-side runtime dependency diagnostics when the diagnostics tab is
-   * opened so operators can verify opsx/mc resolution without path overrides.
+   * opened so operators can verify ox/mc resolution without path overrides.
    */
   const [diagnostics, setDiagnostics] = useState<RuntimeDiagnostics | null>(null);
   const [error, setError] = useState('');
@@ -81,7 +81,7 @@ export default function RuntimeDiagnosticsTab() {
     <div className="space-y-4">
       <div>
         <h3 className="text-lg font-semibold text-foreground">Runtime diagnostics</h3>
-        <p className="text-sm text-muted-foreground">Server-visible opsx and mc binaries used by workflow automation.</p>
+        <p className="text-sm text-muted-foreground">Server-visible ox and mc binaries used by workflow automation.</p>
       </div>
       {error && <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
       {diagnostics && (

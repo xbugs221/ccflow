@@ -1,8 +1,7 @@
 /**
- * PURPOSE: Persist lightweight project-scoped workflow control-plane state for CCUI.
- * The store keeps workflow read models, unread markers, artifacts, and child-session links
- * independent from raw chat sessions so the sidebar and detail view can treat workflows
- * as first-class resources.
+ * PURPOSE: Build project workflow read models from Go mc runner state.
+ * ccflow keeps the Web control plane thin: automatic workflow facts come from
+ * `.ccflow/runs/<run-id>/state.json`, not from a local workflow mirror.
  */
 import os from 'os';
 import path from 'path';
@@ -16,7 +15,7 @@ import {
 import {
   getOpenSpecStatus,
   listOpenSpecChanges,
-} from './domains/openspec/opsx-client.js';
+} from './domains/openspec/ox-client.js';
 import {
   abortGoWorkflowRun,
   normalizeRunnerPath,
@@ -77,6 +76,11 @@ const STAGE_LABELS = {
   repair_3: '三修',
   archive: '归档',
 };
+const REVIEW_PASS_TITLES = {
+  review_1: '需求与范围覆盖',
+  review_2: '实现风险与回归',
+  review_3: '验收与交付闭环',
+};
 const STAGE_TEMPLATES = [
   {
     key: 'planning',
@@ -96,7 +100,7 @@ const STAGE_TEMPLATES = [
     key: 'review_1',
     label: STAGE_LABELS.review_1,
     substages: [
-      { key: 'review_1', title: '初审' },
+      { key: 'review_1', title: REVIEW_PASS_TITLES.review_1 },
     ],
   },
   {
@@ -110,7 +114,7 @@ const STAGE_TEMPLATES = [
     key: 'review_2',
     label: STAGE_LABELS.review_2,
     substages: [
-      { key: 'review_2', title: '再审' },
+      { key: 'review_2', title: REVIEW_PASS_TITLES.review_2 },
     ],
   },
   {
@@ -124,7 +128,7 @@ const STAGE_TEMPLATES = [
     key: 'review_3',
     label: STAGE_LABELS.review_3,
     substages: [
-      { key: 'review_3', title: '三审' },
+      { key: 'review_3', title: REVIEW_PASS_TITLES.review_3 },
     ],
   },
   {
@@ -1008,20 +1012,15 @@ async function validateWorkflowOpenSpecChange(projectPath, changeName) {
 }
 
 async function readWorkflowStore(projectPath) {
-  const config = await readProjectConfig(projectPath);
-  const rawWorkflowEntries = Array.isArray(config.workflows)
-    ? config.workflows.map((workflow, index) => [String(Number(workflow?.routeIndex) || index + 1), workflow])
-    : Object.entries(config.workflows && typeof config.workflows === 'object' ? config.workflows : {});
-  const workflows = rawWorkflowEntries.length > 0
-    ? rawWorkflowEntries.map(([routeIndex, workflow]) => expandWorkflowFromStore({
-      ...(workflow && typeof workflow === 'object' && !Array.isArray(workflow) ? workflow : {}),
-      id: buildWorkflowId(Number(routeIndex)),
-      routeIndex: Number(routeIndex),
-    }))
-    : [];
+  /**
+   * PURPOSE: Preserve the historical store shape for callers while deliberately
+   * ignoring `.ccflow/conf.json.workflows`; mc state files are the only workflow
+   * index after the native runner removal.
+   */
+  void projectPath;
   return {
     version: 1,
-    workflows,
+    workflows: [],
   };
 }
 
@@ -1141,20 +1140,15 @@ function collectRegisteredGoRunIds(workflows = []) {
 }
 
 /**
- * Append minimal workflow records for external Go runner runs that are not yet
- * present in `.ccflow/conf.json`.
+ * Build minimal workflow records for Go runner runs discovered from state files.
  */
 function adoptExternalGoRuns(workflows = [], externalRuns = []) {
   /**
-   * PURPOSE: Give externally-started mc runs stable wN routes by persisting a
-   * small control-plane record before the normal read-model overlay runs.
+   * PURPOSE: Use run ids as workflow identity so no ccflow workflow mirror or wN
+   * route index is required to list an mc-backed workflow.
    */
   const adoptedWorkflows = [...workflows];
   const registeredRunIds = collectRegisteredGoRunIds(adoptedWorkflows);
-  let maxRouteIndex = adoptedWorkflows.reduce((maxValue, workflow) => {
-    const routeIndex = parseWorkflowRouteIndex(workflow?.id) || Number(workflow?.routeIndex);
-    return Number.isInteger(routeIndex) && routeIndex > maxValue ? routeIndex : maxValue;
-  }, 0);
   let changed = false;
 
   for (const run of externalRuns) {
@@ -1162,13 +1156,10 @@ function adoptExternalGoRuns(workflows = [], externalRuns = []) {
     if (aliases.some((alias) => registeredRunIds.has(alias))) {
       continue;
     }
-    maxRouteIndex += 1;
-    const workflowId = buildWorkflowId(maxRouteIndex);
     const title = run.changeName || run.runId;
     const adoptedAt = new Date().toISOString();
     adoptedWorkflows.push({
-      id: workflowId,
-      routeIndex: maxRouteIndex,
+      id: run.runId,
       runner: 'go',
       runnerProvider: 'codex',
       runId: run.runId,
@@ -1177,6 +1168,7 @@ function adoptExternalGoRuns(workflows = [], externalRuns = []) {
       openspecChangeName: run.changeName,
       stage: run.stage,
       runState: run.runState,
+      hasUnreadActivity: run.runState === 'running',
       adoptsExternalGoRun: true,
       updatedAt: adoptedAt,
       controllerEvents: [{
@@ -1305,10 +1297,6 @@ function compactWorkflowForStore(workflow = {}) {
   if (workflow.updatedAt) compact.updatedAt = workflow.updatedAt;
   if (workflow.gateDecision && workflow.gateDecision !== 'pending') compact.gateDecision = workflow.gateDecision;
   if (workflow.finalReadiness === true) compact.finalReadiness = true;
-  if (workflow.favorite === true) compact.favorite = true;
-  if (workflow.pending === true) compact.pending = true;
-  if (workflow.hidden === true) compact.hidden = true;
-
   const providerMap = compactWorkflowProviderMap(workflow);
   if (Object.keys(providerMap).length > 0) {
     compact.providers = providerMap;
@@ -1635,11 +1623,6 @@ function createWorkflowRecord(payload = {}) {
   const workflowId = payload.workflowId || `workflow-${Date.now().toString(36)}`;
   const adoptsExistingOpenSpec = payload.adoptsExistingOpenSpec === true;
   const initialStage = adoptsExistingOpenSpec ? 'execution' : 'planning';
-  const stageProviders = normalizeWorkflowStageProviders(payload.stageProviders);
-  const scheduledAt = typeof payload.scheduledAt === 'string' && payload.scheduledAt.trim()
-    ? payload.scheduledAt.trim()
-    : undefined;
-
   return {
     id: workflowId,
     routeIndex: Number.isInteger(payload.routeIndex) ? payload.routeIndex : undefined,
@@ -1664,7 +1647,6 @@ function createWorkflowRecord(payload = {}) {
     artifacts: [],
     childSessions: [],
     gateDecision: 'pending',
-    scheduledAt,
   };
 }
 
@@ -2858,16 +2840,24 @@ function buildGoRunnerStageStatuses(workflow, runnerState) {
  */
 function buildGoRunnerArtifacts(runnerState) {
   const paths = runnerState?.paths && typeof runnerState.paths === 'object' ? runnerState.paths : {};
+  const artifactMetadataByKey = {
+    summary: { stage: 'execution', substageKey: 'node_execution', type: 'file' },
+    workflow_output: { stage: 'execution', substageKey: 'node_execution', type: 'directory' },
+  };
   return Object.entries(paths)
     .filter(([, value]) => typeof value === 'string' && value.trim() && !value.endsWith('state.json'))
-    .map(([key, value]) => ({
-      id: `go-${key}`,
-      label: path.basename(value),
-      path: normalizeRunnerPath(value),
-      type: 'file',
-      stage: String(runnerState?.stage || 'execution'),
-      status: 'ready',
-    }));
+    .map(([key, value]) => {
+      const metadata = artifactMetadataByKey[key] || {};
+      return {
+        id: `go-${key}`,
+        label: path.basename(value),
+        path: normalizeRunnerPath(value),
+        type: metadata.type || 'file',
+        stage: metadata.stage || String(runnerState?.stage || 'execution'),
+        substageKey: metadata.substageKey,
+        status: 'ready',
+      };
+    });
 }
 
 function inferRunnerProcessRole(stageKey = '', process = {}) {
@@ -2985,8 +2975,20 @@ function buildGoRunnerProcesses(runnerState, stageStatuses) {
    * PURPOSE: Build workflow runner process rows from the Go runner contract,
    * falling back to sessions/stages/paths when `processes` is unavailable.
    */
+  const sortProcesses = (processes) => processes.sort((left, right) => {
+    /**
+     * PURPOSE: Keep child session route indices deterministic across runner
+     * process array reorderings without persisting a ccflow workflow mirror.
+     */
+    const stageOrder = new Map(getWorkflowStages().map((stage, index) => [stage.key, index]));
+    const leftStage = normalizeWorkflowStageKey(left?.stage || '');
+    const rightStage = normalizeWorkflowStageKey(right?.stage || '');
+    return (stageOrder.get(leftStage) ?? 999) - (stageOrder.get(rightStage) ?? 999)
+      || String(left?.sessionId || '').localeCompare(String(right?.sessionId || ''));
+  });
+
   if (Array.isArray(runnerState?.processes)) {
-    return runnerState.processes.map((process) => normalizeGoRunnerProcess(process, runnerState, stageStatuses));
+    return sortProcesses(runnerState.processes.map((process) => normalizeGoRunnerProcess(process, runnerState, stageStatuses)));
   }
 
   const sessions = runnerState?.sessions && typeof runnerState.sessions === 'object' ? runnerState.sessions : {};
@@ -2995,7 +2997,7 @@ function buildGoRunnerProcesses(runnerState, stageStatuses) {
     ...Object.keys(stages).map((stageKey) => normalizeWorkflowStageKey(stageKey)),
     normalizeWorkflowStageKey(runnerState?.stage || 'execution'),
   ].filter(Boolean))];
-  return stageKeys.map((stageKey) => {
+  return sortProcesses(stageKeys.map((stageKey) => {
     const role = inferRunnerProcessRole(stageKey);
     const roleScopedFallbackAllowed = isRoleScopedRunnerFallbackAllowed(runnerState, stages, stageKey);
     const sessionId = String(
@@ -3012,7 +3014,7 @@ function buildGoRunnerProcesses(runnerState, stageStatuses) {
       logPath: resolveRunnerProcessFallbackLogPath(runnerState, stages, stageKey, role),
       skipLogPathFallback: true,
     }, runnerState, stageStatuses);
-  });
+  }));
 }
 
 function mergeRunnerProcessChildSessions(workflow = {}, runnerProcesses = []) {
@@ -3033,12 +3035,13 @@ function mergeRunnerProcessChildSessions(workflow = {}, runnerProcesses = []) {
       return;
     }
     maxRouteIndex += 1;
-    const title = STAGE_LABELS[process.stage] || process.stage || '工作流子会话';
+    const title = REVIEW_PASS_TITLES[process.stage] || STAGE_LABELS[process.stage] || process.stage || '工作流子会话';
     childSessions.push({
       id: process.sessionId,
       title,
       summary: title,
       provider: 'codex',
+      role: process.role,
       workflowId: workflow.id,
       stageKey: process.stage,
       routeIndex: maxRouteIndex,
@@ -3199,38 +3202,12 @@ export async function listProjectWorkflows(projectPath) {
   if (adoptedGoRuns.changed) {
     entry.workflows = adoptedGoRuns.workflows;
   }
-  const indexedWorkflows = assignMissingWorkflowRouteIndices(Array.isArray(entry?.workflows) ? entry.workflows : []);
-  const workflows = indexedWorkflows.workflows;
-  let storeChanged = adoptedGoRuns.changed;
-  if (indexedWorkflows.changed) {
-    storeChanged = true;
-  }
+  const workflows = Array.isArray(entry?.workflows) ? entry.workflows : [];
   const normalizedWorkflows = [];
-  const repairedWorkflows = [];
 
   for (const workflow of workflows) {
     const normalizedWorkflow = await normalizeWorkflow(projectPath, workflow);
-    const repairedWorkflow = {
-      ...prepareWorkflowRecord(workflow),
-      runner: normalizedWorkflow.runner,
-      runnerProvider: normalizedWorkflow.runnerProvider,
-      runId: normalizedWorkflow.runId,
-      openspecChangeName: normalizedWorkflow.openspecChangeName,
-      stage: normalizedWorkflow.stage,
-      runState: normalizedWorkflow.runState,
-      stageStatuses: normalizedWorkflow.stageStatuses,
-      childSessions: normalizedWorkflow.childSessions,
-    };
-    if (JSON.stringify(repairedWorkflow) !== JSON.stringify(workflow)) {
-      storeChanged = true;
-    }
     normalizedWorkflows.push(normalizedWorkflow);
-    repairedWorkflows.push(repairedWorkflow);
-  }
-
-  if (storeChanged) {
-    store.workflows = repairedWorkflows;
-    await writeWorkflowStore(projectPath, store);
   }
 
   return normalizedWorkflows;
@@ -3297,14 +3274,7 @@ export async function createProjectWorkflow(project, payload = {}) {
     throw new Error('Project path is required to create a workflow');
   }
 
-  const store = await readWorkflowStore(projectPath);
-  const entry = store;
-  const existingWorkflows = assignMissingWorkflowRouteIndices(Array.isArray(entry.workflows) ? entry.workflows : []).workflows;
-  const nextRouteIndex = existingWorkflows.reduce((maxValue, candidate) => {
-    const parsed = parseWorkflowRouteIndex(candidate?.id) || Number(candidate?.routeIndex);
-    return Number.isInteger(parsed) && parsed > maxValue ? parsed : maxValue;
-  }, 0) + 1;
-  const workflowId = buildWorkflowId(nextRouteIndex);
+  const existingWorkflows = await listProjectWorkflows(projectPath);
   const providedChangeName = await validateWorkflowOpenSpecChange(projectPath, payload.openspecChangeName);
   if (!providedChangeName) {
     throw new Error('Go-backed workflows require an active OpenSpec change. Create or select one from docs/changes first.');
@@ -3319,9 +3289,8 @@ export async function createProjectWorkflow(project, payload = {}) {
   }
   const workflow = createWorkflowRecord({
     ...payload,
-    routeIndex: nextRouteIndex,
     adoptsExistingOpenSpec: Boolean(providedChangeName),
-    workflowId,
+    workflowId: runId,
     openspecChangePrefix,
     openspecChangeName: providedChangeName,
     runner: 'go',
@@ -3329,9 +3298,6 @@ export async function createProjectWorkflow(project, payload = {}) {
     runnerPid: Number.isInteger(runResult?.pid) ? runResult.pid : undefined,
   });
 
-  entry.workflows = [workflow, ...existingWorkflows];
-  store.workflows = entry.workflows;
-  await writeWorkflowStore(projectPath, store);
   return normalizeWorkflow(projectPath, workflow);
 }
 
@@ -3346,75 +3312,11 @@ export async function listProjectAdoptableOpenSpecChanges(project) {
 
 export async function getProjectWorkflow(project, workflowId) {
   const workflows = await listProjectWorkflows(project?.fullPath || project?.path || '');
-  return workflows.find((workflow) => workflow.id === workflowId || workflow.legacyId === workflowId) || null;
-}
-
-export async function updateWorkflowStageProviders(project, workflowId, stageProviders = {}) {
-  /**
-   * PURPOSE: Persist runtime provider choices for not-yet-started workflow stages.
-   */
-  const projectPath = project?.fullPath || project?.path || '';
-  if (!projectPath) {
-    return null;
-  }
-
-  const normalizedProviders = normalizeWorkflowStageProviders(stageProviders);
-  const store = await readWorkflowStore(projectPath);
-  const entry = store;
-  if (!entry?.workflows) {
-    return null;
-  }
-
-  let updatedWorkflow = null;
-  entry.workflows = entry.workflows.map((workflow) => {
-    if (workflow.id !== workflowId) {
-      return workflow;
-    }
-    if (
-      workflow.runner === 'go'
-      && Object.values(normalizedProviders).some((provider) => provider !== 'codex')
-    ) {
-      const error = new Error('Go-backed workflows only support Codex automatic stages.');
-      error.statusCode = 409;
-      throw error;
-    }
-    const currentProviders = getWorkflowStageProviderMap(workflow);
-    const stageStatuses = Array.isArray(workflow.stageStatuses)
-      ? workflow.stageStatuses.map((stage) => ({
-        key: normalizeWorkflowStageKey(stage.key),
-        label: STAGE_LABELS[normalizeWorkflowStageKey(stage.key)] || stage.label || stage.key,
-        status: stage.status || 'pending',
-        provider: getWorkflowStageProvider(workflow, stage.key),
-      }))
-      : getWorkflowStages().map((stage) => ({
-        ...stage,
-        status: stage.key === (workflow.stage || 'planning') ? 'active' : 'pending',
-        provider: currentProviders[stage.key] || 'codex',
-      }));
-    const nextProviders = { ...currentProviders };
-    Object.entries(normalizedProviders).forEach(([stageKey, provider]) => {
-      const currentProvider = currentProviders[stageKey] || 'codex';
-      if (isWorkflowStageStarted(workflow, stageKey) && currentProvider !== provider) {
-        const error = new Error(`Stage provider is locked after stage start: ${stageKey}`);
-        error.statusCode = 409;
-        throw error;
-      }
-      nextProviders[stageKey] = provider;
-    });
-    updatedWorkflow = {
-      ...workflow,
-      stageStatuses: stageStatuses.map((stage) => ({
-        ...stage,
-        provider: nextProviders[normalizeWorkflowStageKey(stage.key)] || 'codex',
-      })),
-      updatedAt: new Date().toISOString(),
-    };
-    return updatedWorkflow;
-  });
-
-  store.workflows = entry.workflows;
-  await writeWorkflowStore(projectPath, store);
-  return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
+  return workflows.find((workflow) => (
+    workflow.id === workflowId
+    || workflow.runId === workflowId
+    || workflow.legacyId === workflowId
+  )) || null;
 }
 
 export async function resumeWorkflowRun(project, workflowId) {
@@ -3477,576 +3379,6 @@ export async function getWorkflowReviewResult(project, workflowId, passIndex) {
   }
 
   return readWorkflowReviewResultForWorkflow(projectPath, workflow, passIndex);
-}
-
-export async function buildWorkflowLauncherConfig(project, workflowId, stage) {
-  const projectPath = project?.fullPath || project?.path || '';
-  if (!projectPath) {
-    throw new Error('Project path is required to build workflow launcher config');
-  }
-
-  const workflow = await getProjectWorkflow(project, workflowId);
-  if (!workflow) {
-    throw new Error('Workflow not found');
-  }
-  if (workflow.runner === 'go') {
-    const error = new Error('Go-backed workflows are controlled by the Go runner. Use resume-run, abort-run, or status endpoints instead of the legacy launcher.');
-    error.statusCode = 409;
-    throw error;
-  }
-
-  let normalizedStage = String(stage || '').trim();
-  const requestedStageStatus = (workflow.stageStatuses || [])
-    .find((item) => item?.key === normalizedStage)?.status || '';
-  if (requestedStageStatus === 'completed') {
-    const requestedReviewMatch = normalizedStage.match(/^review_(\d+)$/);
-    const requestedRepairMatch = normalizedStage.match(/^repair_(\d+)$/);
-    if (requestedReviewMatch) {
-      const passIndex = Number.parseInt(requestedReviewMatch[1], 10);
-      const reviewResult = await readWorkflowReviewResultForWorkflow(projectPath, workflow, passIndex);
-      normalizedStage = reviewResultRequiresRepair(reviewResult)
-        ? `repair_${passIndex}`
-        : (passIndex < REVIEW_PASSES.length ? `review_${passIndex + 1}` : 'archive');
-    } else if (requestedRepairMatch) {
-      const passIndex = Number.parseInt(requestedRepairMatch[1], 10);
-      normalizedStage = passIndex < REVIEW_PASSES.length ? `review_${passIndex + 1}` : 'archive';
-    } else if (normalizedStage === 'planning') {
-      normalizedStage = 'execution';
-    } else if (normalizedStage === 'execution') {
-      normalizedStage = 'review_1';
-    }
-  }
-
-  const reviewMatch = normalizedStage.match(/^review_(\d+)$/);
-  if (reviewMatch) {
-    const passIndex = Number.parseInt(reviewMatch[1], 10);
-    return attachExistingWorkflowStageSession(
-      workflow,
-      normalizedStage,
-      await buildReviewLauncherPayload(workflow, passIndex),
-    );
-  }
-
-  const repairMatch = normalizedStage.match(/^repair_(\d+)$/);
-  if (repairMatch) {
-    const passIndex = Number.parseInt(repairMatch[1], 10);
-    const reviewResult = await readWorkflowReviewResultForWorkflow(projectPath, workflow, passIndex);
-    return attachExistingWorkflowStageSession(
-      workflow,
-      normalizedStage,
-      await buildRepairLauncherPayload(workflow, passIndex, reviewResult),
-    );
-  }
-
-  if (normalizedStage === 'archive') {
-    return attachExistingWorkflowStageSession(
-      workflow,
-      normalizedStage,
-      await buildArchiveLauncherPayload(workflow),
-    );
-  }
-
-  const modeToStage = {
-    planning: { workflowAutoStart: 'planning', workflowStageKey: 'planning' },
-    execution: { workflowAutoStart: 'execution', workflowStageKey: 'execution' },
-  }[normalizedStage];
-
-  if (!modeToStage) {
-    throw new Error(`Unsupported workflow launcher stage: ${normalizedStage}`);
-  }
-
-  const template = normalizedStage === 'planning'
-    ? await buildPlanningKickoffPrompt(workflow)
-    : await readPromptTemplate(normalizedStage);
-  return attachExistingWorkflowStageSession(workflow, normalizedStage, {
-    workflowId: workflow.id,
-    workflowTitle: workflow.title,
-    workflowChangeName: workflow.openspecChangeName,
-    ...modeToStage,
-    sessionSummary: buildLauncherSummary(normalizedStage, workflow.title),
-    autoPrompt: normalizedStage === 'planning'
-      ? template.trim()
-      : [
-        template.trim(),
-        '',
-        '## 当前工作流上下文',
-        `- 工作流标题：${workflow.title}`,
-        `- 工作流 ID：${workflow.id}`,
-        `- OpenSpec change：${workflow.openspecChangeName}`,
-      ].join('\n'),
-  });
-}
-
-export async function markWorkflowRead(project, workflowId) {
-  const projectPath = project?.fullPath || project?.path || '';
-  if (!projectPath) {
-    return null;
-  }
-
-  const store = await readWorkflowStore(projectPath);
-  const entry = store;
-  if (!entry?.workflows) {
-    return null;
-  }
-
-  let updatedWorkflow = null;
-  entry.workflows = entry.workflows.map((workflow) => {
-    if (workflow.id !== workflowId) {
-      return workflow;
-    }
-
-    updatedWorkflow = {
-      ...workflow,
-      hasUnreadActivity: false,
-      updatedAt: new Date().toISOString(),
-    };
-    return updatedWorkflow;
-  });
-
-  store.workflows = entry.workflows;
-  await writeWorkflowStore(projectPath, store);
-  return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
-}
-
-/**
- * PURPOSE: Persist a user-defined workflow title without changing workflow ids
- * or any underlying session/jsonl filenames.
- */
-export async function renameWorkflow(project, workflowId, title) {
-  const projectPath = project?.fullPath || project?.path || '';
-  const trimmedTitle = String(title || '').trim();
-  if (!projectPath) {
-    return null;
-  }
-  if (!trimmedTitle) {
-    throw new Error('Workflow title is required');
-  }
-
-  const store = await readWorkflowStore(projectPath);
-  const entry = store;
-  if (!entry?.workflows) {
-    return null;
-  }
-
-  let updatedWorkflow = null;
-  entry.workflows = entry.workflows.map((workflow) => {
-    if (workflow.id !== workflowId) {
-      return workflow;
-    }
-
-    updatedWorkflow = {
-      ...workflow,
-      title: trimmedTitle,
-      updatedAt: new Date().toISOString(),
-    };
-    return updatedWorkflow;
-  });
-
-  store.workflows = entry.workflows;
-  await writeWorkflowStore(projectPath, store);
-  return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
-}
-
-export async function deleteWorkflow(project, workflowId) {
-  const projectPath = project?.fullPath || project?.path || '';
-  if (!projectPath) {
-    return false;
-  }
-
-  const store = await readWorkflowStore(projectPath);
-  const entry = store;
-  if (!entry?.workflows) {
-    return false;
-  }
-
-  const workflowToDelete = entry.workflows.find((workflow) => workflow.id === workflowId);
-  if (!workflowToDelete) {
-    return false;
-  }
-
-  const childSessions = Array.isArray(workflowToDelete.childSessions)
-    ? workflowToDelete.childSessions
-    : expandWorkflowChatSessions(workflowToDelete, workflowToDelete.id);
-  for (const session of childSessions) {
-    await deleteWorkflowChildSessionFile(projectPath, session);
-  }
-
-  entry.workflows = entry.workflows.filter((workflow) => workflow.id !== workflowId);
-  store.workflows = entry.workflows;
-  await writeWorkflowStore(projectPath, store, {
-    deletedWorkflowId: workflowId,
-    deletedWorkflowChildSessions: childSessions,
-  });
-  await deleteWorkflowArtifactDirectory(projectPath, workflowId);
-  return true;
-}
-
-/**
- * PURPOSE: Persist cross-device UI flags for one workflow card.
- */
-export async function updateWorkflowUiState(project, workflowId, uiState = {}) {
-  const projectPath = project?.fullPath || project?.path || '';
-  if (!projectPath) {
-    return null;
-  }
-
-  const store = await readWorkflowStore(projectPath);
-  const entry = store;
-  if (!entry?.workflows) {
-    return null;
-  }
-
-  let updatedWorkflow = null;
-  entry.workflows = entry.workflows.map((workflow) => {
-    if (workflow.id !== workflowId) {
-      return workflow;
-    }
-
-    updatedWorkflow = {
-      ...workflow,
-      updatedAt: new Date().toISOString(),
-    };
-
-    if (uiState.favorite === true) {
-      updatedWorkflow.favorite = true;
-    } else {
-      delete updatedWorkflow.favorite;
-    }
-
-    if (uiState.pending === true) {
-      updatedWorkflow.pending = true;
-    } else {
-      delete updatedWorkflow.pending;
-    }
-
-    if (uiState.hidden === true) {
-      updatedWorkflow.hidden = true;
-    } else {
-      delete updatedWorkflow.hidden;
-    }
-
-    return updatedWorkflow;
-  });
-
-  store.workflows = entry.workflows;
-  await writeWorkflowStore(projectPath, store);
-  return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
-}
-
-export async function updateWorkflowSchedule(project, workflowId, scheduledAt) {
-  const projectPath = project?.fullPath || project?.path || '';
-  if (!projectPath) {
-    return null;
-  }
-
-  const store = await readWorkflowStore(projectPath);
-  const entry = store;
-  if (!entry?.workflows) {
-    return null;
-  }
-
-  let updatedWorkflow = null;
-  entry.workflows = entry.workflows.map((workflow) => {
-    if (workflow.id !== workflowId) {
-      return workflow;
-    }
-
-    updatedWorkflow = {
-      ...workflow,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const trimmed = typeof scheduledAt === 'string' ? scheduledAt.trim() : '';
-    if (trimmed) {
-      const parsed = new Date(trimmed).getTime();
-      if (Number.isFinite(parsed)) {
-        updatedWorkflow.scheduledAt = trimmed;
-      }
-    } else {
-      delete updatedWorkflow.scheduledAt;
-    }
-
-    return updatedWorkflow;
-  });
-
-  store.workflows = entry.workflows;
-  await writeWorkflowStore(projectPath, store);
-  return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
-}
-
-export async function updateWorkflowGateDecision(project, workflowId, gateDecision) {
-  /**
-   * Persist the user's final acceptance gate so the workflow read model can
-   * distinguish accepted delivery from delivery that still needs polishing.
-   */
-  const projectPath = project?.fullPath || project?.path || '';
-  if (!projectPath) {
-    return null;
-  }
-
-  const normalizedDecision = String(gateDecision || '').trim();
-  if (!['pass', 'needs_repair'].includes(normalizedDecision)) {
-    throw new Error('Workflow gate decision must be pass or needs_repair');
-  }
-
-  const store = await readWorkflowStore(projectPath);
-  const entry = store;
-  if (!entry?.workflows) {
-    return null;
-  }
-
-  let updatedWorkflow = null;
-  entry.workflows = entry.workflows.map((workflow) => {
-    if (workflow.id !== workflowId) {
-      return workflow;
-    }
-
-    const stageStatuses = Array.isArray(workflow.stageStatuses)
-      ? workflow.stageStatuses.map((stage) => ({
-        key: stage.key,
-        label: STAGE_LABELS[stage.key] || stage.label || stage.key,
-        status: stage.status || 'pending',
-        provider: getWorkflowStageProvider(workflow, stage.key),
-      }))
-      : getWorkflowStages().map((stage) => ({
-        ...stage,
-        status: 'pending',
-        provider: getWorkflowStageProvider(workflow, stage.key),
-      }));
-    const finalReadiness = normalizedDecision === 'pass';
-    const nextArchiveStatus = finalReadiness ? 'completed' : 'blocked';
-
-    updatedWorkflow = {
-      ...workflow,
-      stage: 'archive',
-      runState: finalReadiness ? 'completed' : 'blocked',
-      gateDecision: normalizedDecision,
-      finalReadiness,
-      hasUnreadActivity: true,
-      updatedAt: new Date().toISOString(),
-      stageStatuses: stageStatuses.map((stage) => {
-        if (['planning', 'execution', 'verification'].includes(stage.key)) {
-          return { ...stage, status: 'completed' };
-        }
-        if (normalizeWorkflowStageKey(stage.key) === 'archive') {
-          return { ...stage, status: nextArchiveStatus };
-        }
-        return stage;
-      }),
-    };
-    return updatedWorkflow;
-  });
-
-  store.workflows = entry.workflows;
-  await writeWorkflowStore(projectPath, store);
-  return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
-}
-
-export async function registerWorkflowChildSession(project, workflowId, sessionPayload = {}) {
-  const projectPath = project?.fullPath || project?.path || '';
-  if (!projectPath || !sessionPayload?.sessionId) {
-    return null;
-  }
-
-  const store = await readWorkflowStore(projectPath);
-  const entry = store;
-  if (!entry?.workflows) {
-    return null;
-  }
-  entry.workflows = assignMissingWorkflowRouteIndices(entry.workflows).workflows;
-  const targetWorkflowExists = entry.workflows.some((workflow) => workflow.id === workflowId);
-  if (!targetWorkflowExists) {
-    return null;
-  }
-
-  const requestedReviewPassForGate = getReviewPassIndexForSubstage(sessionPayload.stageKey);
-  const usesCurrentReviewStageAddress = Boolean(requestedReviewPassForGate);
-  const targetWorkflow = entry.workflows.find((workflow) => workflow.id === workflowId) || null;
-  if (
-    usesCurrentReviewStageAddress
-    && Number.isInteger(requestedReviewPassForGate)
-    && requestedReviewPassForGate > 1
-    && targetWorkflow
-  ) {
-    const previousReviewResult = await readWorkflowReviewResultForWorkflow(
-      projectPath,
-      targetWorkflow,
-      requestedReviewPassForGate - 1,
-    );
-    if (!previousReviewResult) {
-      return normalizeWorkflow(projectPath, targetWorkflow);
-    }
-  }
-
-  let updatedWorkflow = null;
-  const sessionId = String(sessionPayload.sessionId || '');
-  const isTemporarySessionId = (candidate) => (
-    String(candidate || '').startsWith('new-session-') || /^c\d+$/.test(String(candidate || ''))
-  );
-  const isConcreteProviderSession = sessionId && !isTemporarySessionId(sessionId);
-  entry.workflows = entry.workflows.map((workflow) => {
-    if (workflow.id !== workflowId) {
-      const existingChildSessions = expandWorkflowChatSessions(workflow, workflow.id);
-      if (!isConcreteProviderSession || existingChildSessions.length === 0) {
-        return workflow;
-      }
-
-      const childSessions = existingChildSessions.filter((session) => session.id !== sessionId);
-      if (childSessions.length === existingChildSessions.length) {
-        return workflow;
-      }
-
-      return {
-        ...workflow,
-        childSessions,
-        chat: compactChildSessionsToWorkflowChat(childSessions),
-        updatedAt: new Date().toISOString(),
-      };
-    }
-
-    const stageStatuses = Array.isArray(workflow.stageStatuses)
-      ? workflow.stageStatuses.map((stage) => ({
-        key: stage.key,
-        label: STAGE_LABELS[stage.key] || stage.label || stage.key,
-        status: stage.status || 'pending',
-        provider: getWorkflowStageProvider(workflow, stage.key),
-      }))
-      : getWorkflowStages().map((stage) => ({
-        ...stage,
-        status: 'pending',
-        provider: getWorkflowStageProvider(workflow, stage.key),
-      }));
-    const currentStageKey = resolveWorkflowStageKey(workflow, stageStatuses);
-    const childSessions = expandWorkflowChatSessions(workflow, workflow.id);
-    const stageKey = normalizeWorkflowStageKey(sessionPayload.stageKey) || currentStageKey;
-    const nextRouteIndex = childSessions.reduce((maxValue, session) => {
-      const parsed = Number(session?.routeIndex);
-      return Number.isInteger(parsed) && parsed > maxValue ? parsed : maxValue;
-    }, 0) + 1;
-    const existingIndex = childSessions.findIndex((session) => session.id === sessionPayload.sessionId);
-    const matchingStageSessionIndex = existingIndex >= 0
-      ? -1
-      : childSessions.findIndex((session) => (
-        normalizeWorkflowStageKey(session.stageKey) === stageKey
-      ));
-    const draftReplacementIndex = existingIndex >= 0
-      ? -1
-      : childSessions.findIndex((session) => (
-        isTemporarySessionId(session.id)
-        && !isTemporarySessionId(sessionPayload.sessionId)
-        && (session.provider || 'claude') === (sessionPayload.provider || 'claude')
-        && normalizeWorkflowStageKey(session.stageKey) === stageKey
-      ));
-    const replacementIndex = existingIndex >= 0
-      ? existingIndex
-      : (draftReplacementIndex >= 0 ? draftReplacementIndex : matchingStageSessionIndex);
-    const existingSession = replacementIndex >= 0 ? childSessions[replacementIndex] : null;
-
-    const nextSession = {
-      id: sessionPayload.sessionId,
-      routeIndex: Number.isInteger(Number(sessionPayload.routeIndex))
-        ? Number(sessionPayload.routeIndex)
-        : (Number.isInteger(Number(existingSession?.routeIndex)) ? Number(existingSession.routeIndex) : nextRouteIndex),
-      title: sessionPayload.title || sessionPayload.summary || '子会话',
-      summary: sessionPayload.summary || sessionPayload.title || '子会话',
-      provider: sessionPayload.provider || 'claude',
-      workflowId: workflow.id,
-      projectPath,
-      stageKey,
-      url: sessionPayload.url,
-    };
-    const nextChildSessions = replacementIndex >= 0
-      ? childSessions.map((session, index) => (index === replacementIndex ? { ...session, ...nextSession } : session))
-      : [nextSession, ...childSessions];
-    const normalizedStageKey = normalizeWorkflowStageKey(stageKey) || currentStageKey;
-    const registeredStageStatus = stageStatuses.find((stage) => normalizeWorkflowStageKey(stage.key) === normalizedStageKey)?.status;
-    const shouldAdvanceToRegisteredStage = normalizedStageKey && (
-      normalizedStageKey !== currentStageKey || registeredStageStatus === 'pending'
-    );
-    const nextStageStatuses = shouldAdvanceToRegisteredStage
-      ? buildActiveStageStatuses(stageStatuses, normalizedStageKey)
-      : stageStatuses;
-
-    updatedWorkflow = {
-      ...workflow,
-      stage: shouldAdvanceToRegisteredStage ? normalizedStageKey : workflow.stage,
-      runState: shouldAdvanceToRegisteredStage ? 'running' : workflow.runState,
-      stageStatuses: nextStageStatuses,
-      childSessions: nextChildSessions,
-      chat: compactChildSessionsToWorkflowChat(nextChildSessions),
-      hasUnreadActivity: true,
-      updatedAt: new Date().toISOString(),
-    };
-    return updatedWorkflow;
-  });
-
-  store.workflows = entry.workflows;
-  await writeWorkflowStore(projectPath, store);
-  return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
-}
-
-export async function advanceWorkflow(project, workflowId) {
-  const projectPath = project?.fullPath || project?.path || '';
-  if (!projectPath) {
-    return null;
-  }
-
-  const store = await readWorkflowStore(projectPath);
-  const entry = store;
-  if (!entry?.workflows) {
-    return null;
-  }
-
-  let updatedWorkflow = null;
-  entry.workflows = entry.workflows.map((workflow) => {
-    if (workflow.id !== workflowId) {
-      return workflow;
-    }
-
-    const stageStatuses = Array.isArray(workflow.stageStatuses)
-      ? workflow.stageStatuses.map((stage) => ({
-        key: stage.key,
-        label: STAGE_LABELS[stage.key] || stage.label || stage.key,
-        status: stage.status || 'pending',
-        provider: getWorkflowStageProvider(workflow, stage.key),
-      }))
-      : getWorkflowStages().map((stage) => ({
-        ...stage,
-        status: 'pending',
-        provider: getWorkflowStageProvider(workflow, stage.key),
-      }));
-    const currentStageKey = resolveWorkflowStageKey(workflow, stageStatuses);
-    if (currentStageKey === 'planning') {
-      updatedWorkflow = {
-        ...workflow,
-        stage: 'execution',
-        runState: 'running',
-        hasUnreadActivity: true,
-        updatedAt: new Date().toISOString(),
-        stageStatuses: stageStatuses.map((stage) => {
-          if (stage.key === 'planning') {
-            return { ...stage, status: 'completed' };
-          }
-          if (stage.key === 'execution') {
-            return { ...stage, status: 'active' };
-          }
-          return { ...stage, status: 'pending' };
-        }),
-      };
-      return updatedWorkflow;
-    }
-
-    updatedWorkflow = {
-      ...workflow,
-      hasUnreadActivity: true,
-      updatedAt: new Date().toISOString(),
-    };
-    return updatedWorkflow;
-  });
-
-  store.workflows = entry.workflows;
-  await writeWorkflowStore(projectPath, store);
-  return updatedWorkflow ? normalizeWorkflow(projectPath, updatedWorkflow) : null;
 }
 
 /**

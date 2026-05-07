@@ -21,10 +21,10 @@ async function writeFakeCommand(binDir, name, body) {
   return filePath;
 }
 
-test('runtime diagnostics report fake opsx and mc contract from PATH', async () => {
+test('runtime diagnostics report fake ox and mc contract from PATH', async () => {
   const previousPath = process.env.PATH;
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-runtime-bin-'));
-  await writeFakeCommand(binDir, 'opsx', '#!/bin/sh\nif [ "$1" = "--version" ]; then echo opsx-test; exit 0; fi\necho "{}"\n');
+  await writeFakeCommand(binDir, 'ox', '#!/bin/sh\nif [ "$1" = "--version" ]; then echo ox-test; exit 0; fi\necho "{}"\n');
   await writeFakeCommand(binDir, 'mc', [
     '#!/bin/sh',
     'if [ "$1" = "--version" ]; then echo mc-test; exit 0; fi',
@@ -35,8 +35,8 @@ test('runtime diagnostics report fake opsx and mc contract from PATH', async () 
   try {
     const diagnostics = checkRequiredRuntimeDependencies();
     assert.equal(diagnostics.ok, true);
-    assert.match(diagnostics.commands.opsx.path, /opsx$/);
-    assert.match(diagnostics.commands.opsx.version.output, /opsx-test/);
+    assert.match(diagnostics.commands.ox.path, /ox$/);
+    assert.match(diagnostics.commands.ox.version.output, /ox-test/);
     assert.equal(diagnostics.commands.mc.contract.ok, true);
   } finally {
     process.env.PATH = previousPath;
@@ -46,7 +46,7 @@ test('runtime diagnostics report fake opsx and mc contract from PATH', async () 
 test('runtime diagnostics fail when mc lacks JSON workflow contract', async () => {
   const previousPath = process.env.PATH;
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-runtime-bin-'));
-  await writeFakeCommand(binDir, 'opsx', '#!/bin/sh\nif [ "$1" = "--version" ]; then echo opsx-test; exit 0; fi\necho "{}"\n');
+  await writeFakeCommand(binDir, 'ox', '#!/bin/sh\nif [ "$1" = "--version" ]; then echo ox-test; exit 0; fi\necho "{}"\n');
   await writeFakeCommand(binDir, 'mc', [
     '#!/bin/sh',
     'if [ "$1" = "--version" ]; then echo mc-test; exit 0; fi',
@@ -71,8 +71,8 @@ test('runtime diagnostics fail clearly when required CLIs are missing', () => {
   try {
     const diagnostics = getRuntimeDependencyDiagnostics();
     assert.equal(diagnostics.ok, false);
-    assert.equal(diagnostics.commands.opsx.path, '');
-    assert.throws(() => checkRequiredRuntimeDependencies(), /Missing from PATH: opsx, mc/);
+    assert.equal(diagnostics.commands.ox.path, '');
+    assert.throws(() => checkRequiredRuntimeDependencies(), /Missing from PATH: ox, mc/);
   } finally {
     process.env.PATH = previousPath;
   }

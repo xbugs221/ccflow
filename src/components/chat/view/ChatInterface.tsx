@@ -138,7 +138,6 @@ function ChatInterface({
   const streamBufferRef = useRef('');
   const streamTimerRef = useRef<number | null>(null);
   const pendingViewSessionRef = useRef<PendingViewSession | null>(null);
-  const registeredWorkflowSessionsRef = useRef<Set<string>>(new Set());
   const dispatchedWorkflowAutoStartsRef = useRef<Set<string>>(new Set());
   const dispatchedSessionAutoInitsRef = useRef<Set<string>>(new Set());
   const surfacedWorkflowApplyFailuresRef = useRef<Set<string>>(new Set());
@@ -548,42 +547,6 @@ function ChatInterface({
       setCodexModelSwitchSessionId(null);
     }
   }, [selectedSession?.id, selectedSession?.__provider, codexModelSwitchSessionId]);
-
-  useEffect(() => {
-    const workflowId = workflowSessionContext.workflowId;
-    const routeProjectName = workflowSessionContext.projectName;
-    const workflowStageKey = workflowSessionContext.workflowStageKey || undefined;
-    const workflowSessionId = selectedSession?.id && !isTemporarySessionId(selectedSession.id)
-      ? selectedSession.id
-      : currentSessionId;
-    if (!workflowId || !routeProjectName || !workflowSessionId || isTemporarySessionId(workflowSessionId)) {
-      return;
-    }
-
-    const registrationKey = `${routeProjectName}:${workflowId}:${workflowSessionId}`;
-    if (registeredWorkflowSessionsRef.current.has(registrationKey)) {
-      return;
-    }
-    registeredWorkflowSessionsRef.current.add(registrationKey);
-
-    api.registerProjectWorkflowChildSession(routeProjectName, workflowId, {
-      sessionId: workflowSessionId,
-      title: selectedSession?.title || selectedSession?.summary || '子会话',
-      summary: selectedSession?.summary || selectedSession?.title || '子会话',
-      provider: selectedSession?.__provider || effectiveProvider,
-      stageKey: workflowStageKey,
-    }).catch((error) => {
-      registeredWorkflowSessionsRef.current.delete(registrationKey);
-      console.error('Failed to register workflow child session:', error);
-    });
-  }, [
-    currentSessionId,
-    selectedSession?.summary,
-    selectedSession?.title,
-    selectedSession?.__provider,
-    effectiveProvider,
-    workflowSessionContext,
-  ]);
 
   useEffect(() => {
     const workflowId = workflowSessionContext.workflowId;

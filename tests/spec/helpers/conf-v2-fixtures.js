@@ -55,11 +55,12 @@ export async function withIsolatedProject(testBody) {
 async function writeFakeGoWorkflowTools(binDir) {
   await fs.mkdir(binDir, { recursive: true });
   await fs.writeFile(
-    path.join(binDir, 'opsx'),
+    path.join(binDir, 'ox'),
     [
       '#!/bin/sh',
+      'PATH="/usr/bin:/bin:$PATH"',
       'changes_dir="$PWD/docs/changes"',
-      'if [ "$1" = "--version" ]; then echo opsx-conf-test; exit 0; fi',
+      'if [ "$1" = "--version" ]; then echo ox-conf-test; exit 0; fi',
       'if [ "$1" = "list" ]; then',
       "  printf '{\"changes\":['",
       '  first=1',
@@ -87,6 +88,7 @@ async function writeFakeGoWorkflowTools(binDir) {
     path.join(binDir, 'mc'),
     [
       '#!/bin/sh',
+      'PATH="/usr/bin:/bin:$PATH"',
       'run_id="conf-test-run-$(date +%s%N)"',
       'if [ "$1" = "--version" ]; then echo mc-conf-test; exit 0; fi',
       'if [ "$1" = "run" ]; then',

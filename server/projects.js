@@ -44,7 +44,7 @@ import os from 'os';
 import { getActiveClaudeSDKSessions } from './claude-sdk.js';
 import { getActiveCodexSessions } from './openai-codex.js';
 import { getCodexSessionTokenUsageFromFile } from './session-token-usage.js';
-import { listProjectWorkflows, registerWorkflowChildSession } from './workflows.js';
+import { listProjectWorkflows } from './workflows.js';
 import {
   getProjectLocalConfigPath as resolveProjectLocalConfigPath,
   readProjectLocalConfig,
@@ -964,16 +964,6 @@ function normalizeProjectChatBucket(chat = {}) {
 }
 
 /**
- * PURPOSE: Allocate the next route number within one workflow-local chat bucket.
- */
-function getNextWorkflowChatRouteIndex(workflow = {}) {
-  return Object.keys(workflow?.chat || {}).reduce((maxValue, key) => {
-    const parsed = Number(key);
-    return Number.isInteger(parsed) && parsed > maxValue ? parsed : maxValue;
-  }, 0) + 1;
-}
-
-/**
  * PURPOSE: Keep persisted session UI flags limited to meaningful true values.
  */
 function normalizeSessionUiState(rawState = {}) {
@@ -1087,167 +1077,7 @@ function mergeLegacySessionUiStateIntoProjectChat(config, normalizedConfig, proj
 }
 
 /**
- * PURPOSE: Return the numeric workflow config key derived from wN style ids.
- */
-function getWorkflowConfigIndex(config, workflowId) {
-  const matched = String(workflowId || '').match(/^w(\d+)$/);
-  if (matched) {
-    return matched[1];
-  }
-  const maxIndex = Object.keys(config.workflows || {}).reduce((maxValue, key) => {
-    const parsed = Number(key);
-    return Number.isInteger(parsed) && parsed > maxValue ? parsed : maxValue;
-  }, 0);
-  return String(maxIndex + 1);
-}
-
-const PROJECT_WORKFLOW_STAGE_KEYS = [
-  'planning',
-  'execution',
-  'review_1',
-  'repair_1',
-  'review_2',
-  'repair_2',
-  'review_3',
-  'repair_3',
-  'archive',
-];
-
-function normalizeProjectWorkflowStageKey(stageKey) {
-  /**
-   * PURPOSE: Keep project config workflow stage keys aligned with workflow store
-   * routing without importing workflow internals into this config module.
-   */
-  if (stageKey === 'ready_for_acceptance') return 'archive';
-  if (stageKey === 'verification') return 'review_1';
-  const normalizedStageKey = String(stageKey || '').trim();
-  return PROJECT_WORKFLOW_STAGE_KEYS.includes(normalizedStageKey) ? normalizedStageKey : '';
-}
-
-function normalizeProjectWorkflowProvider(provider) {
-  /**
-   * PURPOSE: Persist only supported workflow provider engines.
-   */
-  return provider === 'claude' ? 'claude' : 'codex';
-}
-
-function normalizeProjectWorkflowProviderMap(providerMap = {}) {
-  /**
-   * PURPOSE: Convert provider maps into canonical stage keys and omit codex
-   * defaults from persisted config.
-   */
-  if (!providerMap || typeof providerMap !== 'object' || Array.isArray(providerMap)) {
-    return {};
-  }
-  return Object.entries(providerMap).reduce((providers, [stageKey, provider]) => {
-    const normalizedStageKey = normalizeProjectWorkflowStageKey(stageKey);
-    const normalizedProvider = normalizeProjectWorkflowProvider(provider);
-    if (normalizedStageKey && normalizedProvider !== 'codex') {
-      providers[normalizedStageKey] = normalizedProvider;
-    }
-    return providers;
-  }, {});
-}
-
-function buildProjectWorkflowProviderMap(workflow = {}) {
-  /**
-   * PURPOSE: Migrate old provider locations into the compact providers map.
-   */
-  const providers = {
-    ...normalizeProjectWorkflowProviderMap(workflow.providers),
-    ...normalizeProjectWorkflowProviderMap(workflow.stageProviders),
-  };
-  if (Array.isArray(workflow.stageStatuses)) {
-    workflow.stageStatuses.forEach((stage) => {
-      const stageKey = normalizeProjectWorkflowStageKey(stage?.key);
-      const provider = normalizeProjectWorkflowProvider(stage?.provider);
-      if (stageKey && provider !== 'codex') {
-        providers[stageKey] = provider;
-      }
-    });
-  }
-  return providers;
-}
-
-function buildProjectWorkflowDerivedStageState(stage = 'planning') {
-  /**
-   * PURPOSE: Derive linear stage progress from the current workflow stage.
-   */
-  const stageKey = normalizeProjectWorkflowStageKey(stage) || 'planning';
-  const activeIndex = Math.max(PROJECT_WORKFLOW_STAGE_KEYS.indexOf(stageKey), 0);
-  return Object.fromEntries(PROJECT_WORKFLOW_STAGE_KEYS.map((key, index) => [
-    key,
-    index < activeIndex ? 'completed' : (index === activeIndex ? 'active' : 'pending'),
-  ]));
-}
-
-function buildProjectWorkflowStageState(workflow = {}) {
-  /**
-   * PURPOSE: Persist only stage status overrides that differ from the current
-   * stage-derived state.
-   */
-  const derived = buildProjectWorkflowDerivedStageState(workflow.stage || 'planning');
-  const state = {};
-  if (workflow.stageState && typeof workflow.stageState === 'object' && !Array.isArray(workflow.stageState)) {
-    Object.entries(workflow.stageState).forEach(([stageKey, status]) => {
-      const normalizedStageKey = normalizeProjectWorkflowStageKey(stageKey);
-      const normalizedStatus = String(status || '').trim();
-      if (normalizedStageKey && normalizedStatus && normalizedStatus !== derived[normalizedStageKey]) {
-        state[normalizedStageKey] = normalizedStatus;
-      }
-    });
-  }
-  if (Array.isArray(workflow.stageStatuses)) {
-    workflow.stageStatuses.forEach((stage) => {
-      const stageKey = normalizeProjectWorkflowStageKey(stage?.key);
-      const status = String(stage?.status || '').trim();
-      if (stageKey && status && status !== derived[stageKey]) {
-        state[stageKey] = status;
-      }
-    });
-  }
-  return state;
-}
-
-function normalizeProjectWorkflowRecord(workflow = {}) {
-  /**
-   * PURPOSE: Keep conf.json workflow records canonical when generic project
-   * config save paths touch workflow data.
-   */
-  const normalized = {
-    ...(workflow && typeof workflow === 'object' && !Array.isArray(workflow) ? workflow : {}),
-    chat: normalizeProjectChatBucket(workflow?.chat),
-  };
-  const providers = buildProjectWorkflowProviderMap(workflow);
-  const stageState = buildProjectWorkflowStageState(workflow);
-  delete normalized.id;
-  delete normalized.routeIndex;
-  delete normalized.legacyId;
-  delete normalized.legacyWorkflowId;
-  delete normalized.childSessions;
-  delete normalized.stageProviders;
-  delete normalized.stageStatuses;
-  delete normalized.providers;
-  delete normalized.stageState;
-  delete normalized.openspecChangeDetected;
-  delete normalized.openspecTaskProgress;
-  if (normalized.openspecChangeName) {
-    delete normalized.openspecChangePrefix;
-  }
-  if (Object.keys(providers).length > 0) {
-    normalized.providers = providers;
-  }
-  if (Object.keys(stageState).length > 0) {
-    normalized.stageState = stageState;
-  }
-  if (Object.keys(normalized.chat).length === 0) {
-    delete normalized.chat;
-  }
-  return normalized;
-}
-
-/**
- * PURPOSE: Remove legacy session maps from v2 persisted config output.
+ * PURPOSE: Remove legacy session maps and workflow mirrors from v2 persisted config output.
  */
 function normalizeProjectConfigForSave(config, projectPath = '') {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
@@ -1268,12 +1098,7 @@ function normalizeProjectConfigForSave(config, projectPath = '') {
   ].includes(key)));
   normalized.schemaVersion = PROJECT_CONFIG_SCHEMA_VERSION;
   normalized.chat = normalizeProjectChatBucket(config.chat);
-  normalized.workflows = Object.entries(config.workflows && typeof config.workflows === 'object' && !Array.isArray(config.workflows)
-    ? config.workflows
-    : {}).reduce((workflows, [workflowIndex, workflow]) => {
-    workflows[workflowIndex] = normalizeProjectWorkflowRecord(workflow);
-    return workflows;
-  }, {});
+  delete normalized.workflows;
   mergeLegacySessionUiStateIntoProjectChat(config, normalized, projectPath);
 
   delete normalized[LEGACY_SESSION_ROUTE_INDEX_BY_PATH_KEY];
@@ -1315,23 +1140,7 @@ function normalizeProjectConfigForSave(config, projectPath = '') {
       return;
     }
     if (isWorkflowOwnedDraft(draft)) {
-      const workflowIndex = getWorkflowConfigIndex(normalized, draft.workflowId);
-      const workflow = {
-        ...(normalized.workflows[workflowIndex] || {}),
-        title: normalized.workflows[workflowIndex]?.title || `工作流${workflowIndex}`,
-        chat: { ...(normalized.workflows[workflowIndex]?.chat || {}) },
-      };
-      const workflowRouteIndex = Object.values(workflow.chat).some((record) => record?.sessionId === draftId)
-        ? Object.entries(workflow.chat).find(([, record]) => record?.sessionId === draftId)?.[0]
-        : String(getNextWorkflowChatRouteIndex(workflow));
-      workflow.chat[workflowRouteIndex] = buildProjectChatRecord(
-        draftId,
-        draft.label,
-        modelStateById[draftId],
-        uiStateBySessionId[draftId],
-        draft,
-      );
-      normalized.workflows[workflowIndex] = workflow;
+      return;
     } else {
       normalized.chat[String(routeIndex)] = buildProjectChatRecord(
         draftId,
@@ -1343,23 +1152,8 @@ function normalizeProjectConfigForSave(config, projectPath = '') {
     }
   });
 
-  const workflowOwnedSessionIds = new Set();
-  Object.values(normalized.workflows || {}).forEach((workflow) => {
-    Object.values(workflow?.chat || {}).forEach((record) => {
-      if (record?.sessionId) {
-        workflowOwnedSessionIds.add(record.sessionId);
-      }
-    });
-  });
-  Object.entries(normalized.chat || {}).forEach(([routeIndex, record]) => {
-    const sessionId = String(record?.sessionId || '');
-    if (!sessionId.startsWith('c') && workflowOwnedSessionIds.has(sessionId)) {
-      delete normalized.chat[routeIndex];
-    }
-  });
-
   if (Object.keys(normalized.chat).length === 0) delete normalized.chat;
-  if (Object.keys(normalized.workflows).length === 0) delete normalized.workflows;
+  delete normalized.workflows;
   [
     MANUAL_SESSION_DRAFTS_KEY,
     SESSION_SUMMARY_BY_ID_KEY,
@@ -1383,51 +1177,8 @@ function normalizeProjectConfigForSave(config, projectPath = '') {
  * project config saves that only intended to update normal chat/session data.
  */
 function mergeCurrentWorkflowConfig(currentConfig, nextConfig) {
-  const currentWorkflows = currentConfig?.workflows && typeof currentConfig.workflows === 'object' && !Array.isArray(currentConfig.workflows)
-    ? currentConfig.workflows
-    : {};
-  if (Object.keys(currentWorkflows).length === 0) {
-    return nextConfig;
-  }
-
-  const nextWorkflows = nextConfig.workflows && typeof nextConfig.workflows === 'object' && !Array.isArray(nextConfig.workflows)
-    ? nextConfig.workflows
-    : {};
-  const mergedWorkflows = { ...nextWorkflows };
-
-  Object.entries(currentWorkflows).forEach(([workflowIndex, currentWorkflow]) => {
-    const nextWorkflow = mergedWorkflows[workflowIndex];
-    if (!nextWorkflow || typeof nextWorkflow !== 'object' || Array.isArray(nextWorkflow)) {
-      mergedWorkflows[workflowIndex] = currentWorkflow;
-      return;
-    }
-
-    if (!currentWorkflow || typeof currentWorkflow !== 'object' || Array.isArray(currentWorkflow)) {
-      return;
-    }
-
-    const currentChat = currentWorkflow.chat && typeof currentWorkflow.chat === 'object' && !Array.isArray(currentWorkflow.chat)
-      ? currentWorkflow.chat
-      : {};
-    const nextChat = nextWorkflow.chat && typeof nextWorkflow.chat === 'object' && !Array.isArray(nextWorkflow.chat)
-      ? nextWorkflow.chat
-      : {};
-    mergedWorkflows[workflowIndex] = {
-      ...nextWorkflow,
-      ...currentWorkflow,
-      chat: {
-        ...currentChat,
-        ...nextChat,
-      },
-    };
-    if (Object.keys(mergedWorkflows[workflowIndex].chat).length === 0) {
-      delete mergedWorkflows[workflowIndex].chat;
-    }
-  });
-
-  if (Object.keys(mergedWorkflows).length > 0) {
-    nextConfig.workflows = mergedWorkflows;
-  }
+  void currentConfig;
+  delete nextConfig.workflows;
   return nextConfig;
 }
 
@@ -2266,6 +2017,20 @@ async function updateSessionModelState(projectPath = '', sessionId = '', patch =
 
   modelStateById[sessionId] = next;
   config[SESSION_MODEL_STATE_BY_ID_KEY] = modelStateById;
+  Object.values(config.chat || {}).forEach((record) => {
+    if (!record || record.sessionId !== sessionId) {
+      return;
+    }
+    if (next.model) {
+      record.model = next.model;
+    }
+    if (next.reasoningEffort) {
+      record.reasoningEffort = next.reasoningEffort;
+    }
+    if (next.thinkingMode) {
+      record.thinkingMode = next.thinkingMode;
+    }
+  });
   await saveProjectConfig(config, projectPath);
   return next;
 }
@@ -4094,26 +3859,13 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'cl
     currentStandaloneSessionCount = providerSessions.length + otherProviderDraftCount;
   }
 
-  const workflowIndex = workflowId ? getWorkflowConfigIndex(config, workflowId) : null;
-  const workflowChat = workflowIndex ? config.workflows?.[workflowIndex]?.chat || {} : {};
-  const nextWorkflowRouteIndex = workflowIndex
-    ? Object.keys(workflowChat).reduce((maxValue, key) => {
-      const parsed = Number(key);
-      return Number.isInteger(parsed) && parsed > maxValue ? parsed : maxValue;
-    }, 0) + 1
-    : undefined;
-  const nextRouteIndex = workflowIndex
-    ? nextWorkflowRouteIndex
+  const nextRouteIndex = workflowId
+    ? undefined
     : Number.isInteger(currentStandaloneSessionCount)
       ? getNextManualSessionRouteIndex(config, projectPath, currentStandaloneSessionCount)
       : undefined;
   const existingDraftIds = new Set(Object.values(getManualSessionDraftMap(config)).map((draft) => draft?.id).filter(Boolean));
   let draftRouteIndex = nextRouteIndex;
-  if (workflowIndex) {
-    while (existingDraftIds.has(buildManualSessionId(draftRouteIndex))) {
-      draftRouteIndex += 1;
-    }
-  }
   const draftId = buildManualSessionId(draftRouteIndex)
     || `new-session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const createdAt = new Date().toISOString();
@@ -4126,7 +3878,6 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'cl
       updatedAt: createdAt,
       workflowId: workflowId || undefined,
       stageKey: stageKey || undefined,
-      routeIndex: workflowId ? nextWorkflowRouteIndex : undefined,
     },
   };
 
@@ -4172,10 +3923,9 @@ async function startManualSessionDraft(projectName, projectPath, draftSessionId,
   };
   delete updatedRecord.cancelRequested;
   if (draftRecord.scope === 'workflow') {
-    config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex] = updatedRecord;
-  } else {
-    config.chat[draftRecord.routeIndex] = updatedRecord;
+    return { started: false, reason: 'legacy-workflow-conf-disabled' };
   }
+  config.chat[draftRecord.routeIndex] = updatedRecord;
   await saveProjectConfig(config, resolvedProjectPath);
   clearProjectDirectoryCache();
   return { started: true, record: updatedRecord };
@@ -4207,10 +3957,9 @@ async function bindManualSessionDraftProviderSession(projectName, projectPath, d
     pendingProviderSessionId: providerSessionId,
   };
   if (draftRecord.scope === 'workflow') {
-    config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex] = updatedRecord;
-  } else {
-    config.chat[draftRecord.routeIndex] = updatedRecord;
+    return false;
   }
+  config.chat[draftRecord.routeIndex] = updatedRecord;
   await saveProjectConfig(config, resolvedProjectPath);
   clearProjectDirectoryCache();
   return true;
@@ -4242,10 +3991,9 @@ async function markManualSessionDraftCancelRequested(projectName, projectPath, d
     cancelRequested: true,
   };
   if (draftRecord.scope === 'workflow') {
-    config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex] = updatedRecord;
-  } else {
-    config.chat[draftRecord.routeIndex] = updatedRecord;
+    return false;
   }
+  config.chat[draftRecord.routeIndex] = updatedRecord;
   await saveProjectConfig(config, resolvedProjectPath);
   clearProjectDirectoryCache();
   return true;
@@ -4315,7 +4063,6 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
       ? draftRecord.record.stageKey
       : undefined;
   const workflowOwnedDraft = Boolean(workflowId);
-  let workflowRegistrationPayload = null;
   const expectedProvider = typeof draft?.provider === 'string' && draft.provider
     ? draft.provider
     : draftRecord?.record?.provider;
@@ -4347,18 +4094,6 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
     delete config.chat[draftRecord.routeIndex].startRequestId;
     delete config.chat[draftRecord.routeIndex].pendingProviderSessionId;
     delete config.chat[draftRecord.routeIndex].cancelRequested;
-  } else if (draftRecord?.scope === 'workflow') {
-    config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex] = {
-      ...draftRecord.record,
-      sessionId: actualSessionId,
-      title: trimmedLabel || draftRecord.record.title,
-      provider,
-      workflowId,
-      stageKey,
-    };
-    delete config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex].startRequestId;
-    delete config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex].pendingProviderSessionId;
-    delete config.workflows[draftRecord.workflowIndex].chat[draftRecord.routeIndex].cancelRequested;
   }
 
   if (workflowOwnedDraft) {
@@ -4366,16 +4101,6 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
       ...getSessionWorkflowMetadataMap(config),
       [actualSessionId]: {
         workflowId,
-        stageKey,
-      },
-    };
-    workflowRegistrationPayload = {
-      workflowId,
-      sessionPayload: {
-        sessionId: actualSessionId,
-        title: trimmedLabel || draftRecord?.record?.title || '子会话',
-        summary: trimmedLabel || draftRecord?.record?.summary || draftRecord?.record?.title || '子会话',
-        provider,
         stageKey,
       },
     };
@@ -4391,13 +4116,6 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
   }
 
   await saveProjectConfig(config, resolvedProjectPath);
-  if (workflowRegistrationPayload && /^w[1-9]\d*$/.test(workflowRegistrationPayload.workflowId)) {
-    await registerWorkflowChildSession(
-      { name: projectName, fullPath: resolvedProjectPath, path: resolvedProjectPath },
-      workflowRegistrationPayload.workflowId,
-      workflowRegistrationPayload.sessionPayload,
-    );
-  }
   clearProjectDirectoryCache();
   return true;
 }
@@ -5600,7 +5318,7 @@ function extractCodexSearchableMessages(rawMessages) {
  * Find workflow routing metadata for a provider session id.
  * @param {Record<string, unknown>} project - Project read model.
  * @param {string} sessionId - Provider session id.
- * @returns {{ workflowId: string, workflowRouteIndex: number | undefined, routeIndex: number | undefined } | null}
+ * @returns {{ workflowId: string, workflowRouteIndex: number | undefined, routeIndex: number | undefined, workflowStageKey: string | undefined } | null}
  */
 function findWorkflowSessionRoute(project, sessionId) {
   const workflows = Array.isArray(project?.workflows) ? project.workflows : [];
@@ -5616,6 +5334,7 @@ function findWorkflowSessionRoute(project, sessionId) {
         workflowId: workflow.id,
         workflowRouteIndex,
         routeIndex: childSession.routeIndex,
+        workflowStageKey: childSession.stageKey || childSession.role || childSession.id,
       };
     }
     const runnerProcess = Array.isArray(workflow.runnerProcesses)
@@ -5629,6 +5348,7 @@ function findWorkflowSessionRoute(project, sessionId) {
         workflowId: workflow.id,
         workflowRouteIndex,
         routeIndex,
+        workflowStageKey: runnerProcess.stage || runnerProcess.role,
       };
     }
   }
@@ -5650,7 +5370,10 @@ async function searchChatHistory(query, mode = 'content') {
 
   clearProjectDirectoryCache();
   clearSessionPathExistenceCache();
-  const projects = await getProjects();
+  const projects = await Promise.all((await getProjects()).map(async (project) => ({
+    ...project,
+    workflows: await listProjectWorkflows(project.fullPath || project.path || ''),
+  })));
   const results = [];
   const projectByPath = new Map(
     projects

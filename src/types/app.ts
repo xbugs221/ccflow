@@ -30,6 +30,7 @@ export interface WorkflowChildSession {
   title: string;
   summary?: string;
   provider?: SessionProvider | string;
+  role?: string;
   routeIndex?: number;
   workflowId?: string;
   projectPath?: string;
@@ -122,7 +123,6 @@ export interface ProjectWorkflow {
   activeStep?: string;
   completedSteps?: number;
   totalSteps?: number;
-  scheduledAt?: string;
   [key: string]: unknown;
 }
 

@@ -28,7 +28,7 @@ test.describe('项目工作区导航壳层', () => {
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
 
-    await expect(page).toHaveURL(/\/workspace\/fixture-project\/w1$/);
+    await expect(page).toHaveURL(/\/workspace\/fixture-project\/runs\/run-fixture$/);
     await expect(page.getByTestId('project-workspace-nav')).toHaveCount(0);
     await expect(page.getByTestId('project-list')).toBeVisible();
     await expect(page.getByRole('heading', { name: '登录升级' }).last()).toBeVisible();
@@ -58,13 +58,13 @@ test.describe('项目工作区导航壳层', () => {
     await expect(processes).toBeVisible();
     await expect(processes).toContainText('execution');
     await expect(processes).toContainText('completed');
-    await expect(processes).toContainText('thread=codex-runner-execution-thread');
+    await expect(processes).toContainText('thread=fixture-project-execution-session');
     await expect(processes).toContainText('pid=4321');
-    await processes.getByRole('button', { name: /log/ }).click();
+    await processes.getByRole('button', { name: /log/ }).nth(1).click();
     await expect(page.locator('body')).toContainText('executor log fixture');
 
-    await processes.getByRole('button', { name: /thread=codex-runner-execution-thread/ }).click();
-    await expect(page).toHaveURL(/\/workspace\/fixture-project\/w1\/c\d+$/);
+    await processes.getByRole('button', { name: /thread=fixture-project-execution-session/ }).click();
+    await expect(page).toHaveURL(/\/workspace\/fixture-project\/runs\/run-fixture\/sessions\/execution$/);
   });
 
   test('从项目主页进入手动会话页', async ({ page }) => {

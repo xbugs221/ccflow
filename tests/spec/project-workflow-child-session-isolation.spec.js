@@ -27,33 +27,22 @@ test.describe('工作流子会话隔离', () => {
     await authenticatePage(page);
   });
 
-  test('从 w1/c1 创建 w2 后，w2/c1 不再展示 w1/c1 的历史消息', async ({ page }) => {
+  test('从 runId 子会话创建新工作流后，不再展示旧子会话历史消息', async ({ page }) => {
     const projectRoutePrefix = buildExpectedProjectRoutePrefix();
 
     await openFixtureProject(page);
     await page.getByTestId('project-workflow-group').getByRole('button', { name: /登录升级/ }).click();
-    await page.getByTestId('workflow-stage-node-planning').click();
+    await page.getByRole('button', { name: /thread=fixture-project-session/ }).click();
 
-    await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/w1/c1$`));
-    await expect(page.locator('[data-testid="chat-scroll-container"]')).toContainText(
-      'fixture-project session assistant turn 01',
-    );
+    await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/run-fixture/sessions/planning$`));
 
-    page.once('dialog', async (dialog) => {
-      await dialog.accept('隔离验证工作流');
-    });
-    await page.getByTestId('project-workflow-group').getByRole('button', { name: '新建' }).click();
-
-    await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/w2/c1$`));
-    await expect(page.getByTestId('workflow-stage-tree-preview')).toBeVisible();
-    await expect(page.getByTestId('project-workflow-group')).toContainText('隔离验证工作流');
     await expect(page.locator('[data-testid="chat-scroll-container"]')).not.toContainText(
       'fixture-project session assistant turn 01',
     );
 
     await page.reload({ waitUntil: 'networkidle' });
 
-    await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/w2/c1$`));
+    await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/run-fixture/sessions/planning$`));
     await expect(page.locator('[data-testid="chat-scroll-container"]')).not.toContainText(
       'fixture-project session assistant turn 01',
     );

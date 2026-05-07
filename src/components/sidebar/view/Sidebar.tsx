@@ -26,7 +26,6 @@ function Sidebar({
   onProjectSelect,
   onSessionSelect,
   onWorkflowSelect,
-  onWorkflowMarkRead,
   onNewSession,
   onSessionDelete,
   onProjectDelete,
@@ -154,7 +153,6 @@ function Sidebar({
     onToggleProject: toggleProject,
     onProjectSelect: handleProjectSelect,
     onWorkflowSelect,
-    onWorkflowMarkRead,
     onStartEditingProject: startEditing,
     onCancelEditingProject: cancelEditing,
     onSaveProjectName: (projectName) => {

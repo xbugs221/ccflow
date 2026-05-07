@@ -4,7 +4,6 @@
  */
 import React, { useEffect } from 'react';
 import { ChevronsLeft, ChevronsRight, Move } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 
 import ChatInterface from '../../chat/view/ChatInterface';
 import FileTree from '../../file-tree/view/FileTree';
@@ -26,9 +25,6 @@ import EditorSidebar from '../../code-editor/view/EditorSidebar';
 import type { Project } from '../../../types/app';
 import WorkflowDetailView from './subcomponents/WorkflowDetailView';
 import { getAllSessions } from '../../sidebar/utils/utils';
-import { api } from '../../../utils/api';
-import { buildProjectRoute } from '../../../utils/projectRoute';
-import type { NewSessionOptions } from '../../../utils/workflowAutoStart';
 
 type TaskMasterContextValue = {
   currentProject?: Project | null;
@@ -79,21 +75,6 @@ function getDefaultWorkflowMiniMapPosition(containerRect: DOMRect, panelRect: DO
   );
 }
 
-/**
- * PURPOSE: Map a workflow CTA click to the backend launcher stage that should
- * create the next child session.
- */
-function resolveWorkflowLauncherStage(workflow: MainContentProps['selectedWorkflow']): string {
-  /**
-   * Planning uses the execution launcher once OpenSpec output exists; otherwise
-   * the CTA only routes back to the planning child session for inspection.
-   */
-  if (workflow?.stage === 'planning' && workflow.openspecChangeDetected === true) {
-    return 'execution';
-  }
-  return String(workflow?.stage || 'execution');
-}
-
 function MainContent({
   selectedProject,
   selectedSession,
@@ -118,12 +99,10 @@ function MainContent({
   onSelectSession,
   onSelectWorkflow,
   onNewSession,
-  onMarkWorkflowRead,
   onShowSettings,
   externalMessageUpdate,
   headerLeadingContent,
 }: MainContentProps) {
-  const navigate = useNavigate();
   const { preferences } = useUiPreferences();
   const { autoExpandTools, showRawParameters, showThinking, autoScrollToBottom, sendByCtrlEnter } = preferences;
 
@@ -343,76 +322,6 @@ function MainContent({
                 setActiveTab('files');
                 setRevealDirectoryRequest({ path: directoryPath, requestId: Date.now() });
               }}
-              onUpdateWorkflowGateDecision={async (workflow, gateDecision) => {
-                const response = await api.updateProjectWorkflowGateDecision(selectedProject.name, workflow.id, gateDecision);
-                if (!response.ok) {
-                  return;
-                }
-                const payload = await response.json().catch(() => null);
-                await window.refreshProjects?.();
-                if (payload?.workflow) {
-                  onSelectWorkflow(selectedProject, payload.workflow);
-                }
-              }}
-              onDeleteWorkflow={async (workflow) => {
-                if (!window.confirm(`确定删除工作流“${workflow.title}”吗？此操作无法撤销。`)) {
-                  return;
-                }
-                const response = await api.deleteProjectWorkflow(selectedProject.name, workflow.id);
-                if (!response.ok) {
-                  return;
-                }
-                await window.refreshProjects?.();
-                navigate(buildProjectRoute(selectedProject));
-              }}
-              onContinueWorkflow={async (workflow) => {
-                const hasReviewProgress = workflow.childSessions.some((session) => (
-                  /^review_\d+$/.test(String(session.stageKey || ''))
-                ));
-
-                if (workflow.stage === 'planning' && !hasReviewProgress) {
-                  if (workflow.openspecChangeDetected === true) {
-                    const response = await api.projectWorkflowLauncherConfig(
-                      selectedProject.name,
-                      workflow.id,
-                      { stage: resolveWorkflowLauncherStage(workflow) },
-                    );
-                    if (!response.ok || response.status === 204) {
-                      return;
-                    }
-                    const launcherOptions = (await response.json()) as NewSessionOptions;
-                    onNewSession(selectedProject, launcherOptions.provider || 'codex', launcherOptions);
-                    return;
-                  }
-
-                  const planningSession = workflow.childSessions.find((session) => (
-                    session.stageKey === 'planning'
-                  ));
-                  if (planningSession) {
-                    onNavigateToSession(planningSession.id, {
-                      provider: planningSession.provider === 'claude' ? 'claude' : 'codex',
-                      projectName: selectedProject.name,
-                      projectPath: selectedProject.fullPath || selectedProject.path || '',
-                      workflowId: workflow.id,
-                      workflowStageKey: planningSession.stageKey,
-                    });
-                    return;
-                  }
-                  await window.refreshProjects?.();
-                  return;
-                }
-
-                const response = await api.projectWorkflowLauncherConfig(
-                  selectedProject.name,
-                  workflow.id,
-                  { stage: resolveWorkflowLauncherStage(workflow) },
-                );
-                if (!response.ok || response.status === 204) {
-                  return;
-                }
-                const launcherOptions = (await response.json()) as NewSessionOptions;
-                onNewSession(selectedProject, launcherOptions.provider || 'codex', launcherOptions);
-              }}
             />
           </div>
           <EditorSidebar
@@ -460,7 +369,6 @@ function MainContent({
             onNewSession={onNewSession}
             onSelectSession={onSelectSession}
             onSelectWorkflow={onSelectWorkflow}
-            onMarkWorkflowRead={onMarkWorkflowRead}
           />
         </div>
       </div>

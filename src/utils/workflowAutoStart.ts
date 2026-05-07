@@ -59,21 +59,6 @@ export async function createWorkflowAutoStartDraft(
     throw new Error('Workflow draft creation did not return a valid session id');
   }
 
-  const registrationResponse = await api.registerProjectWorkflowChildSession(project.name, options.workflowId, {
-    sessionId: draftSessionId,
-    title: sessionSummary,
-    summary: sessionSummary,
-    provider,
-    stageKey: options.workflowStageKey,
-  });
-  if (!registrationResponse.ok) {
-    throw new Error(`Workflow child session registration failed with status ${registrationResponse.status}`);
-  }
-  const registrationPayload = await registrationResponse.json();
-  const registeredChildSession = Array.isArray(registrationPayload?.workflow?.childSessions)
-    ? registrationPayload.workflow.childSessions.find((session: { id?: string }) => session?.id === draftSessionId) || null
-    : null;
-
   if (options.autoPrompt && typeof window !== 'undefined') {
     window.sessionStorage.setItem(
       `workflow-autostart:${draftSessionId}`,
@@ -88,20 +73,10 @@ export async function createWorkflowAutoStartDraft(
 
   return {
     id: draftSessionId,
-    routeIndex:
-      typeof registeredChildSession?.routeIndex === 'number'
-        ? registeredChildSession.routeIndex
-        : (typeof draftRouteIndex === 'number' ? draftRouteIndex : undefined),
-    workflowId:
-      typeof registeredChildSession?.workflowId === 'string' && registeredChildSession.workflowId
-        ? registeredChildSession.workflowId
-        : options.workflowId,
-    projectPath:
-      typeof registeredChildSession?.projectPath === 'string' && registeredChildSession.projectPath
-        ? registeredChildSession.projectPath
-        : (project.fullPath || project.path || ''),
-    stageKey:
-      typeof registeredChildSession?.stageKey === 'string' ? registeredChildSession.stageKey : options.workflowStageKey,
+    routeIndex: typeof draftRouteIndex === 'number' ? draftRouteIndex : undefined,
+    workflowId: options.workflowId,
+    projectPath: project.fullPath || project.path || '',
+    stageKey: options.workflowStageKey,
   };
 }
 

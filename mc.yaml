@@ -1,6 +1,6 @@
 mc:
   workflow:
-    max_review_iterations: 5
+    max_review_iterations: 9
     defaults:
       tool: codex
       reasoning: low
@@ -10,3 +10,9 @@ mc:
         reasoning: high
       review:
         reasoning: high
+    validation:
+      max_attempts_per_stage: 5
+      commands:
+        - pnpm run typecheck
+        - pnpm run test:server
+        - pnpm run test:spec

@@ -4,6 +4,38 @@
 
 ## Requirements
 
+### Requirement: 工作流控制面必须只展示 mc-backed 自动工作流
+
+系统必须把 Web 工作流控制面定义为 Go `mc` runner 的展示和操作层。自动阶段的事实来源必须是 `mc` run state，而不是 ccflow 原生 Node/TS 状态机。
+
+#### Scenario: Go-backed workflow 正常展示
+- **WHEN** 项目存在 `.ccflow/runs/<run-id>/state.json`
+- **THEN** 工作流列表显示该 workflow
+- **AND** 工作流详情显示 `mc` run id、stage、runState、artifact、runnerProcesses 和 child session 入口
+
+#### Scenario: 外部 mc run 仍可被接管
+- **WHEN** 项目存在 `.ccflow/runs/<run-id>/state.json`
+- **THEN** 后端列出项目 workflows 时必须直接显示该 run
+- **AND** 前端必须在对应项目页显示该 workflow
+- **AND** 该显示不得依赖 `.ccflow/conf.json.workflows` 或旧 Node/TS workflow runner
+
+#### Scenario: 旧 Node workflow 不再显示
+- **WHEN** `.ccflow/conf.json.workflows` 中存在没有 `runId` 的历史 workflow
+- **THEN** 后端不得把该记录纳入前端 workflow read model
+- **AND** 后端不得为它启动 execution、review、repair 或 archive 阶段
+- **AND** 后端可以删除整个 `.ccflow/conf.json.workflows` 分组
+
+#### Scenario: 前端不提供旧 runner provider 配置
+- **WHEN** 用户创建或查看自动 workflow
+- **THEN** UI 不提供能切换到 ccflow 原生 Node/TS 自动推进的 provider 控件
+- **AND** 提交请求中的旧 `stageProviders` 不得改变自动执行器
+- **AND** workflow 详情页展示的 provider 信息来自 `mc` sealed state 或 Go runner read model
+
+#### Scenario: workflow 路由使用 runId
+- **WHEN** 用户打开某个 mc workflow
+- **THEN** 前端路由使用该 workflow 的 `runId` 定位
+- **AND** 后端不得要求存在数字 `wN` routeIndex 才能打开 workflow
+
 ### Requirement: 项目侧边栏必须把手动会话与需求工作流作为两类对象展示
 
 系统 MUST 在用户已经进入某个项目的需求工作流详情页或手动会话页时，展示只属于当前项目的工作区导航。该导航中需求工作流 MUST 位于上方分组，手动会话 MUST 位于下方分组；项目外的其他项目列表不得再与该导航混排。
@@ -57,7 +89,7 @@
 #### Scenario: 点击进程会话进入 workflow child route
 
 - **WHEN** 用户在工作流详情页点击某个 runner 进程的会话链接
-- **THEN** 系统导航到该 workflow 下的 `/wN/cM` 子会话路由
+- **THEN** 系统导航到该 workflow 下的 `/runs/<runId>/sessions/<stage>` 子会话路由
 - **AND** 不导航到项目级 `/cM` 手动会话路由
 
 ### Requirement: 手动会话列表必须排除工作流拥有的会话
@@ -88,7 +120,7 @@
 - **WHEN** 用户直接访问项目级 `/cM`
 - **AND** `cM` 对应的是 workflow-owned child session
 - **THEN** 系统不把它解析为普通手动会话
-- **AND** 用户必须通过 workflow 详情页或 `/wN/cM` 查看该会话
+- **AND** 用户必须通过 workflow 详情页或 `/runs/<runId>/sessions/<stage>` 查看该会话
 
 ### Requirement: 需求工作流阶段缩略图必须支持跳转或高亮阶段
 
@@ -155,39 +187,31 @@
 - **AND** 用户可以直接看到全部 7 个会话卡片
 - **AND** 不需要先隐藏或删除前面的会话卡片才能看到后续会话
 
-### Requirement: 工作流会话配置必须存放在 workflows 分组内
+### Requirement: 工作流控制面必须从 mc run state 派生
 
-系统 MUST 将网页端发起的工作流及其内部会话保存到项目 `conf.json` 的 `workflows` 分组，并从 workflow 数字 key 推导运行时 workflow id。
+系统 MUST 将自动工作流的 identity、阶段、runner 进程、产物和内部会话入口从 `.ccflow/runs/<run-id>/state.json` 派生。项目 `conf.json` 不得保存 workflow 镜像索引，也不得用 `.ccflow/conf.json.workflows` 决定工作流是否存在。
 
-#### Scenario: 新建工作流时使用数字 key 推导 wN
+#### Scenario: 新建工作流时显示 mc run
 
 - **WHEN** 用户在 WebUI 中创建项目的第一个工作流
-- **THEN** 系统写入 `workflows["1"]`
-- **AND** 运行时代码将该工作流推导为 `w1`
-- **AND** 配置文件中不明文写入 `workflowId`
+- **THEN** 后端调用 `mc run --change <change-name> --json`
+- **AND** 前端从 `.ccflow/runs/<run-id>/state.json` 看到该工作流
+- **AND** 项目 `conf.json` 不写入 `workflows["1"]` 或 `workflowId`
 
-#### Scenario: 工作流内部会话按流程顺序编号
+#### Scenario: 工作流内部会话按 runner stage 暴露入口
 
-- **WHEN** 工作流依次创建 planning、execution 和 verification 内部会话
-- **THEN** 系统在同一个 `workflows["<编号>"].chat` 中写入 `"1"`、`"2"` 和 `"3"`
-- **AND** 每个内部会话记录包含 `sessionId`、`title`、`model`、`reasoningEffort` 和 `ui`
-- **AND** 这些内部编号不占用顶层 `chat` 编号
+- **WHEN** runner state 中记录 planning、execution 或 review 子会话
+- **THEN** 工作流详情按阶段或角色展示对应入口
+- **AND** 子会话路由使用 `/<project>/runs/<runId>/sessions/<stage>`
+- **AND** 这些 runner-owned 子会话不写入项目 `conf.json.workflows`
 
-### Requirement: 工作流内部草稿必须保留在 workflow chat 中 finalize
+### Requirement: 工作流内部会话不得占用手动会话编号
 
-系统 MUST 在工作流内部会话真实创建前写入 workflow 内部草稿记录，并在真实 sessionId 返回后原地替换。
+系统 MUST 将 runner-owned 工作流内部会话与 WebUI 手动会话分离。工作流内部会话不得写入顶层 `chat`，也不得推进手动会话 `cN` 编号。
 
-#### Scenario: 工作流内部草稿 finalize
+#### Scenario: runner-owned 子会话不推进手动会话编号
 
-- **WHEN** 工作流创建一个内部草稿会话
-- **THEN** 系统写入 `workflows["<工作流编号>"].chat["<内部编号>"].sessionId` 为草稿 id
-- **WHEN** provider 返回真实 session id
-- **THEN** 系统只替换同一条内部 chat 记录的 `sessionId`
-- **AND** 该内部会话不会移动到顶层 `chat`
-
-#### Scenario: 工作流内部会话不推进手动会话编号
-
-- **WHEN** 一个工作流已经创建两个内部会话
+- **WHEN** 一个 mc 工作流 state 已经包含两个 runner-owned 子会话
 - **AND** 顶层 `chat` 为空
 - **AND** 用户在 WebUI 新建普通会话
 - **THEN** 系统创建 `chat["1"]`
@@ -283,7 +307,7 @@
 #### Scenario: 接管后 route 稳定
 - **WHEN** 外部 run 第一次被 workflow 列表发现
 - **AND** 用户刷新页面或重启 ccflow 服务
-- **THEN** 该 workflow 的 `/wN` route MUST 保持稳定
+- **THEN** 该 workflow 的 `/runs/<runId>` route MUST 保持稳定
 - **AND** 系统 MUST NOT 因重复 discovery 创建重复 workflow 卡片
 
 #### Scenario: 详情页展示接管来源

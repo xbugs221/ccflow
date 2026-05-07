@@ -10,8 +10,8 @@ ccflow 是基于 [ccui](https://github.com/siteboon/claudecodeui) 和 [OpenSpec]
 ## 当前能力
 
 - 项目级聊天：支持 Claude / Codex 会话、历史读取、附件、文件链接、工具调用展示和会话路由。
-- OpenSpec 工作流：支持规划、执行、多轮审核/修复、归档等阶段，并可为阶段选择不同 provider。
-- Go 工作流运行器：Web 后端依赖用户已安装的 `opsx` 与 `mc`，自动 workflow 由 Go runner 推进。
+- OpenSpec 工作流：支持规划、执行、多轮审核/修复、归档等阶段，自动阶段由 Go runner 通过 Codex 推进。
+- Go 工作流运行器：Web 后端依赖用户已安装的 `ox` 与 `mc`，自动 workflow 由 Go runner 推进。
 - 工作区工具：文件树、代码编辑器、Git 面板、Shell 面板、设置页和 PWA 静态资源。
 - 模型与用量：维护 Claude/Codex 模型列表，并显示 provider 的剩余额度信息。
 - 自用模型接入：保留通过 Claude Code 接入 kimi-k2.6 的配置路径。
@@ -34,7 +34,7 @@ public/         PWA、图标、截图和公开静态页面
 
 ## 快速开始
 
-先手动安装 Go OpenSpec CLI `opsx` 和 Go workflow runner `mc`，并确保启动 ccflow 的服务进程能直接从 `PATH` 执行它们。ccflow 不提供环境变量或设置项覆盖这两个路径；缺少任一命令、`opsx --version` 失败或 `mc` contract 不兼容时，后端会启动失败。
+先手动安装 Go OpenSpec CLI `ox` 和 Go workflow runner `mc`，并确保启动 ccflow 的服务进程能直接从 `PATH` 执行它们。ccflow 不提供环境变量或设置项覆盖这两个路径；缺少任一命令、`ox --version` 失败或 `mc` contract 不兼容时，后端会启动失败。
 
 `mc` 必须支持 Web 后端使用的非交互 JSON 命令：
 

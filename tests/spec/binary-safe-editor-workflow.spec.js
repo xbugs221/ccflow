@@ -27,6 +27,24 @@ const TINY_PNG_BYTES = Uint8Array.from([
 ]);
 
 /**
+ * Open a file from a known fixture folder after refreshing the file tree.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} directoryName
+ * @param {string} fileName
+ * @returns {Promise<void>}
+ */
+async function openFileByName(page, directoryName, fileName) {
+  await page.getByRole('button', { name: /^Reload$/i }).click();
+  const directory = page.getByText(directoryName, { exact: true });
+  await expect(directory).toBeVisible();
+  await directory.click();
+  const file = page.getByText(fileName, { exact: true });
+  await expect(file).toBeVisible();
+  await file.click();
+}
+
+/**
  * PURPOSE: Reproduce the UTF-8 sampling boundary bug with a valid Markdown file.
  * The first multibyte character starts exactly at byte 8192, so decoding a fixed
  * 8192-byte sample fails unless the classifier trims or tolerates the tail.
@@ -46,11 +64,11 @@ test('text files open in an editable editor surface with save controls', async (
   /** Scenario: Opening a text file */
   await writeWorkspaceTextFile('notes/todo.md', '# TODO\n');
 
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openFilesTab(page);
-  await page.getByText('todo.md', { exact: true }).click();
+  await openFileByName(page, 'notes', 'todo.md');
 
-  await expect(page.getByText('todo.md', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'todo.md' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Save/i })).toBeVisible();
 });
 
@@ -58,11 +76,11 @@ test('utf-8 markdown files remain editable when the sample boundary splits a mul
   /** Scenario: Opening a UTF-8 markdown file whose sample boundary splits a multibyte character */
   await writeWorkspaceTextFile('notes/boundary.md', buildUtf8BoundaryMarkdown());
 
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openFilesTab(page);
-  await page.getByText('boundary.md', { exact: true }).click();
+  await openFileByName(page, 'notes', 'boundary.md');
 
-  await expect(page.getByText('boundary.md', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'boundary.md' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Save/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Preview/i })).toBeVisible();
   await expect(page.locator('body')).not.toContainText(/binary|non-editable|cannot be edited/i);
@@ -72,9 +90,9 @@ test('binary files open in a non-editable placeholder instead of the text editor
   /** Scenario: Opening a binary file */
   await writeWorkspaceBinaryFile('assets/manual.pdf', [0x25, 0x50, 0x44, 0x46, 0x00, 0xff, 0x0a]);
 
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openFilesTab(page);
-  await page.getByText('manual.pdf', { exact: true }).click();
+  await openFileByName(page, 'assets', 'manual.pdf');
 
   await expect(page.locator('body')).toContainText(/binary|non-editable|cannot be edited/i);
   await expect(page.getByRole('button', { name: /Save/i })).toHaveCount(0);
@@ -85,9 +103,9 @@ test('files containing null bytes take the binary-safe path', async ({ page }) =
   /** Scenario: Opening a file containing null bytes */
   await writeWorkspaceBinaryFile('data/weird.dat', [0x48, 0x49, 0x00, 0x41, 0x42, 0x43]);
 
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openFilesTab(page);
-  await page.getByText('weird.dat', { exact: true }).click();
+  await openFileByName(page, 'data', 'weird.dat');
 
   await expect(page.locator('body')).toContainText(/binary|non-editable|cannot be edited/i);
 });
@@ -97,9 +115,9 @@ test('binary downloads from the editor preserve exact bytes', async ({ page }) =
   const relativePath = 'assets/archive.bin';
   await writeWorkspaceBinaryFile(relativePath, [0x10, 0x00, 0xff, 0x7f, 0x42, 0x24]);
 
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openFilesTab(page);
-  await page.getByText('archive.bin', { exact: true }).click();
+  await openFileByName(page, 'assets', 'archive.bin');
 
   const [download] = await Promise.all([
     page.waitForEvent('download'),
@@ -117,9 +135,9 @@ test('image assets continue to use a visual preview instead of a text editor', a
   /** Scenario: Opening an image asset from the file tree */
   await writeWorkspaceBinaryFile('images/pixel.png', TINY_PNG_BYTES);
 
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openFilesTab(page);
-  await page.getByText('pixel.png', { exact: true }).click();
+  await openFileByName(page, 'images', 'pixel.png');
 
   await expect(page.getByRole('img', { name: 'pixel.png' })).toBeVisible();
 });

@@ -20,11 +20,13 @@ import {
  * @returns {Promise<import('@playwright/test').Locator>}
  */
 async function openMarkdownPreview(page, relativePath, content) {
-  await writeWorkspaceTextFile(relativePath, content);
-
   await openFixtureProject(page);
+  await writeWorkspaceTextFile(relativePath, content);
   await openFilesTab(page);
-  await page.getByText(relativePath.split('/').at(-1), { exact: true }).click();
+  await page.getByRole('button', { name: /^Reload$/i }).click();
+  const fileName = relativePath.split('/').at(-1);
+  await page.getByText('docs', { exact: true }).click({ force: true });
+  await page.getByText(fileName, { exact: true }).click();
   await page.locator('button[title=\"Preview markdown\"]').click();
 
   return page.locator('.prose').last();

@@ -23,6 +23,7 @@ export default function OperationErrorBanner({ error, onDismiss }: OperationErro
         <button
           onClick={onDismiss}
           className="rounded-md p-1 transition-colors hover:bg-red-100 dark:hover:bg-red-900/40"
+          aria-label="Dismiss error"
           title="Dismiss error"
         >
           <X className="h-4 w-4" />

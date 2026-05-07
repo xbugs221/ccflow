@@ -32,7 +32,6 @@ export type SidebarProps = {
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
   onWorkflowSelect?: (project: Project, workflow: ProjectWorkflow) => void;
-  onWorkflowMarkRead?: (projectName: string, workflowId: string) => Promise<void> | void;
   onNewSession: (project: Project, provider?: SessionProvider, options?: NewSessionOptions) => void;
   onSessionDelete?: (sessionId: string) => void;
   onProjectDelete?: (projectName: string) => void;

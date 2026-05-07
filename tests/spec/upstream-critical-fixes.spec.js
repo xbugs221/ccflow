@@ -155,22 +155,6 @@ test('Codex permission modes still map to expected runtime options', async () =>
   );
 });
 
-test('Existing workflow auto-run permission mode remains stable', async () => {
-  const { resolveWorkflowAutoRunPermissionMode } = await import(
-    '../../server/workflow-auto-runner.js'
-  );
-
-  // Default: bypassPermissions so background workflow stages do not require
-  // human confirmation.
-  assert.equal(resolveWorkflowAutoRunPermissionMode({}), 'bypassPermissions');
-
-  // Operator override via env still respected.
-  assert.equal(
-    resolveWorkflowAutoRunPermissionMode({ CCFLOW_WORKFLOW_AUTORUN_PERMISSION: 'acceptEdits' }),
-    'acceptEdits',
-  );
-});
-
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. Binary download preserves exact bytes
 // ─────────────────────────────────────────────────────────────────────────────

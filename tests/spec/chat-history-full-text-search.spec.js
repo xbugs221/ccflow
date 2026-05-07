@@ -114,6 +114,42 @@ async function writeCodexSessionFile({ fileName, entries }) {
 }
 
 /**
+ * Update the fixture mc state so JSONL search can prove runner-owned routing.
+ *
+ * @param {string} thread
+ * @returns {Promise<void>}
+ */
+async function pointFixtureWorkflowExecutionAtThread(thread) {
+  const statePath = path.join(
+    PLAYWRIGHT_FIXTURE_HOME,
+    'workspace',
+    'fixture-project',
+    '.ccflow',
+    'runs',
+    'run-fixture',
+    'state.json',
+  );
+  const state = JSON.parse(await fs.readFile(statePath, 'utf8'));
+  const processes = Array.isArray(state.processes)
+    ? state.processes.map((process) => (
+      process.stage === 'execution' ? { ...process, sessionId: thread } : process
+    ))
+    : [];
+  await fs.writeFile(
+    statePath,
+    `${JSON.stringify({
+      ...state,
+      sessions: {
+        ...(state.sessions || {}),
+        execution: thread,
+      },
+      processes,
+    }, null, 2)}\n`,
+    'utf8',
+  );
+}
+
+/**
  * Build a minimal Claude transcript with stable ordering and timestamps.
  *
  * @param {{
@@ -467,13 +503,13 @@ test('JSONL file name search opens Codex rollout thread without message targetin
   await expect(threadResults.filter({ hasText: thread })).toHaveCount(1);
   await expect(threadResults.filter({ hasText: fileName })).toHaveCount(1);
 
-  await threadResults.first().click();
-  await expect(page).toHaveURL(new RegExp(`/session/${thread}\\?`));
-  await expect(page).not.toHaveURL(/messageKey=/);
-  await expect(page.getByText(`codex --dangerously-bypass-approvals-and-sandbox resume ${thread}`)).toBeVisible();
-
   const fileNameResults = await runChatSearch(page, fileName, 'jsonl');
   await expect(fileNameResults.filter({ hasText: thread })).toHaveCount(1);
+
+  await threadResults.first().click();
+  await expect(page).toHaveURL(/\/workspace\/fixture-project\/c\d+$/);
+  await expect(page).not.toHaveURL(/messageKey=/);
+  await expect(page.getByText(`codex --dangerously-bypass-approvals-and-sandbox resume ${thread}`)).toBeVisible();
 });
 
 test('content search does not match Codex rollout thread when only the file name contains it', async ({ page }) => {
@@ -536,6 +572,8 @@ test('JSONL thread search opens a workflow child session when the runner owns th
   const thread = 'codex-runner-execution-thread';
 
   await openFixtureProject(page);
+  await pointFixtureWorkflowExecutionAtThread(thread);
+  await page.reload({ waitUntil: 'networkidle' });
   await writeCodexSessionFile({
     fileName: `${thread}.jsonl`,
     entries: buildCodexTranscript({
@@ -561,5 +599,5 @@ test('JSONL thread search opens a workflow child session when the runner owns th
   await expect(results.filter({ hasText: thread })).toHaveCount(1);
 
   await results.first().click();
-  await expect(page).toHaveURL(/\/workspace\/fixture-project\/w1\/c\d+$/);
+  await expect(page).toHaveURL(/\/workspace\/fixture-project\/runs\/run-fixture\/sessions\/execution$/);
 });

@@ -69,7 +69,6 @@ export type MainContentProps = {
   onSelectSession: (session: ProjectSession) => void;
   onSelectWorkflow: (project: Project, workflow: ProjectWorkflow) => void;
   onNewSession: (project: Project, provider?: SessionProvider, options?: NewSessionOptions) => void;
-  onMarkWorkflowRead?: (projectName: string, workflowId: string) => Promise<void> | void;
   onShowSettings: () => void;
   externalMessageUpdate: number;
   headerLeadingContent?: ReactNode;
@@ -111,5 +110,4 @@ export type ProjectOverviewPanelProps = {
   onNewSession: (project: Project, provider?: SessionProvider, options?: NewSessionOptions) => void;
   onSelectSession: (session: ProjectSession) => void;
   onSelectWorkflow: (project: Project, workflow: ProjectWorkflow) => void;
-  onMarkWorkflowRead?: (projectName: string, workflowId: string) => Promise<void> | void;
 };

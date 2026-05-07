@@ -112,24 +112,13 @@ import {
 } from './chat-attachments.js';
 import {
     attachWorkflowMetadata,
-    advanceWorkflow,
     abortWorkflowRun,
-    buildWorkflowLauncherConfig,
     createProjectWorkflow,
-    deleteWorkflow,
     findProjectByName,
     getProjectWorkflow,
     listProjectAdoptableOpenSpecChanges,
-    markWorkflowRead,
-    renameWorkflow,
-    registerWorkflowChildSession,
     resumeWorkflowRun,
-    updateWorkflowGateDecision,
-    updateWorkflowSchedule,
-    updateWorkflowStageProviders,
-    updateWorkflowUiState,
 } from './workflows.js';
-import { stopWorkflowAutoRunner } from './workflow-auto-runner.js';
 import {
     checkRequiredRuntimeDependencies,
     getRuntimeDependencyDiagnostics,
@@ -952,8 +941,6 @@ app.post('/api/projects/:projectName/workflows', authenticateToken, async (req, 
             title: req.body?.title,
             objective: req.body?.objective,
             openspecChangeName: req.body?.openspecChangeName,
-            stageProviders: req.body?.stageProviders,
-            scheduledAt: req.body?.scheduledAt,
         });
         await watchGoWorkflowRun(project, workflow);
         res.status(201).json(workflow);
@@ -996,193 +983,6 @@ app.get('/api/projects/:projectName/workflows/:workflowId', authenticateToken, a
     }
 });
 
-app.post('/api/projects/:projectName/workflows/:workflowId/mark-read', authenticateToken, async (req, res) => {
-    try {
-        const projects = await attachWorkflowMetadata(await getProjects());
-        const project = findProjectByName(projects, req.params.projectName);
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const workflow = await markWorkflowRead(project, req.params.workflowId);
-        if (!workflow) {
-            return res.status(404).json({ error: 'Workflow not found' });
-        }
-
-        res.json({ success: true, workflow });
-    } catch (error) {
-        res.status(error.statusCode || 500).json({ error: error.message });
-    }
-});
-
-app.delete('/api/projects/:projectName/workflows/:workflowId', authenticateToken, async (req, res) => {
-    try {
-        const projects = await attachWorkflowMetadata(await getProjects());
-        const project = findProjectByName(projects, req.params.projectName);
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const deleted = await deleteWorkflow(project, req.params.workflowId);
-        if (!deleted) {
-            return res.status(404).json({ error: 'Workflow not found' });
-        }
-
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.put('/api/projects/:projectName/workflows/:workflowId/ui-state', authenticateToken, async (req, res) => {
-    try {
-        const projects = await attachWorkflowMetadata(await getProjects());
-        const project = findProjectByName(projects, req.params.projectName);
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const workflow = await updateWorkflowUiState(project, req.params.workflowId, {
-            favorite: req.body?.favorite === true,
-            pending: req.body?.pending === true,
-            hidden: req.body?.hidden === true,
-        });
-        if (!workflow) {
-            return res.status(404).json({ error: 'Workflow not found' });
-        }
-
-        res.json({ success: true, workflow });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.put('/api/projects/:projectName/workflows/:workflowId/gate-decision', authenticateToken, async (req, res) => {
-    try {
-        const projects = await attachWorkflowMetadata(await getProjects());
-        const project = findProjectByName(projects, req.params.projectName);
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const workflow = await updateWorkflowGateDecision(project, req.params.workflowId, req.body?.gateDecision);
-        if (!workflow) {
-            return res.status(404).json({ error: 'Workflow not found' });
-        }
-
-        res.json({ success: true, workflow });
-    } catch (error) {
-        res.status(400).json({ error: error.message });
-    }
-});
-
-app.put('/api/projects/:projectName/workflows/:workflowId/schedule', authenticateToken, async (req, res) => {
-    try {
-        const projects = await attachWorkflowMetadata(await getProjects());
-        const project = findProjectByName(projects, req.params.projectName);
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const workflow = await updateWorkflowSchedule(project, req.params.workflowId, req.body?.scheduledAt);
-        if (!workflow) {
-            return res.status(404).json({ error: 'Workflow not found' });
-        }
-
-        res.json({ success: true, workflow });
-    } catch (error) {
-        res.status(400).json({ error: error.message });
-    }
-});
-
-app.put('/api/projects/:projectName/workflows/:workflowId/stage-providers', authenticateToken, async (req, res) => {
-    try {
-        const projects = await attachWorkflowMetadata(await getProjects());
-        const project = findProjectByName(projects, req.params.projectName);
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const workflow = await updateWorkflowStageProviders(project, req.params.workflowId, req.body?.stageProviders);
-        if (!workflow) {
-            return res.status(404).json({ error: 'Workflow not found' });
-        }
-
-        res.json({ success: true, workflow });
-    } catch (error) {
-        res.status(error.statusCode || 500).json({ error: error.message });
-    }
-});
-
-app.put('/api/projects/:projectName/workflows/:workflowId/rename', authenticateToken, async (req, res) => {
-    try {
-        const projects = await attachWorkflowMetadata(await getProjects());
-        const project = findProjectByName(projects, req.params.projectName);
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const { title } = req.body;
-        if (typeof title !== 'string' || !title.trim()) {
-            return res.status(400).json({ error: 'Workflow title is required' });
-        }
-
-        const workflow = await renameWorkflow(project, req.params.workflowId, title);
-        if (!workflow) {
-            return res.status(404).json({ error: 'Workflow not found' });
-        }
-
-        res.json({ success: true, workflow });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.post('/api/projects/:projectName/workflows/:workflowId/child-sessions', authenticateToken, async (req, res) => {
-    try {
-        const projects = await attachWorkflowMetadata(await getProjects());
-        const project = findProjectByName(projects, req.params.projectName);
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const workflow = await registerWorkflowChildSession(project, req.params.workflowId, {
-            sessionId: req.body?.sessionId,
-            title: req.body?.title,
-            summary: req.body?.summary,
-            provider: req.body?.provider,
-            stageKey: req.body?.stageKey,
-            url: req.body?.url,
-        });
-        if (!workflow) {
-            return res.status(404).json({ error: 'Workflow not found' });
-        }
-
-        res.json({ success: true, workflow });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.post('/api/projects/:projectName/workflows/:workflowId/advance', authenticateToken, async (req, res) => {
-    try {
-        const projects = await attachWorkflowMetadata(await getProjects());
-        const project = findProjectByName(projects, req.params.projectName);
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const workflow = await advanceWorkflow(project, req.params.workflowId);
-        if (!workflow) {
-            return res.status(404).json({ error: 'Workflow not found' });
-        }
-
-        res.json({ success: true, workflow });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
 app.post('/api/projects/:projectName/workflows/:workflowId/resume-run', authenticateToken, async (req, res) => {
     try {
         const projects = await attachWorkflowMetadata(await getProjects());
@@ -1219,25 +1019,6 @@ app.post('/api/projects/:projectName/workflows/:workflowId/abort-run', authentic
         res.json({ success: true, workflow });
     } catch (error) {
         res.status(error.statusCode || 500).json({ error: error.message });
-    }
-});
-
-app.post('/api/projects/:projectName/workflows/:workflowId/launcher-config', authenticateToken, async (req, res) => {
-    try {
-        const projects = await attachWorkflowMetadata(await getProjects());
-        const project = findProjectByName(projects, req.params.projectName);
-        if (!project) {
-            return res.status(404).json({ error: 'Project not found' });
-        }
-
-        const stage = typeof req.body?.stage === 'string' ? req.body.stage.trim() : '';
-        const launcher = await buildWorkflowLauncherConfig(project, req.params.workflowId, stage);
-        if (!launcher) {
-            return res.status(204).end();
-        }
-        res.json(launcher);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
     }
 });
 
@@ -3394,7 +3175,6 @@ async function shutdownServer(signal = 'SIGTERM') {
     console.log(`[INFO] Received ${signal}, starting graceful shutdown`);
 
     clearSessionScanInterval();
-    stopWorkflowAutoRunner();
     await closeProjectsWatchers();
     await closeGoRunnerWatchers();
     closePtySessions();

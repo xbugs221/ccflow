@@ -5,7 +5,7 @@
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Clock, Edit3, EyeOff, FolderOpen, MessageSquarePlus, Plus, Star, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clock, FolderOpen, MessageSquarePlus, Plus, Star, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../../ui/button';
 import { Input } from '../../../ui/input';
@@ -41,47 +41,6 @@ const CARD_SORT_OPTIONS: Array<{ value: SessionCardSortMode; label: string }> = 
   { value: 'title', label: '标题' },
   { value: 'provider', label: 'Provider' },
 ];
-
-const WORKFLOW_STAGE_PROVIDER_OPTIONS: Array<{ key: string; label: string }> = [
-  { key: 'planning', label: '规划提案' },
-  { key: 'execution', label: '执行' },
-  { key: 'review_1', label: '初审' },
-  { key: 'repair_1', label: '初修' },
-  { key: 'review_2', label: '再审' },
-  { key: 'repair_2', label: '再修' },
-  { key: 'review_3', label: '三审' },
-  { key: 'repair_3', label: '三修' },
-  { key: 'archive', label: '归档' },
-];
-
-function buildDefaultStageProviders(): Record<string, SessionProvider> {
-  /**
-   * PURPOSE: Give project overview workflow creation the same provider defaults as sidebars.
-   */
-  return Object.fromEntries(
-    WORKFLOW_STAGE_PROVIDER_OPTIONS.map((stage) => [stage.key, 'codex' as SessionProvider]),
-  );
-}
-
-function buildExplicitStageProviders(
-  stageProviders: Record<string, SessionProvider>,
-  enabled: boolean,
-): Record<string, SessionProvider> | undefined {
-  /**
-   * PURPOSE: Avoid sending implicit codex defaults when the create form did not configure stages.
-   */
-  if (!enabled) {
-    return undefined;
-  }
-  const explicitProviders = WORKFLOW_STAGE_PROVIDER_OPTIONS.reduce<Record<string, SessionProvider>>((providers, stage) => {
-    const provider = stageProviders[stage.key] === 'claude' ? 'claude' : 'codex';
-    if (provider !== 'codex') {
-      providers[stage.key] = provider;
-    }
-    return providers;
-  }, {});
-  return Object.keys(explicitProviders).length > 0 ? explicitProviders : undefined;
-}
 
 /**
  * Read the visible session number from the same stable index used by `/cN` URLs.
@@ -144,28 +103,6 @@ function getSessionSelectionKey(session: ProjectSession & { __provider: SessionP
 }
 
 /**
- * Give favorite and pending items higher priority in overview lists.
- */
-function compareOverviewPriority(
-  left: { favorite?: boolean; pending?: boolean },
-  right: { favorite?: boolean; pending?: boolean },
-): number {
-  const leftFavorite = left.favorite === true ? 1 : 0;
-  const rightFavorite = right.favorite === true ? 1 : 0;
-  if (leftFavorite !== rightFavorite) {
-    return rightFavorite - leftFavorite;
-  }
-
-  const leftPending = left.pending === true ? 1 : 0;
-  const rightPending = right.pending === true ? 1 : 0;
-  if (leftPending !== rightPending) {
-    return rightPending - leftPending;
-  }
-
-  return 0;
-}
-
-/**
  * Resolve the effective timestamp for sorting workflows.
  */
 function getWorkflowUpdatedAt(workflow: ProjectWorkflow): number {
@@ -209,7 +146,6 @@ export default function ProjectOverviewPanel({
   onNewSession,
   onSelectSession,
   onSelectWorkflow,
-  onMarkWorkflowRead,
 }: ProjectOverviewPanelProps) {
   const navigate = useNavigate();
   const { t } = useTranslation(['sidebar', 'common']);
@@ -219,24 +155,15 @@ export default function ProjectOverviewPanel({
   const [sessionSortMode, setSessionSortMode] = useState<SessionCardSortMode>('created');
   /** 卡片排序只改变展示顺序，不参与 cN/wN 编号。 */
   const [workflowSortMode, setWorkflowSortMode] = useState<WorkflowCardSortMode>('created');
+  const [optimisticSessionUiState, setOptimisticSessionUiState] = useState<Record<string, Pick<ProjectSession, 'favorite' | 'pending' | 'hidden'>>>({});
   const workflowEntries = [...(project.workflows || [])]
-    .sort((workflowA, workflowB) => {
-      const priorityOrder = compareOverviewPriority(
-        workflowA,
-        workflowB,
-      );
-      if (priorityOrder !== 0) {
-        return priorityOrder;
-      }
-      return compareWorkflowBySortMode(workflowA, workflowB, workflowSortMode);
-    });
-  const workflows = workflowEntries.filter((workflow) => (
-    showHiddenItems || workflow.hidden !== true
-  ));
-  const hiddenWorkflowCount = workflowEntries.filter((workflow) => (
-    workflow.hidden === true
-  )).length;
+    .sort((workflowA, workflowB) => compareWorkflowBySortMode(workflowA, workflowB, workflowSortMode));
+  const workflows = workflowEntries;
   const sessionEntries = [...sessions]
+    .map((session) => ({
+      ...session,
+      ...(optimisticSessionUiState[getSessionSelectionKey(session, project.name)] || {}),
+    }))
     .filter((session) => {
       if (selectedSession?.workflowId && selectedSession.id === session.id) {
         return false;
@@ -253,11 +180,6 @@ export default function ProjectOverviewPanel({
   const [workflowComposerOpen, setWorkflowComposerOpen] = useState(false);
   const [workflowTitleInput, setWorkflowTitleInput] = useState('');
   const [workflowObjectiveInput, setWorkflowObjectiveInput] = useState('');
-  const [workflowStageProviders, setWorkflowStageProviders] = useState<Record<string, SessionProvider>>(
-    () => buildDefaultStageProviders(),
-  );
-  const [workflowStageConfigOpen, setWorkflowStageConfigOpen] = useState(false);
-  const [workflowScheduledAtInput, setWorkflowScheduledAtInput] = useState('');
   const [availableOpenSpecChanges, setAvailableOpenSpecChanges] = useState<string[]>([]);
   const [selectedOpenSpecChange, setSelectedOpenSpecChange] = useState('');
   const [isLoadingOpenSpecChanges, setIsLoadingOpenSpecChanges] = useState(false);
@@ -317,7 +239,7 @@ export default function ProjectOverviewPanel({
         || getSessionActivitySignature(session);
     });
     setViewedSessionSignatures(nextSignatures);
-  }, [project.name, sessions, showHiddenItems]);
+  }, [project.name, sessions, showHiddenItems, optimisticSessionUiState]);
 
   useEffect(() => {
     /**
@@ -527,9 +449,6 @@ export default function ProjectOverviewPanel({
     setWorkflowComposerOpen(false);
     setWorkflowTitleInput('');
     setWorkflowObjectiveInput('');
-    setWorkflowStageProviders(buildDefaultStageProviders());
-    setWorkflowStageConfigOpen(false);
-    setWorkflowScheduledAtInput('');
     setAvailableOpenSpecChanges([]);
     setSelectedOpenSpecChange('');
     setWorkflowComposerError('');
@@ -551,13 +470,10 @@ export default function ProjectOverviewPanel({
       setIsCreatingWorkflow(true);
       setWorkflowComposerError('');
       const openspecChangeName = selectedOpenSpecChange.trim();
-      const scheduledAt = workflowScheduledAtInput.trim() || undefined;
       const response = await api.createProjectWorkflow(project.name, {
         title,
         objective,
         openspecChangeName: openspecChangeName || undefined,
-        stageProviders: buildExplicitStageProviders(workflowStageProviders, workflowStageConfigOpen),
-        scheduledAt,
       });
       if (!response.ok) {
         setWorkflowComposerError('创建工作流失败，请稍后重试。');
@@ -574,23 +490,6 @@ export default function ProjectOverviewPanel({
       setWorkflowComposerError('创建工作流失败，请稍后重试。');
     } finally {
       setIsCreatingWorkflow(false);
-    }
-  };
-
-  const handleDeleteWorkflow = async (workflowId: string, workflowTitle: string) => {
-    closeActionMenu();
-    if (!window.confirm(`确定删除工作流“${workflowTitle}”吗？此操作无法撤销。`)) {
-      return;
-    }
-
-    try {
-      const response = await api.deleteProjectWorkflow(project.name, workflowId);
-      if (!response.ok) {
-        return;
-      }
-      await window.refreshProjects?.();
-    } catch (error) {
-      console.error('Error deleting workflow:', error);
     }
   };
 
@@ -648,28 +547,6 @@ export default function ProjectOverviewPanel({
   };
 
   /**
-   * Rename a workflow title while keeping the underlying workflow/session ids stable.
-   */
-  const handleRenameWorkflow = async (workflow: ProjectWorkflow) => {
-    const nextTitle = window.prompt('请输入新的工作流名称', String(workflow.title || '').trim());
-    if (nextTitle == null) {
-      return;
-    }
-
-    const trimmedTitle = nextTitle.trim();
-    if (!trimmedTitle || trimmedTitle === workflow.title) {
-      closeActionMenu();
-      return;
-    }
-
-    const response = await api.renameProjectWorkflow(project.name, workflow.id, trimmedTitle);
-    if (response.ok) {
-      await window.refreshProjects?.();
-    }
-    closeActionMenu();
-  };
-
-  /**
    * Rename a session summary/title without changing the underlying jsonl filename.
    */
   const handleRenameSession = async (
@@ -696,45 +573,6 @@ export default function ProjectOverviewPanel({
     if (response.ok) {
       await window.refreshProjects?.();
     }
-    closeActionMenu();
-  };
-
-  /**
-   * Toggle a workflow between favorite and normal priority.
-   */
-  const handleToggleWorkflowFavorite = async (workflow: ProjectWorkflow) => {
-    await api.updateProjectWorkflowUiState(project.name, workflow.id, {
-      favorite: workflow.favorite !== true,
-      pending: workflow.pending === true,
-      hidden: workflow.hidden === true,
-    });
-    await window.refreshProjects?.();
-    closeActionMenu();
-  };
-
-  /**
-   * Toggle a workflow's pending marker.
-   */
-  const handleToggleWorkflowPending = async (workflow: ProjectWorkflow) => {
-    await api.updateProjectWorkflowUiState(project.name, workflow.id, {
-      favorite: workflow.favorite === true,
-      pending: workflow.pending !== true,
-      hidden: workflow.hidden === true,
-    });
-    await window.refreshProjects?.();
-    closeActionMenu();
-  };
-
-  /**
-   * Hide a workflow from the project homepage list.
-   */
-  const handleHideWorkflow = async (workflow: ProjectWorkflow) => {
-    await api.updateProjectWorkflowUiState(project.name, workflow.id, {
-      favorite: workflow.favorite === true,
-      pending: workflow.pending === true,
-      hidden: workflow.hidden !== true,
-    });
-    await window.refreshProjects?.();
     closeActionMenu();
   };
 
@@ -813,6 +651,18 @@ export default function ProjectOverviewPanel({
         hidden: nextState.hidden ?? session.hidden === true,
       },
     )));
+    setOptimisticSessionUiState((current) => {
+      const next = { ...current };
+      selectedSessions.forEach((session) => {
+        const key = getSessionSelectionKey(session, project.name);
+        next[key] = {
+          favorite: nextState.favorite ?? session.favorite === true,
+          pending: nextState.pending ?? session.pending === true,
+          hidden: nextState.hidden ?? session.hidden === true,
+        };
+      });
+      return next;
+    });
     await window.refreshProjects?.();
   };
 
@@ -860,7 +710,7 @@ export default function ProjectOverviewPanel({
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
-              {(hiddenWorkflowCount > 0 || hiddenSessionCount > 0) && (
+              {hiddenSessionCount > 0 && (
                 <Button
                   type="button"
                   variant="ghost"
@@ -868,7 +718,7 @@ export default function ProjectOverviewPanel({
                   className="h-9"
                   onClick={() => setShowHiddenItems((current) => !current)}
                 >
-                  {showHiddenItems ? '收起已隐藏项' : `显示已隐藏项 (${hiddenWorkflowCount + hiddenSessionCount})`}
+                  {showHiddenItems ? '收起已隐藏项' : `显示已隐藏项 (${hiddenSessionCount})`}
                 </Button>
               )}
               <Button variant="outline" className="h-9 gap-2 self-start" onClick={() => void openWorkflowComposer()}>
@@ -913,44 +763,6 @@ export default function ProjectOverviewPanel({
                     ))}
                   </select>
                 </label>
-                <label className="grid gap-2 text-sm text-foreground">
-                  <span>定时启动（可选）</span>
-                  <input
-                    type="datetime-local"
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                    value={workflowScheduledAtInput}
-                    onChange={(event) => setWorkflowScheduledAtInput(event.target.value)}
-                  />
-                </label>
-                <details
-                  className="rounded-md border border-border/60 p-3 md:col-span-2"
-                  open={workflowStageConfigOpen}
-                  onToggle={(event) => setWorkflowStageConfigOpen(event.currentTarget.open)}
-                >
-                  <summary className="cursor-pointer text-sm font-medium text-foreground">阶段配置</summary>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {WORKFLOW_STAGE_PROVIDER_OPTIONS.map((stage) => (
-                      <label key={stage.key} className="flex items-center justify-between gap-2 text-sm text-foreground">
-                        <span>{stage.label}</span>
-                        <select
-                          data-testid={`workflow-stage-provider-${stage.key}`}
-                          className="h-8 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus:ring-1 focus:ring-ring"
-                          value={workflowStageProviders[stage.key] || 'codex'}
-                          onChange={(event) => {
-                            const provider = event.target.value === 'claude' ? 'claude' : 'codex';
-                            setWorkflowStageProviders((current) => ({
-                              ...current,
-                              [stage.key]: provider,
-                            }));
-                          }}
-                        >
-                          <option value="codex">codex</option>
-                          <option value="claude">claude</option>
-                        </select>
-                      </label>
-                    ))}
-                  </div>
-                </details>
               </div>
               <p className="mt-3 text-sm text-muted-foreground">
                 {selectedOpenSpecChange
@@ -987,11 +799,10 @@ export default function ProjectOverviewPanel({
                   return (
                     <div
                       key={workflow.id}
-                      className={[
-                        'flex min-h-[132px] flex-col rounded-md border p-4',
-                        isSelected ? 'border-primary bg-primary/10' : 'border-border/50 bg-background',
-                        workflow.hidden === true ? 'opacity-60' : '',
-                      ].join(' ')}
+	                      className={[
+	                        'flex min-h-[132px] flex-col rounded-md border p-4',
+	                        isSelected ? 'border-primary bg-primary/10' : 'border-border/50 bg-background',
+	                      ].join(' ')}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         openActionMenu({
@@ -1017,19 +828,7 @@ export default function ProjectOverviewPanel({
                           </div>
                         </div>
                         <div className="mt-auto flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          {workflow.favorite === true && (
-                            <span className="inline-flex items-center gap-1 rounded-md bg-yellow-50 px-2 py-1 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-300">
-                              <Star className="h-3 w-3 fill-current" />
-                              收藏
-                            </span>
-                          )}
-                          {workflow.pending === true && (
-                            <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-                              <Clock className="h-3 w-3" />
-                              待处理
-                            </span>
-                          )}
-                          <WorkflowStageProgress stageStatuses={workflow.stageStatuses} size="md" />
+	                          <WorkflowStageProgress stageStatuses={workflow.stageStatuses} size="md" />
                         </div>
                       </button>
                     </div>
@@ -1390,47 +1189,13 @@ export default function ProjectOverviewPanel({
             <button
               type="button"
               className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
-              data-testid="project-overview-context-rename"
-              onClick={() => void handleRenameWorkflow(activeWorkflowActionItem)}
+              onClick={() => {
+                onSelectWorkflow(project, activeWorkflowActionItem);
+                closeActionMenu();
+              }}
             >
-              <Edit3 className="h-4 w-4" />
-              改名
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
-              data-testid="project-overview-context-favorite"
-              onClick={() => void handleToggleWorkflowFavorite(activeWorkflowActionItem)}
-            >
-              <Star className="h-4 w-4" />
-              {activeWorkflowActionItem.favorite === true ? '取消收藏' : '收藏'}
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
-              data-testid="project-overview-context-pending"
-              onClick={() => void handleToggleWorkflowPending(activeWorkflowActionItem)}
-            >
-              <Clock className="h-4 w-4" />
-              {activeWorkflowActionItem.pending === true ? '取消待处理' : '待办'}
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
-              data-testid="project-overview-context-hide"
-              onClick={() => void handleHideWorkflow(activeWorkflowActionItem)}
-            >
-              <EyeOff className="h-4 w-4" />
-              {activeWorkflowActionItem.hidden === true ? '取消隐藏工作流' : '隐藏工作流'}
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-              data-testid="project-overview-context-delete"
-              onClick={() => void handleDeleteWorkflow(actionMenu.workflowId, actionMenu.workflowTitle)}
-            >
-              <Trash2 className="h-4 w-4" />
-              删除工作流
+              <ChevronRight className="h-4 w-4" />
+              打开详情
             </button>
           </div>
         )}

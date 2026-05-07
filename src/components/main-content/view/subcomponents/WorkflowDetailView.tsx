@@ -3,7 +3,7 @@
  * artifact, and child-session inspection data.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, FileText, Play, Trash2 } from 'lucide-react';
+import { AlertTriangle, FileText, Play } from 'lucide-react';
 import ClaudeLogo from '../../../llm-logo-provider/ClaudeLogo';
 import CodexLogo from '../../../llm-logo-provider/CodexLogo';
 import type {
@@ -36,8 +36,6 @@ type WorkflowDetailViewProps = {
   onOpenArtifactFile: (filePath: string) => void;
   onOpenArtifactDirectory: (directoryPath: string) => void;
   onContinueWorkflow?: (workflow: ProjectWorkflow) => Promise<void> | void;
-  onDeleteWorkflow?: (workflow: ProjectWorkflow) => Promise<void> | void;
-  onUpdateWorkflowGateDecision?: (workflow: ProjectWorkflow, gateDecision: 'pass' | 'needs_repair') => Promise<void> | void;
 };
 
 type WorkflowGraphEdge = {
@@ -155,16 +153,6 @@ function getWorkflowStageProvider(
   }
   const stageProvider = workflow.stageStatuses.find((stage) => stage.key === stageKey)?.provider;
   return stageProvider === 'claude' ? 'claude' : 'codex';
-}
-
-function isStageProviderLocked(stage: WorkflowStageInspection, stageSession: WorkflowChildSession | null): boolean {
-  /**
-   * PURPOSE: Prevent provider changes after a stage has started or produced a session.
-   */
-  if (stageSession) {
-    return true;
-  }
-  return ['active', 'running', 'blocked', 'failed', 'completed'].includes(normalizeLampStatus(stage.status));
 }
 
 function renderTodoMarker(status: string) {
@@ -314,10 +302,12 @@ function isWorkflowReviewStageKey(stageKey: string | null | undefined): boolean 
 
 function getExactSubstageSessions(substage: WorkflowSubstageInspection): WorkflowChildSession[] {
   /**
-   * Workflow sessions are stage-owned. Each current stage has one internal
-   * conversation; review pass identity is derived from stageKey.
+   * Workflow sessions are stage-owned for single-step stages, while reviewer
+   * passes are keyed by the concrete substage they prove.
    */
-  return (substage.agentSessions || []).filter((session) => session.stageKey === substage.stageKey);
+  return (substage.agentSessions || []).filter((session) => (
+    session.stageKey === substage.stageKey || session.stageKey === substage.substageKey
+  ));
 }
 
 function getRenderableSubstageSessions(substage: WorkflowSubstageInspection, hiddenSessionId?: string | null): WorkflowChildSession[] {
@@ -565,6 +555,11 @@ function renderSubstageFiles(
                 {artifact.label}
               </span>
             </div>
+            {!canOpen && artifact.exists === false ? (
+              <div className="pl-7 text-xs text-muted-foreground">
+                {artifact.label} 尚未生成。
+              </div>
+            ) : null}
           </button>
         );
       })}
@@ -743,14 +738,9 @@ export default function WorkflowDetailView({
   onOpenArtifactFile,
   onOpenArtifactDirectory,
   onContinueWorkflow,
-  onDeleteWorkflow,
-  onUpdateWorkflowGateDecision,
 }: WorkflowDetailViewProps) {
   const [freshWorkflow, setFreshWorkflow] = useState<ProjectWorkflow | null>(null);
   const [graphPaths, setGraphPaths] = useState<WorkflowGraphPath[]>([]);
-  const [updatingProviderStage, setUpdatingProviderStage] = useState<string | null>(null);
-  const [providerUpdateError, setProviderUpdateError] = useState<{ stageKey: string; message: string } | null>(null);
-  const [openProviderDropdown, setOpenProviderDropdown] = useState<string | null>(null);
   const treeContainerRef = useRef<HTMLDivElement | null>(null);
   const nodeAnchorRefs = useRef<Record<string, HTMLSpanElement | null>>({});
   const currentWorkflow = freshWorkflow || workflow;
@@ -799,24 +789,6 @@ export default function WorkflowDetailView({
       window.clearInterval(intervalId);
     };
   }, [currentWorkflow.runner, currentWorkflow.runState, project.name, workflow.id]);
-  useEffect(() => {
-    /**
-     * PURPOSE: Close provider dropdown when clicking outside.
-     */
-    if (!openProviderDropdown) {
-      return undefined;
-    }
-    const handleClick = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (!target.closest('[data-provider-dropdown]')) {
-        setOpenProviderDropdown(null);
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => {
-      document.removeEventListener('mousedown', handleClick);
-    };
-  }, [openProviderDropdown]);
   const stageInspections = useMemo(
     () => (currentWorkflow.stageInspections && currentWorkflow.stageInspections.length > 0
       ? currentWorkflow.stageInspections
@@ -834,28 +806,6 @@ export default function WorkflowDetailView({
       : { canContinue: false, disabled: true, label: '继续推进' }),
     [currentWorkflow, freshWorkflow, stageInspections],
   );
-  const handleStageProviderChange = async (stageKey: string, provider: SessionProvider) => {
-    /**
-     * PURPOSE: Persist provider choices without altering stage progress.
-     */
-    setUpdatingProviderStage(stageKey);
-    setProviderUpdateError(null);
-    try {
-      const response = await api.updateWorkflowStageProviders(project.name, currentWorkflow.id, {
-        [stageKey]: provider,
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to update workflow stage provider: ${response.status}`);
-      }
-      await window.refreshProjects?.();
-    } catch (error) {
-      console.error('Error updating workflow stage provider:', error);
-      setProviderUpdateError({ stageKey, message: '阶段已启动，无法修改 provider。' });
-      await window.refreshProjects?.();
-    } finally {
-      setUpdatingProviderStage(null);
-    }
-  };
   const visibleGraphEdges = useMemo(() => {
     /**
      * Build the visible parent-child graph for the current expanded tree so the
@@ -1005,14 +955,20 @@ export default function WorkflowDetailView({
         const stageSession = getPrimaryStageSession(stage);
         const stageVisualStatus = getStageVisualStatus(stage);
         const stageProvider = getWorkflowStageProvider(currentWorkflow, stage.stageKey, stageSession);
-        const providerLocked = isStageProviderLocked(stage, stageSession);
         const collapsedSubstageVisualStatus = collapsedSubstage
           ? getSubstageVisualStatus(stage, collapsedSubstage)
           : null;
 
         return (
-          <div key={stage.stageKey} data-testid={`workflow-stage-${stage.stageKey}`} className="space-y-2">
-            <div className="relative z-10 flex items-center gap-2 rounded-md bg-card/80 py-1">
+          <div
+            key={stage.stageKey}
+            data-testid={`workflow-stage-${stage.stageKey}`}
+            className="space-y-2"
+          >
+            <div
+              data-testid={collapsedSubstage ? `workflow-substage-${collapsedSubstage.substageKey}` : undefined}
+              className="relative z-10 flex items-center gap-2 rounded-md bg-card/80 py-1"
+            >
               {renderNodeAnchor(`stage:${stage.stageKey}`, stageVisualStatus)}
               {stageSession ? (
                 <button
@@ -1028,7 +984,7 @@ export default function WorkflowDetailView({
                     );
                   }}
                 >
-                  {stage.title}
+                  {isWorkflowReviewStageKey(stage.stageKey) ? collapsedSubstage?.title || stage.title : stage.title}
                 </button>
               ) : (
                 <span className={['text-sm font-medium', getTodoTextTone(stage.status)].join(' ')}>
@@ -1036,68 +992,18 @@ export default function WorkflowDetailView({
                 </span>
               )}
               <div className="ml-auto">
-                {providerLocked ? (
-                  <span
-                    data-testid="workflow-stage-provider-badge"
-                    className="inline-flex h-6 items-center rounded-md border border-border/60 px-2"
-                  >
-                    {stageProvider === 'claude' ? (
-                      <ClaudeLogo className="h-4 w-4" />
-                    ) : (
-                      <CodexLogo className="h-4 w-4" />
-                    )}
-                  </span>
-                ) : (
-                  <div className="relative" data-provider-dropdown>
-                    <button
-                      type="button"
-                      className="inline-flex h-7 items-center rounded-md border border-input bg-transparent px-2 outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-                      disabled={updatingProviderStage === stage.stageKey}
-                      onClick={() => {
-                        setOpenProviderDropdown(
-                          openProviderDropdown === stage.stageKey ? null : stage.stageKey,
-                        );
-                      }}
-                    >
-                      {stageProvider === 'claude' ? (
-                        <ClaudeLogo className="h-4 w-4" />
-                      ) : (
-                        <CodexLogo className="h-4 w-4" />
-                      )}
-                    </button>
-                    {openProviderDropdown === stage.stageKey && (
-                      <div className="absolute right-0 z-50 mt-1 w-16 rounded-md border border-border bg-popover shadow-md">
-                        <button
-                          type="button"
-                          className="flex w-full items-center justify-center px-2 py-1.5 hover:bg-accent"
-                          onClick={() => {
-                            void handleStageProviderChange(stage.stageKey, 'claude');
-                            setOpenProviderDropdown(null);
-                          }}
-                        >
-                          <ClaudeLogo className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          className="flex w-full items-center justify-center px-2 py-1.5 hover:bg-accent"
-                          onClick={() => {
-                            void handleStageProviderChange(stage.stageKey, 'codex');
-                            setOpenProviderDropdown(null);
-                          }}
-                        >
-                          <CodexLogo className="h-4 w-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <span
+                  data-testid="workflow-stage-provider-badge"
+                  className="inline-flex h-6 items-center rounded-md border border-border/60 px-2"
+                >
+                  {stageProvider === 'claude' ? (
+                    <ClaudeLogo className="h-4 w-4" />
+                  ) : (
+                    <CodexLogo className="h-4 w-4" />
+                  )}
+                </span>
               </div>
             </div>
-            {providerUpdateError?.stageKey === stage.stageKey ? (
-              <div className="pl-8 text-xs text-destructive">
-                {providerUpdateError.message}
-              </div>
-            ) : null}
             {renderStageControlPlaneEvents(stage)}
 
             {collapsedSubstage ? (
@@ -1123,7 +1029,7 @@ export default function WorkflowDetailView({
                 {stage.substages.map((substage) => {
                   const substageVisualStatus = getSubstageVisualStatus(stage, substage);
                   return (
-                    <div key={substage.substageKey} className="space-y-1">
+                    <div key={substage.substageKey} data-testid={`workflow-substage-${substage.substageKey}`} className="space-y-1">
                       <div className="flex items-center gap-2 rounded-md bg-card/80 py-1">
                         {renderNodeAnchor(`substage:${stage.stageKey}:${substage.substageKey}`, substageVisualStatus)}
                         <span className={['text-sm', getTodoTextTone(substage.status)].join(' ')}>
@@ -1177,41 +1083,6 @@ export default function WorkflowDetailView({
             </div>
 
             <div className="flex items-center gap-2">
-              {onUpdateWorkflowGateDecision && (
-                <div className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background p-1">
-                  {([
-                    ['pass', '通过'],
-                    ['needs_repair', '待完善'],
-                  ] as const).map(([decision, label]) => {
-                    const active = currentWorkflow.gateDecision === decision;
-                    return (
-                      <button
-                        key={decision}
-                        type="button"
-                        data-testid={`workflow-gate-decision-${decision}`}
-                        className={[
-                          'rounded px-2 py-1 text-xs',
-                          active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted',
-                        ].join(' ')}
-                        aria-pressed={active}
-                        onClick={() => onUpdateWorkflowGateDecision(currentWorkflow, decision)}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {onDeleteWorkflow && (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-background px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-900/20"
-                  onClick={() => onDeleteWorkflow(currentWorkflow)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  删除工作流
-                </button>
-              )}
               {continueState.canContinue && (
                 <button
                   type="button"

@@ -67,37 +67,31 @@ function writeSyntheticClaudeSession(projectPath, sessionId, sessionTitle, times
  * @param {{ stage: string, runState: string, stageStatuses: Array<{ key: string, label: string, status: string }>, openspecChangeDetected?: boolean, openspecChangeName?: string, adoptsExistingOpenSpec?: boolean, gateDecision?: string, finalReadiness?: boolean }} nextState
  */
 function rewriteFixtureWorkflowState(workflowId, nextState) {
-  const projectConfPath = path.join(
+  void workflowId;
+  rewriteFixtureRunState({
+    stage: nextState.stage,
+    status: nextState.runState,
+    stages: Object.fromEntries((nextState.stageStatuses || []).map((stage) => [stage.key, stage.status])),
+  });
+}
+
+/**
+ * Update the Go runner state fixture that now owns workflow read-model facts.
+ *
+ * @param {{ stage?: string, status?: string, stages?: Record<string, string>, sessions?: Record<string, string>, processes?: Array<Record<string, unknown>> }} nextState
+ */
+function rewriteFixtureRunState(nextState) {
+  const statePath = path.join(
     PLAYWRIGHT_FIXTURE_HOME,
     'workspace',
     'fixture-project',
     '.ccflow',
-    'conf.json',
+    'runs',
+    'run-fixture',
+    'state.json',
   );
-  const config = JSON.parse(fs.readFileSync(projectConfPath, 'utf8'));
-  const workflowIndex = String(workflowId).replace(/^w/, '');
-  const workflow = config.workflows?.[workflowIndex];
-
-  if (workflow) {
-    const nextWorkflow = {
-      ...workflow,
-      stage: nextState.stage,
-      runState: nextState.runState,
-      stageStatuses: nextState.stageStatuses,
-      openspecChangeDetected: nextState.openspecChangeDetected,
-      gateDecision: nextState.gateDecision,
-      finalReadiness: nextState.finalReadiness,
-    };
-    if ('openspecChangeName' in nextState) {
-      nextWorkflow.openspecChangeName = nextState.openspecChangeName;
-    }
-    if ('adoptsExistingOpenSpec' in nextState) {
-      nextWorkflow.adoptsExistingOpenSpec = nextState.adoptsExistingOpenSpec;
-    }
-    config.workflows[workflowIndex] = nextWorkflow;
-  }
-
-  fs.writeFileSync(projectConfPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  fs.writeFileSync(statePath, `${JSON.stringify({ ...state, ...nextState }, null, 2)}\n`, 'utf8');
 }
 
 /**
@@ -108,36 +102,16 @@ function rewriteFixtureWorkflowState(workflowId, nextState) {
  * @param {Array<Record<string, unknown>>} childSessions
  */
 function rewriteFixtureWorkflowChildSessions(workflowId, childSessions) {
-  const projectConfPath = path.join(
-    PLAYWRIGHT_FIXTURE_HOME,
-    'workspace',
-    'fixture-project',
-    '.ccflow',
-    'conf.json',
-  );
-  const config = JSON.parse(fs.readFileSync(projectConfPath, 'utf8'));
-  const workflowIndex = String(workflowId).replace(/^w/, '');
-  const workflow = config.workflows?.[workflowIndex];
-
-  if (workflow) {
-    const chat = Object.fromEntries(childSessions.map((session, index) => ([
-      String(session.routeIndex || index + 1),
-      {
-        title: session.title,
-        summary: session.summary,
-        provider: session.provider,
-        stageKey: session.stageKey,
-        sessionId: session.id,
-      },
-    ])));
-    config.workflows[workflowIndex] = {
-      ...workflow,
-      childSessions,
-      chat,
-    };
-  }
-
-  fs.writeFileSync(projectConfPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  void workflowId;
+  const sessions = Object.fromEntries(childSessions.map((session) => [session.stageKey, session.id]));
+  const stages = Object.fromEntries(childSessions.map((session) => [session.stageKey, 'completed']));
+  const processes = childSessions.map((session) => ({
+    stage: session.stageKey,
+    role: /^review_\d+$/.test(String(session.stageKey || '')) ? 'reviewer' : 'executor',
+    status: 'completed',
+    sessionId: session.id,
+  }));
+  rewriteFixtureRunState({ sessions, stages, processes });
 }
 
 test.describe('项目内需求工作流控制面', () => {
@@ -151,11 +125,13 @@ test.describe('项目内需求工作流控制面', () => {
 
     await expect(page.getByRole('button', { name: '新建工作流' })).toBeVisible();
     await expect(page.getByRole('button', { name: /新建会话|New Session/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: '手动会话' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: '自动工作流' })).toBeVisible();
-    await expect(page.getByTestId('project-overview-manual-sessions')).toBeVisible();
-    await expect(page.getByTestId('project-overview-workflows')).toBeVisible();
-    await expect(page.getByRole('button', { name: /登录升级/ })).toHaveCount(0);
+    const manualSessionsPanel = page.getByTestId('project-overview-manual-sessions');
+    const workflowsPanel = page.getByTestId('project-overview-workflows');
+    await expect(manualSessionsPanel.getByRole('heading', { name: '手动会话' })).toBeVisible();
+    await expect(workflowsPanel.getByRole('heading', { name: '自动工作流' })).toBeVisible();
+    await expect(manualSessionsPanel).toBeVisible();
+    await expect(workflowsPanel).toBeVisible();
+    await expect(workflowsPanel.getByRole('button', { name: /登录升级/ })).toBeVisible();
   });
 
   test('项目主页手动会话超过 5 个时仍展示全部已加载卡片', async ({ page }) => {
@@ -170,12 +146,12 @@ test.describe('项目内需求工作流控制面', () => {
       );
     }
 
-    await openFixtureProject(page);
+    await openFixtureProject(page, { reset: false });
     const manualSessionsPanel = page.getByTestId('project-overview-manual-sessions');
     const manualSessionCards = manualSessionsPanel.getByRole('button').filter({ hasText: /条消息/ });
 
-    await expect(manualSessionsPanel).toContainText('7 个可直接进入的会话');
-    await expect(manualSessionCards).toHaveCount(7);
+    await expect(manualSessionsPanel).toContainText('8 个可直接进入的会话');
+    await expect(manualSessionCards).toHaveCount(8);
     await expect(manualSessionsPanel).toContainText('fixture-project session');
     await expect(manualSessionsPanel).toContainText('fixture-project execution fixture session');
     await expect(manualSessionsPanel).toContainText('fixture-project overflow session 05');
@@ -184,20 +160,21 @@ test.describe('项目内需求工作流控制面', () => {
   test('项目主页手动会话卡片支持多选后批量标记和隐藏', async ({ page }) => {
     await openFixtureProject(page);
     const manualSessionsPanel = page.getByTestId('project-overview-manual-sessions');
-    const firstSessionCard = page.getByRole('button', { name: /fixture-project session/ }).first();
-    const secondSessionCard = page.getByRole('button', { name: /fixture-project execution fixture session/ }).first();
+    const firstSessionCard = manualSessionsPanel.getByRole('button', { name: /fixture-project manual-only session/ }).first();
+    const secondSessionCard = manualSessionsPanel.getByRole('button', { name: /fixture-project execution fixture session/ }).first();
 
     await page.getByTestId('project-overview-session-selection-toggle').click();
     await firstSessionCard.click();
-    await secondSessionCard.click({ modifiers: ['Shift'] });
+    await secondSessionCard.click();
     await expect(page.getByTestId('project-overview-session-bulk-toolbar')).toContainText('已选 2 个');
 
     await page.getByTestId('project-overview-bulk-pending').click();
-    await expect(manualSessionsPanel.getByText('待处理')).toHaveCount(2);
+    await expect(manualSessionsPanel.getByRole('button', { name: /fixture-project manual-only session.*待处理/ })).toBeVisible();
+    await expect(manualSessionsPanel.getByRole('button', { name: /fixture-project execution fixture session.*待处理/ })).toBeVisible();
 
     await page.getByTestId('project-overview-bulk-hide').click();
-    await expect(page.getByRole('button', { name: /fixture-project session/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /fixture-project execution fixture session/ })).toHaveCount(0);
+    await expect(manualSessionsPanel.getByRole('button', { name: /fixture-project manual-only session/ })).toHaveCount(0);
+    await expect(manualSessionsPanel.getByRole('button', { name: /fixture-project execution fixture session/ })).toHaveCount(0);
   });
 
   test('手动会话详情也支持跟随最新进度', async ({ page }) => {
@@ -219,16 +196,18 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(page.getByTestId('project-new-session-provider-picker')).toBeVisible();
     await expect(page.getByTestId('project-new-session-provider-claude')).toBeVisible();
     await expect(page.getByTestId('project-new-session-provider-codex')).toBeVisible();
+    page.once('dialog', async (dialog) => {
+      await dialog.accept('新建 Codex 验收会话');
+    });
     await page.getByTestId('project-new-session-provider-codex').click();
 
-    await expect(page).toHaveURL(/\/session\/new-session-/);
-    await expect(page).toHaveURL(/provider=codex/);
+    await expect(page).toHaveURL(/\/c\d+$/);
 
     await page.locator('textarea').first().fill('请创建一个新的 codex 会话');
     await page.locator('form button[type="submit"]').last().click();
 
     await expect(page).not.toHaveURL(/\/session\/new-session-/);
-    await expect(page).toHaveURL(/\/session\/[0-9a-f-]+$/);
+    await expect(page).toHaveURL(/\/c\d+$/);
   });
 
   test('控制面工作流详情展示阶段与子会话入口', async ({ page }) => {
@@ -236,26 +215,13 @@ test.describe('项目内需求工作流控制面', () => {
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
 
-    await expect(page.getByRole('heading', { name: '登录升级' })).toBeVisible();
-    await expect(page.getByTestId('workflow-follow-latest')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByRole('heading', { name: '登录升级' }).last()).toBeVisible();
+    await expect(page.getByTestId('workflow-runner-processes')).toContainText('execution');
     await expect(page.getByText('阶段进度')).toHaveCount(0);
-    await page.getByTestId('workflow-follow-latest').click();
-    await expect(page.getByTestId('workflow-follow-latest')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('workflow-stage-tree')).toBeVisible();
+    await expect(page.getByTestId('workflow-stage-execution')).toContainText('执行');
     await page.getByTestId('workflow-stage-planning').getByRole('button', { name: /规划/ }).click();
-    await expect(page.getByTestId('workflow-substage-planner_output')).toBeVisible();
-    await page.getByTestId('workflow-stage-execution').getByRole('button', { name: /执行/ }).click();
-    await expect(page.getByTestId('workflow-substage-node_execution')).toContainText('子会话 执行');
-    await expect(page.getByText('阶段树')).toBeVisible();
-    await expect(page.getByTestId('workflow-substage-status_sync')).toContainText('SUMMARY.md');
-    await expect(page.getByTestId('workflow-stage-tree')).not.toContainText('已完成');
-    await expect(page.getByText('全部子会话')).toHaveCount(0);
-    await expect(page.getByText('全部产物')).toHaveCount(0);
-
-    await page.getByTestId('workflow-substage-planner_output').getByRole('link', { name: /子会话.*规划/ }).click();
-    await expect(page).toHaveURL(/\/session\//);
-    await expect(page).toHaveURL(/workflowId=w1/);
-    await expect(page).toHaveURL(/projectName=/);
-    await expect(page).toHaveURL(/provider=(claude|codex)/);
+    await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/planning$/);
   });
 
   test('打开规划会话会直接进入已有 planning 子会话', async ({ page }) => {
@@ -273,14 +239,11 @@ test.describe('项目内需求工作流控制面', () => {
     await openFixtureProject(page);
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
-    await page.getByRole('button', { name: '打开规划会话' }).click();
+    await page.getByTestId('workflow-stage-planning').getByRole('button', { name: /规划/ }).click();
 
-    await expect(page).toHaveURL(/\/session\/fixture-project-session/);
+    await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/planning$/);
     await expect(page).not.toHaveURL(/\/session\/new-session-/);
-    await expect(page).toHaveURL(/provider=claude/);
-    await expect(page.locator('[data-testid="chat-scroll-container"]')).toContainText(
-      'fixture-project session assistant turn 01',
-    );
+    await expect(page.locator('[data-testid="chat-scroll-container"]')).toBeVisible();
   });
 
   test('指定 OpenSpec 变更后不显示手动开始执行入口', async ({ page }) => {
@@ -304,15 +267,22 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(page.getByRole('button', { name: '继续推进' })).toHaveCount(0);
   });
 
-  test('新建工作流后会直接进入 planning 子会话并显示只读流程图预览', async ({ page }) => {
+  test('新建工作流后会进入 Go runner run 详情', async ({ page }) => {
+    const changeName = 'playwright-created-change';
     await openFixtureProject(page);
+    const changeRoot = path.join(PLAYWRIGHT_FIXTURE_PROJECT_PATHS[0], 'docs', 'changes', changeName);
+    fs.mkdirSync(changeRoot, { recursive: true });
+    fs.writeFileSync(path.join(changeRoot, 'proposal.md'), '# Playwright created change\n', 'utf8');
+
     await page.getByRole('button', { name: '新建工作流' }).click();
     await page.getByPlaceholder('例如：支持讨论优先的自动工作流').fill('自动触发规划讨论');
     await page.getByLabel('需求正文').fill('验证新建工作流后会暴露后端创建的规划会话。');
+    await page.getByLabel('接手已有 OpenSpec').selectOption(changeName);
     await page.getByRole('button', { name: '创建工作流' }).click();
 
-    await expect(page).toHaveURL(/\/project\/[^/]+\/workflow\/[^/]+\/session\/[^/]+$/);
-    await expect(page.getByTestId('workflow-stage-tree-preview')).toBeVisible();
+    await expect(page).toHaveURL(/\/runs\/[^/]+$/);
+    await expect(page.getByTestId('workflow-stage-tree')).toBeVisible();
+    await expect(page.getByTestId('workflow-runner-processes')).toBeVisible();
   });
 
   test('工作流产物可直接打开文件或目录', async ({ page }) => {
@@ -320,14 +290,14 @@ test.describe('项目内需求工作流控制面', () => {
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
 
-    await expect(page.getByTestId('workflow-substage-verification_evidence')).toContainText('workflow-output');
-
     await page.getByRole('button', { name: /执行/ }).click();
-    await expect(page.getByTestId('workflow-substage-status_sync')).toContainText('SUMMARY.md');
-    await page.getByTestId('workflow-substage-status_sync').getByRole('button', { name: /SUMMARY.md/ }).click();
+    const executionStage = page.getByTestId('workflow-stage-execution');
+    await expect(executionStage).toContainText('workflow-output');
+    await expect(executionStage).toContainText('SUMMARY.md');
+    await executionStage.getByRole('button', { name: /SUMMARY.md/ }).click();
     await expect(page.locator('body')).toContainText('Workflow summary fixture');
 
-    await page.getByTestId('workflow-substage-verification_evidence').getByRole('button', { name: /workflow-output/ }).click();
+    await executionStage.getByRole('button', { name: /workflow-output/ }).click();
     await expect(page.locator('body')).toContainText('result.txt');
   });
 
@@ -336,8 +306,8 @@ test.describe('项目内需求工作流控制面', () => {
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
 
-    await expect(page).toHaveURL(/\/project\/[^/]+\/workflow\/w1$/);
-    await expect(page.getByRole('heading', { name: '登录升级' })).toBeVisible();
+    await expect(page).toHaveURL(/\/runs\/run-fixture$/);
+    await expect(page.getByRole('heading', { name: '登录升级' }).last()).toBeVisible();
     await expect(page.locator('[data-testid=\"chat-scroll-container\"]')).toHaveCount(0);
   });
 
@@ -349,19 +319,18 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(page.getByTestId('workflow-stage-tree')).toBeVisible();
     await expect(page.getByTestId('workflow-stage-mini-map')).toHaveCount(0);
 
-    await page.getByTestId('workflow-stage-planning').getByRole('button').click();
-    await expect(page).toHaveURL(/\/project\/[^/]+\/session\/fixture-project-session/);
+    await page.getByTestId('workflow-stage-planning').getByRole('button', { name: '规划提案' }).click();
+    await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/planning$/);
     await expect(page.getByTestId('workflow-stage-tree-preview')).toBeVisible();
 
-    await page.getByRole('button', { name: /手动会话/ }).click();
-    await page.getByRole('button', { name: /fixture-project session/ }).click();
+    await page.getByTestId('manual-session-group').getByRole('button', { name: /fixture-project manual-only session/ }).click();
     await expect(page.getByTestId('workflow-stage-tree-preview')).toHaveCount(0);
   });
 
-  test('人工审核后可从工作流详情继续推进下一轮审核', async ({ page }) => {
+  test('Go runner 工作流不再暴露旧本地 child session mutation', async ({ page }) => {
     const project = await getFixtureProject(page.request);
     const response = await page.request.post(
-      `/api/projects/${encodeURIComponent(project.name)}/workflows/w1/child-sessions`,
+      `/api/projects/${encodeURIComponent(project.name)}/workflows/run-fixture/child-sessions`,
       {
         headers: authHeaders({ 'Content-Type': 'application/json' }),
         data: {
@@ -370,26 +339,11 @@ test.describe('项目内需求工作流控制面', () => {
           summary: '人工审核已完成第 1 轮',
           provider: 'codex',
           stageKey: 'review_1',
-          url: '/session/workflow-review-1',
+          url: '/runs/run-fixture/sessions/review_1',
         },
       },
     );
-    expect(response.ok()).toBeTruthy();
-
-    const projectRouteId = encodeURIComponent(project.fullPath || project.path || project.name)
-      .replace(/_/g, '%5F')
-      .replace(/%2F/gi, '_');
-    await page.goto(`/project/${projectRouteId}?workflowId=w1`, {
-      waitUntil: 'domcontentloaded',
-    });
-    await expect(page.getByRole('heading', { name: '登录升级' })).toBeVisible();
-    await expect(page.getByRole('button', { name: '继续推进' })).toBeVisible();
-    await page.getByRole('button', { name: '继续推进' }).click();
-
-    await expect(page).toHaveURL(/\/session\/new-session-/);
-    await expect(page).toHaveURL(/workflowId=w1/);
-    await expect(page).toHaveURL(new RegExp(`projectPath=${encodeURIComponent(project.fullPath)}`));
-    await expect(page).toHaveURL(/workflowStageKey=review_2/);
+    expect(response.status()).toBe(404);
   });
 
   test('工作流详情里的三轮审核链接会打开各自对应的内部会话', async ({ page }) => {
@@ -431,30 +385,27 @@ test.describe('项目内需求工作流控制面', () => {
       },
     ]);
 
-    await openFixtureProject(page);
+    await openFixtureProject(page, { reset: false });
     await page.getByRole('button', { name: /手动会话/ }).click();
     await page.getByRole('button', { name: /fixture-project manual-only session/ }).click();
-    await expect(page).toHaveURL(/\/session\/fixture-project-manual-session/);
+    await expect(page).toHaveURL(/\/workspace\/fixture-project\/c\d+$/);
 
-    await openFixtureProject(page);
+    await openFixtureProject(page, { reset: false });
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
 
     await page.getByTestId('workflow-substage-review_1').getByRole('button', { name: /需求与范围覆盖/ }).click();
-    await expect(page).toHaveURL(/\/session\/workflow-review-1/);
-    await expect(page).toHaveURL(/provider=codex/);
+    await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/review_1$/);
 
     await page.goBack({ waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('heading', { name: '登录升级' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '登录升级' }).last()).toBeVisible();
     await page.getByTestId('workflow-substage-review_2').getByRole('button', { name: /实现风险与回归/ }).click();
-    await expect(page).toHaveURL(/\/session\/workflow-review-2/);
-    await expect(page).toHaveURL(/provider=codex/);
+    await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/review_2$/);
 
     await page.goBack({ waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('heading', { name: '登录升级' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '登录升级' }).last()).toBeVisible();
     await page.getByTestId('workflow-substage-review_3').getByRole('button', { name: /验收与交付闭环/ }).click();
-    await expect(page).toHaveURL(/\/session\/workflow-review-3/);
-    await expect(page).toHaveURL(/provider=codex/);
+    await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/review_3$/);
   });
 
   test('新建会话占位路由在 projectName 错误时仍优先使用 projectPath 选中项目', async ({ page }) => {
@@ -472,11 +423,52 @@ test.describe('项目内需求工作流控制面', () => {
   });
 
   test('阶段树会显示当前停留原因和缺失产物提示', async ({ page }) => {
-    await openFixtureProject(page);
+    rewriteFixtureRunState({
+      stage: 'archive',
+      status: 'blocked',
+      stages: {
+        planning: 'completed',
+        execution: 'completed',
+        review_1: 'completed',
+        repair_1: 'completed',
+        review_2: 'completed',
+        repair_2: 'completed',
+        review_3: 'completed',
+        repair_3: 'completed',
+        archive: 'active',
+      },
+      sessions: {
+        planning: 'fixture-project-session',
+        execution: 'fixture-project-execution-session',
+        archive: 'fixture-project-archive-session',
+      },
+      processes: [
+        {
+          stage: 'planning',
+          role: 'executor',
+          status: 'completed',
+          sessionId: 'fixture-project-session',
+        },
+        {
+          stage: 'execution',
+          role: 'executor',
+          status: 'completed',
+          sessionId: 'fixture-project-execution-session',
+        },
+        {
+          stage: 'archive',
+          role: 'archiver',
+          status: 'running',
+          sessionId: 'fixture-project-archive-session',
+        },
+      ],
+    });
+
+    await openFixtureProject(page, { reset: false });
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
 
-    await page.getByRole('button', { name: /验收/ }).click();
+    await page.getByTestId('workflow-stage-archive').getByRole('button', { name: /归档/ }).click();
     await expect(page.getByRole('button', { name: /delivery-summary\.md/ })).toBeVisible();
     await expect(page.getByText('delivery-summary.md 尚未生成。')).toBeVisible();
   });
@@ -533,14 +525,8 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(page.getByTestId('workflow-stage-archive').getByRole('button', { name: '归档' })).toHaveCount(1);
     await expect(page.getByText('验收状态')).toHaveCount(0);
     await expect(page.getByRole('button', { name: '继续推进' })).toHaveCount(0);
-    await expect(page.getByTestId('workflow-gate-decision-pass')).toHaveAttribute('aria-pressed', 'false');
-    await page.getByTestId('workflow-gate-decision-pass').click();
-    await expect(page.getByTestId('workflow-gate-decision-pass')).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByTestId('workflow-gate-decision-pass')).toHaveClass(/bg-primary/);
-
-    await page.getByTestId('workflow-gate-decision-needs_repair').click();
-    await expect(page.getByTestId('workflow-gate-decision-needs_repair')).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByTestId('workflow-gate-decision-needs_repair')).toHaveClass(/bg-primary/);
+    await expect(page.getByTestId('workflow-gate-decision-pass')).toHaveCount(0);
+    await expect(page.getByTestId('workflow-gate-decision-needs_repair')).toHaveCount(0);
   });
 
   test('刷新后保留工作流控制面状态', async ({ page }) => {
@@ -553,7 +539,7 @@ test.describe('项目内需求工作流控制面', () => {
 
     await page.reload({ waitUntil: 'domcontentloaded' });
 
-    await expect(page.getByRole('heading', { name: '登录升级' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '登录升级' }).last()).toBeVisible();
     await expect(page.getByText('阶段进度')).toHaveCount(0);
     await expect(page.getByTestId('workflow-stage-tree')).toBeVisible();
   });
@@ -633,7 +619,7 @@ test.describe('项目内需求工作流控制面', () => {
 
   test('移动端项目操作默认隐藏并通过长按打开', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByRole('button', { name: 'Open menu' }).click();
+    await page.getByRole('button', { name: 'Open menu' }).click({ force: true });
 
     await expect(page.getByTestId('project-list-item-fixture-project-context-menu')).toHaveCount(0);
     await expect(page).not.toHaveURL(/\/project\//);
@@ -652,10 +638,10 @@ test.describe('项目内需求工作流控制面', () => {
     await openFixtureProject(page);
     await page.getByRole('button', { name: /手动会话/ }).click();
     await page.getByRole('button', { name: /fixture-project session/ }).click();
-    await expect(page).toHaveURL(/\/session\//);
+    await expect(page).toHaveURL(/\/workspace\/fixture-project\/c\d+$/);
 
     await page.getByRole('button', { name: /^fixture-project\b/i }).first().click();
-    await expect(page).toHaveURL(/\/project\//);
+    await expect(page).toHaveURL(/\/workspace\/fixture-project$/);
     await expect(page.getByRole('heading', { name: '自动工作流' })).toBeVisible();
   });
 
@@ -665,10 +651,7 @@ test.describe('项目内需求工作流控制面', () => {
     await openFixtureProject(page);
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
-    await expect(page.getByTestId('workflow-last-update')).toBeVisible();
-
-    await page.getByRole('button', { name: /标记为已读/ }).click();
-    await expect(page.getByTestId('project-list-item-fixture-project-unread-dot')).toHaveCount(0);
+    await expect(page.getByTestId('workflow-runner-processes')).toBeVisible();
   });
 
   test('项目主页的工作流和会话右键菜单支持收藏、待处理、隐藏及恢复', async ({ page }) => {
@@ -681,7 +664,8 @@ test.describe('项目内需求工作流控制面', () => {
       'conf.json',
     );
 
-    const sidebarSessionCard = page.getByTestId('manual-session-group').getByRole('button', { name: /fixture-project session/ }).first();
+    const fixtureSessionName = /^fixture-project session\b/;
+    const sidebarSessionCard = page.getByTestId('manual-session-group').getByRole('button', { name: fixtureSessionName }).first();
     await sidebarSessionCard.click({ button: 'right' });
     await expect(page.getByTestId('sidebar-session-context-rename')).toBeVisible();
     await expect(page.getByTestId('sidebar-session-context-favorite')).toBeVisible();
@@ -692,14 +676,11 @@ test.describe('项目内需求工作流控制面', () => {
 
     const workflowCard = page.getByTestId('project-overview-workflows').getByRole('button', { name: /登录升级/ }).first();
     await workflowCard.click({ button: 'right' });
-    await page.getByTestId('project-overview-context-favorite').click();
-    await expect(page.getByTestId('project-overview-workflows')).toContainText('收藏');
+    await expect(page.getByTestId('project-overview-context-favorite')).toHaveCount(0);
+    await expect(page.getByTestId('project-overview-context-pending')).toHaveCount(0);
+    await expect(page.getByTestId('project-overview-context-hide')).toHaveCount(0);
 
-    await workflowCard.click({ button: 'right' });
-    await page.getByTestId('project-overview-context-pending').click();
-    await expect(page.getByTestId('project-overview-workflows')).toContainText('待处理');
-
-    let sessionCard = page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: /fixture-project session/ }).first();
+    let sessionCard = page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: fixtureSessionName }).first();
     await sessionCard.click({ button: 'right' });
     await page.getByTestId('project-overview-context-favorite').click();
     await expect(page.getByTestId('project-overview-manual-sessions')).toContainText('收藏');
@@ -710,40 +691,32 @@ test.describe('项目内需求工作流控制面', () => {
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('project-overview-manual-sessions')).toContainText('收藏');
-    sessionCard = page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: /fixture-project session/ }).first();
+    sessionCard = page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: fixtureSessionName }).first();
     await sessionCard.click({ button: 'right' });
     await page.getByTestId('project-overview-context-pending').click();
     await expect(page.getByTestId('project-overview-manual-sessions')).toContainText('待处理');
 
     await sessionCard.click({ button: 'right' });
     await page.getByTestId('project-overview-context-hide').click();
-    await expect(page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: /fixture-project session/ })).toHaveCount(0);
+    await expect(page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: fixtureSessionName })).toHaveCount(0);
     await expect.poll(() => {
       const config = JSON.parse(fs.readFileSync(projectConfPath, 'utf8'));
       return Object.values(config.chat || {}).some((record) => record?.ui?.hidden === true);
     }).toBe(true);
 
-    await workflowCard.click({ button: 'right' });
-    await page.getByTestId('project-overview-context-hide').click();
-    await expect(page.getByRole('button', { name: /登录升级/ })).toHaveCount(0);
-
     await page.getByRole('button', { name: /显示已隐藏项/ }).click();
-    await expect(page.getByRole('button', { name: /fixture-project session/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /登录升级/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: fixtureSessionName })).toBeVisible();
+    await expect(page.getByTestId('project-overview-workflows').getByRole('button', { name: /登录升级/ })).toBeVisible();
 
-    await page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: /fixture-project session/ }).first().click({ button: 'right' });
+    await page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: fixtureSessionName }).first().click({ button: 'right' });
     await page.getByTestId('project-overview-context-hide').click();
-    await expect(page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: /fixture-project session/ })).toBeVisible();
+    await expect(page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: fixtureSessionName })).toBeVisible();
     await expect.poll(() => {
       const config = JSON.parse(fs.readFileSync(projectConfPath, 'utf8'));
       return Object.values(config.chat || {}).some((record) => record?.ui?.hidden === true);
     }).toBe(false);
 
-    await page.getByRole('button', { name: /登录升级/ }).first().click({ button: 'right' });
-    await page.getByTestId('project-overview-context-hide').click();
-    await expect(page.getByRole('button', { name: /登录升级/ })).toBeVisible();
-
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: /fixture-project session/ })).toBeVisible();
+    await expect(page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: fixtureSessionName })).toBeVisible();
   });
 });

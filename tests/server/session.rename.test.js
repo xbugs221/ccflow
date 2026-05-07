@@ -29,7 +29,6 @@ import {
 import {
   createProjectWorkflow,
   listProjectWorkflows,
-  registerWorkflowChildSession,
 } from '../../server/workflows.js';
 let homeIsolationQueue = Promise.resolve();
 
@@ -68,18 +67,19 @@ async function withTemporaryHome(testBody) {
 }
 
 /**
- * Write fake opsx/mc commands so workflow child-session tests exercise the
+ * Write fake ox/mc commands so workflow child-session tests exercise the
  * current Go-backed contract without requiring machine-global binaries.
  */
 async function writeFakeWorkflowTools(binDir) {
   await fs.mkdir(binDir, { recursive: true });
   await fs.writeFile(
-    path.join(binDir, 'opsx'),
+    path.join(binDir, 'ox'),
     [
       '#!/bin/sh',
+      'PATH="/usr/bin:/bin:$PATH"',
       'changes_dir="$PWD/docs/changes"',
       'case "$1" in',
-      '  --version) echo "opsx-session-test";;',
+      '  --version) echo "ox-session-test";;',
       '  list)',
       "    printf '{\"changes\":['",
       '    first=1',
@@ -103,9 +103,10 @@ async function writeFakeWorkflowTools(binDir) {
     path.join(binDir, 'mc'),
     [
       '#!/bin/sh',
+      'PATH="/usr/bin:/bin:$PATH"',
       'run_id="session-test-run-$(date +%s%N)"',
       'if [ "$1" = "--version" ]; then echo "mc-session-test"; exit 0; fi',
-      'if [ "$1" = "list-changes" ]; then opsx list --json; exit 0; fi',
+      'if [ "$1" = "list-changes" ]; then ox list --json; exit 0; fi',
       'if [ "$1" = "run" ]; then',
       '  change=""',
       '  while [ "$#" -gt 0 ]; do',
@@ -674,230 +675,6 @@ test('finalizing a manual Codex draft keeps the original route slot', { concurre
     const finalizedChat = Object.values(config.chat || {}).find((record) => record.sessionId === 'codex-session-real');
     assert.equal(finalizedChat?.title, '会话4');
     assert.equal('manualSessionDrafts' in config, false);
-  });
-});
-
-test('finalizing workflow-owned drafts preserves ownership on real provider sessions', { concurrency: false }, async () => {
-  await withTemporaryHome(async (tempHome) => {
-    const projectPath = path.join(tempHome, 'workspace', 'workflow-finalize');
-    await fs.mkdir(projectPath, { recursive: true });
-
-    const project = await addProjectManually(projectPath, 'Workflow Finalize Demo');
-      const claudeDraft = await createManualSessionDraft(project.name, projectPath, 'claude', '审核会话', {
-        workflowId: 'workflow-review',
-        stageKey: 'verification',
-      });
-    await createClaudeSessionFile(project.name, 'claude-workflow-real');
-
-      const codexDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '执行会话', {
-        workflowId: 'workflow-execution',
-        stageKey: 'execution',
-      });
-    await createCodexSessionFile(tempHome, projectPath, 'codex-workflow-real');
-
-    assert.equal(
-      await finalizeManualSessionDraft(project.name, claudeDraft.id, 'claude-workflow-real', 'claude'),
-      true,
-    );
-    assert.equal(
-      await finalizeManualSessionDraft(project.name, codexDraft.id, 'codex-workflow-real', 'codex'),
-      true,
-    );
-
-    const claudeSessions = await getSessions(project.name, 5, 0, { includeHidden: true });
-      const claudeSession = claudeSessions.sessions.find((session) => session.id === 'claude-workflow-real');
-      assert.equal(claudeSession.workflowId, 'workflow-review');
-      assert.equal(claudeSession.stageKey, 'verification');
-
-    const codexSessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true });
-      const codexSession = codexSessions.find((session) => session.id === 'codex-workflow-real');
-      assert.equal(codexSession.workflowId, 'workflow-execution');
-      assert.equal(codexSession.stageKey, 'execution');
-    });
-});
-
-test('finalizing a workflow child draft replaces the temporary child session id', { concurrency: false }, async () => {
-  await withTemporaryHome(async (tempHome) => {
-    const projectPath = path.join(tempHome, 'workspace', 'workflow-child-finalize');
-    await fs.mkdir(projectPath, { recursive: true });
-
-    const project = await addProjectManually(projectPath, 'Workflow Child Finalize Demo');
-    const workflow = await createGoWorkflow(project, {
-      title: '重构精简仓库',
-      objective: '验证工作流子会话 finalize 后仍稳定指向同一个内部会话槽位',
-    });
-      const draftSession = await createManualSessionDraft(project.name, projectPath, 'codex', '规划提案：重构精简仓库', {
-        workflowId: workflow.id,
-        stageKey: 'planning',
-      });
-    await registerWorkflowChildSession(project, workflow.id, {
-      sessionId: draftSession.id,
-      title: '规划提案：重构精简仓库',
-      summary: '规划提案：重构精简仓库',
-        provider: 'codex',
-        stageKey: 'planning',
-      });
-
-    const beforeFinalize = await listProjectWorkflows(projectPath);
-    assert.equal(beforeFinalize[0].childSessions[0].id, draftSession.id);
-    assert.equal(beforeFinalize[0].childSessions[0].routeIndex, 1);
-
-    assert.equal(
-      await finalizeManualSessionDraft(project.name, draftSession.id, 'codex-workflow-real', 'codex', projectPath),
-      true,
-    );
-
-    const afterFinalize = await listProjectWorkflows(projectPath);
-    assert.equal(afterFinalize[0].childSessions[0].id, 'codex-workflow-real');
-    assert.equal(afterFinalize[0].childSessions[0].routeIndex, 1);
-      assert.equal(afterFinalize[0].childSessions[0].workflowId, workflow.id);
-      assert.equal(afterFinalize[0].childSessions[0].stageKey, 'planning');
-    });
-});
-
-test('finalizing an indexed review draft preserves the existing review child route', { concurrency: false }, async () => {
-  await withTemporaryHome(async (tempHome) => {
-    const projectPath = path.join(tempHome, 'workspace', 'workflow-review-finalize');
-    await fs.mkdir(projectPath, { recursive: true });
-
-    const project = await addProjectManually(projectPath, 'Workflow Review Finalize Demo');
-    const workflow = await createGoWorkflow(project, {
-      title: '重构精简仓库',
-      objective: '验证初审 finalize 不会从 c3 漂移到 c4',
-    });
-    await registerWorkflowChildSession(project, workflow.id, {
-      sessionId: 'planning-real',
-        title: '规划提案：重构精简仓库',
-        provider: 'codex',
-        stageKey: 'planning',
-      });
-    await registerWorkflowChildSession(project, workflow.id, {
-      sessionId: 'execution-real',
-        title: '执行：重构精简仓库',
-        provider: 'codex',
-        stageKey: 'execution',
-      });
-      const reviewDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '评审1：重构精简仓库', {
-        workflowId: workflow.id,
-        stageKey: 'review_1',
-      });
-    await registerWorkflowChildSession(project, workflow.id, {
-      sessionId: reviewDraft.id,
-        title: '评审1：重构精简仓库',
-        provider: 'codex',
-        stageKey: 'review_1',
-      });
-  
-      const beforeFinalize = await listProjectWorkflows(projectPath);
-      const reviewBefore = beforeFinalize[0].childSessions.find((session) => session.stageKey === 'review_1');
-    assert.equal(reviewBefore.id, reviewDraft.id);
-    assert.equal(reviewBefore.routeIndex, 3);
-
-    assert.equal(
-      await finalizeManualSessionDraft(project.name, reviewDraft.id, 'review-real', 'codex', projectPath),
-      true,
-    );
-
-      const afterFinalize = await listProjectWorkflows(projectPath);
-      const reviewSessions = afterFinalize[0].childSessions.filter((session) => session.stageKey === 'review_1');
-    assert.equal(reviewSessions.length, 1);
-    assert.equal(reviewSessions[0].id, 'review-real');
-    assert.equal(reviewSessions[0].routeIndex, 3);
-  });
-});
-
-test('workflow chat draft finalizes without a manual draft mirror', { concurrency: false }, async () => {
-  await withTemporaryHome(async (tempHome) => {
-    const projectPath = path.join(tempHome, 'workspace', 'workflow-chat-draft-finalize');
-    await fs.mkdir(projectPath, { recursive: true });
-
-    const project = await addProjectManually(projectPath, 'Workflow Chat Draft Finalize Demo');
-    const workflow = await createGoWorkflow(project, {
-      title: '清理技术债',
-      objective: '验证 workflow 内部 cN 草稿能绑定真实 provider 会话',
-    });
-    await registerWorkflowChildSession(project, workflow.id, {
-      sessionId: 'c1',
-      title: '提案落地：清理技术债',
-      provider: 'claude',
-      stageKey: 'execution',
-    });
-
-    const startResult = await startManualSessionDraft(
-      project.name,
-      projectPath,
-      'c1',
-      'claude',
-      'workflow-start-1',
-    );
-    assert.equal(startResult.started, true);
-    assert.equal(
-      await bindManualSessionDraftProviderSession(
-        project.name,
-        projectPath,
-        'c1',
-        'claude-workflow-real',
-        'workflow-start-1',
-      ),
-      true,
-    );
-
-    const runtime = await getManualSessionDraftRuntime(project.name, projectPath, 'c1');
-    assert.equal(runtime?.pendingProviderSessionId, 'claude-workflow-real');
-    assert.equal(runtime?.startRequestId, 'workflow-start-1');
-
-    assert.equal(
-      await finalizeManualSessionDraft(project.name, 'c1', 'claude-workflow-real', 'claude', projectPath),
-      true,
-    );
-
-    const workflows = await listProjectWorkflows(projectPath);
-    const executionSession = workflows[0].childSessions.find((session) => session.stageKey === 'execution');
-    assert.equal(executionSession?.id, 'claude-workflow-real');
-    assert.equal(executionSession?.routeIndex, 1);
-    assert.equal(executionSession?.workflowId, workflow.id);
-  });
-});
-
-test('workflow orphan provider sessions stay out of manual session lists', { concurrency: false }, async () => {
-  await withTemporaryHome(async (tempHome) => {
-    const projectPath = path.join(tempHome, 'workspace', 'workflow-orphan-filter');
-    await fs.mkdir(projectPath, { recursive: true });
-
-    const project = await addProjectManually(projectPath, 'Workflow Orphan Filter Demo');
-    await createGoWorkflow(project, {
-      title: '实现工作流调度加购',
-      objective: '验证未索引的内部会话不会进入手动会话区',
-    });
-
-    await createClaudeSessionFile(
-      project.name,
-      'claude-workflow-orphan',
-      '执行 OpenSpec 变更中的任务\n\n1. **选择变更**',
-      projectPath,
-    );
-    await createCodexSessionFile(tempHome, projectPath, 'codex-workflow-orphan', {
-      message: '评审2：实现工作流调度加购',
-    });
-
-    const claudeSessions = await getSessions(project.name, 10, 0, {
-      includeHidden: true,
-      excludeWorkflowChildSessions: true,
-    });
-    assert.equal(
-      claudeSessions.sessions.some((session) => session.id === 'claude-workflow-orphan'),
-      false,
-    );
-
-    const codexSessions = await getCodexSessions(projectPath, {
-      limit: 0,
-      includeHidden: true,
-      excludeWorkflowChildSessions: true,
-    });
-    assert.equal(
-      codexSessions.some((session) => session.id === 'codex-workflow-orphan'),
-      false,
-    );
   });
 });
 

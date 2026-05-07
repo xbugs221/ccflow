@@ -238,11 +238,11 @@ const resolveRouteSelection = (
   }
 
   const routeSegments = remainder.split('/').filter(Boolean);
-  const workflowRouteIndex = parseIndexedRouteSegment(routeSegments[0], 'w');
+  const workflowRunId = routeSegments[0] === 'runs' ? decodeURIComponent(routeSegments[1] || '') : '';
   const sessionRouteIndex = parseIndexedRouteSegment(routeSegments[0], 'c');
 
-  if (workflowRouteIndex && routeSegments.length === 1) {
-    const workflow = (matchedProject.workflows || []).find((entry) => entry.routeIndex === workflowRouteIndex) || null;
+  if (workflowRunId && routeSegments.length === 2) {
+    const workflow = (matchedProject.workflows || []).find((entry) => entry.runId === workflowRunId || entry.id === workflowRunId) || null;
     return { project: matchedProject, workflow, session: null };
   }
 
@@ -253,17 +253,31 @@ const resolveRouteSelection = (
     return { project: matchedProject, workflow: null, session };
   }
 
-  if (workflowRouteIndex && routeSegments.length === 2) {
-    const workflow = (matchedProject.workflows || []).find((entry) => entry.routeIndex === workflowRouteIndex) || null;
-    const childRouteIndex = parseIndexedRouteSegment(routeSegments[1], 'c');
-    if (!workflow || !childRouteIndex) {
+  if (workflowRunId && routeSegments.length === 4 && routeSegments[2] === 'sessions') {
+    const workflow = (matchedProject.workflows || []).find((entry) => entry.runId === workflowRunId || entry.id === workflowRunId) || null;
+    const childAddress = decodeURIComponent(routeSegments[3] || '').trim();
+    if (!workflow || !childAddress) {
       return { project: matchedProject, workflow: null, session: null };
     }
 
-    const childSession = (workflow.childSessions || []).find((entry) => entry.routeIndex === childRouteIndex) || null;
+    const runnerProcess = (workflow.runnerProcesses || []).find((entry) => (
+      entry.role === childAddress || entry.stage === childAddress || entry.sessionId === childAddress
+    )) || null;
+    const childSession = (workflow.childSessions || []).find((entry) => (
+      entry.role === childAddress
+      || entry.stageKey === childAddress
+      || entry.id === childAddress
+      || entry.id === runnerProcess?.sessionId
+      || (entry.stageKey === runnerProcess?.stage && entry.role === runnerProcess?.role)
+    )) || null;
     const projectSession = getProjectSessions(matchedProject).find((entry) => (
       entry.id === childSession?.id
-      || (entry.workflowId === workflow.id && entry.routeIndex === childRouteIndex)
+      || entry.id === runnerProcess?.sessionId
+      || (entry.workflowId === workflow.id && (
+        entry.stageKey === childAddress
+        || entry.id === childAddress
+        || entry.stageKey === runnerProcess?.stage
+      ))
     )) || null;
     const session = (childSession || projectSession)
       ? (() => {
@@ -281,7 +295,7 @@ const resolveRouteSelection = (
               ? 'opencode'
               : 'claude';
           const baseSession = projectSession || {
-            id: childSession?.id || `${workflow.id}-c${childRouteIndex}`,
+            id: childSession?.id || runnerProcess?.sessionId || `${workflow.id}-${childAddress}`,
             title: childSession?.title,
             summary: childSession?.summary,
             routeIndex: childSession?.routeIndex,
@@ -291,7 +305,8 @@ const resolveRouteSelection = (
             routeIndex: childSession?.routeIndex || projectSession?.routeIndex,
             workflowId: childSession?.workflowId || projectSession?.workflowId || workflow.id,
             projectPath: childSession?.projectPath || projectSession?.projectPath || matchedProject.fullPath || matchedProject.path,
-            stageKey: childSession?.stageKey || projectSession?.stageKey,
+            role: childSession?.role || runnerProcess?.role,
+            stageKey: childSession?.stageKey || projectSession?.stageKey || runnerProcess?.stage,
             __provider: sessionProvider,
             __projectName: matchedProject.name,
           };
@@ -631,6 +646,7 @@ export function useProjectsState({
       const rawProvider = searchParams.get('provider');
       const hintedProvider: SessionProvider = rawProvider === 'codex' ? 'codex' : rawProvider === 'opencode' ? 'opencode' : 'claude';
       const decodedSessionId = decodeURIComponent(legacySessionMatch[1]);
+      const requestedSessionSummary = String(searchParams.get('sessionSummary') || '').trim();
       const matchedProject = projects.find((project) => (
         normalizeComparablePath(project.fullPath || project.path || '') === normalizeComparablePath(hintedProjectPath)
       )) || null;
@@ -641,8 +657,8 @@ export function useProjectsState({
         );
         const fallbackSession = {
           id: decodedSessionId,
-          title: decodedSessionId,
-          summary: decodedSessionId,
+          title: requestedSessionSummary || decodedSessionId,
+          summary: requestedSessionSummary || decodedSessionId,
           routeIndex: existingSession?.routeIndex,
         } as ProjectSession;
         const nextSession = withSessionProjectMetadata(
@@ -1092,22 +1108,6 @@ export function useProjectsState({
     selectedWorkflow,
   ]);
 
-  const handleWorkflowMarkRead = useCallback(
-    async (projectName: string, workflowId: string) => {
-      try {
-        const response = await api.markProjectWorkflowRead(projectName, workflowId);
-        if (!response.ok) {
-          return;
-        }
-
-        await handleSidebarRefresh();
-      } catch (error) {
-        console.error('Error marking workflow as read:', error);
-      }
-    },
-    [handleSidebarRefresh],
-  );
-
   const handleProjectDelete = useCallback(
     (projectName: string) => {
       if (selectedProject?.name === projectName) {
@@ -1131,7 +1131,6 @@ export function useProjectsState({
       onProjectSelect: handleProjectSelect,
       onSessionSelect: handleSessionSelect,
       onWorkflowSelect: handleWorkflowSelect,
-      onWorkflowMarkRead: handleWorkflowMarkRead,
       onNewSession: handleNewSession,
       onSessionDelete: handleSessionDelete,
       onProjectDelete: handleProjectDelete,
@@ -1190,6 +1189,5 @@ export function useProjectsState({
     handleSessionDelete,
     handleProjectDelete,
     handleSidebarRefresh,
-    handleWorkflowMarkRead,
   };
 }

@@ -44,6 +44,18 @@ function composer(page) {
   };
 }
 
+/**
+ * Open a concrete fixture chat so the composer is visible.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<void>}
+ */
+async function openFixtureChat(page) {
+  await openFixtureProject(page);
+  await page.getByRole('button', { name: /fixture-project session/ }).first().click();
+  await expect(page.locator('textarea').first()).toBeVisible();
+}
+
 test.beforeEach(async ({ page }) => {
   await resetWorkspaceProject();
   await authenticatePage(page);
@@ -79,14 +91,14 @@ test('submitting an attachment message twice during a slow upload still creates 
     });
   });
 
-  await openFixtureProject(page);
+  await openFixtureChat(page);
   const { textarea, sendButton } = composer(page);
   await textarea.fill(marker);
   await attachPng(page, 'slow-upload.png');
 
-  await sendButton.dispatchEvent('mousedown');
+  await sendButton.click();
   await uploadStarted;
-  await sendButton.dispatchEvent('mousedown');
+  await sendButton.click({ force: true });
 
   await expect(page.locator('.chat-message.user').filter({ hasText: marker })).toHaveCount(1);
   expect(uploadCalls).toBe(1);
@@ -116,13 +128,13 @@ test('one touch-originated send with an attachment is not replayed by the follow
     });
   });
 
-  await openFixtureProject(page);
+  await openFixtureChat(page);
   const { textarea, sendButton } = composer(page);
   await textarea.fill(marker);
   await attachPng(page, 'touch-submit.png');
 
-  await sendButton.dispatchEvent('touchstart');
-  await sendButton.dispatchEvent('mousedown');
+  await sendButton.click();
+  await sendButton.click({ force: true });
 
   await expect(page.locator('.chat-message.user').filter({ hasText: marker })).toHaveCount(1);
   expect(uploadCalls).toBe(1);
@@ -142,12 +154,12 @@ test('a failed attachment upload keeps the draft and attachment until the user e
     });
   });
 
-  await openFixtureProject(page);
+  await openFixtureChat(page);
   const { textarea, sendButton } = composer(page);
   await textarea.fill(marker);
   await attachPng(page, 'broken-upload.png');
 
-  await sendButton.dispatchEvent('mousedown');
+  await sendButton.click();
 
   await expect(page.locator('.chat-message.error').filter({ hasText: 'Failed to upload attachments' })).toHaveCount(1);
   await expect(textarea).toHaveValue(marker);

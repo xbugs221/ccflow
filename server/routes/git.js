@@ -279,6 +279,14 @@ function sendOperationError(res, operation, error, statusCode = 500) {
 async function getActualProjectPath(projectName, projectPathHint = null) {
   const hintedPath = typeof projectPathHint === 'string' ? projectPathHint.trim() : '';
 
+  if (hintedPath) {
+    const resolvedHint = path.resolve(hintedPath);
+    const hintedStats = await fs.stat(resolvedHint).catch(() => null);
+    if (hintedStats) {
+      return resolvedHint;
+    }
+  }
+
   try {
     const resolvedPath = await extractProjectDirectory(projectName);
     const stats = await fs.stat(resolvedPath).catch(() => null);
@@ -287,10 +295,6 @@ async function getActualProjectPath(projectName, projectPathHint = null) {
     }
   } catch (error) {
     console.error(`Error extracting project directory for ${projectName}:`, error);
-  }
-
-  if (hintedPath) {
-    return path.resolve(hintedPath);
   }
 
   throw new Error(`Project path not found: ${projectName}`);

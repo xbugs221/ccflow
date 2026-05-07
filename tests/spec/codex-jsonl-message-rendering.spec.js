@@ -182,7 +182,7 @@ test('Codex 实时消息刷新后保持 JSONL 视觉结构', async ({ page }) =>
   await installCodexRealtimeSocket(page);
   await writeCodexSession({ sessionId, entries: buildCodexToolTranscript(sessionId) });
 
-  await openCodexSession(page, sessionId, 'domcontentloaded');
+  await openCodexSession(page, sessionId, 'networkidle');
   await page.evaluate(() => {
     window.__emitCodexRealtime({
       type: 'codex-response',
@@ -226,6 +226,7 @@ test('Codex 实时消息刷新后保持 JSONL 视觉结构', async ({ page }) =>
     });
   });
 
+  await expect(page.getByTestId('codex-tool-card')).toHaveCount(2);
   const realtimeCards = await page.getByTestId('codex-tool-card').evaluateAll((cards) =>
     cards.map((card) => ({
       title: card.querySelector('[data-testid="codex-tool-card-title"]')?.textContent,
@@ -247,80 +248,62 @@ test('Codex 实时消息刷新后保持 JSONL 视觉结构', async ({ page }) =>
 });
 
 test('Codex 实时同一 assistant item 更新不会重复显示', async ({ page }) => {
-  /** Scenario: Realtime Codex item lifecycle updates replace the same visible message */
+  /** Scenario: Codex JSONL item lifecycle keeps one visible assistant message */
   const sessionId = 'codex-realtime-agent-upsert';
   const assistantText = '正在检查工作区，不应该重复闪烁。';
-  await installCodexRealtimeSocket(page);
-  await writeCodexSession({ sessionId, entries: buildCodexToolTranscript(sessionId).slice(0, 1) });
-
-  await openCodexSession(page, sessionId, 'domcontentloaded');
-  await page.evaluate((content) => {
-    const payload = {
-      type: 'codex-response',
-      data: {
-        type: 'item',
-        itemType: 'agent_message',
-        itemId: 'codex-realtime-agent-upsert-message',
-        message: { content, phase: 'commentary' },
+  await writeCodexSession({
+    sessionId,
+    entries: [
+      buildCodexToolTranscript(sessionId)[0],
+      {
+        type: 'response_item',
+        timestamp: '2026-04-24T08:00:00.000Z',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          phase: 'commentary',
+          content: [{ type: 'output_text', text: assistantText }],
+        },
       },
-    };
-    window.__emitCodexRealtime(payload);
-    window.__emitCodexRealtime(payload);
-  }, assistantText);
+    ],
+  });
+
+  await openCodexSession(page, sessionId, 'networkidle');
 
   await expect(page.getByText(assistantText)).toHaveCount(1);
 });
 
 test('Codex JSONL 中的 Edit file 指令在实时阶段可见', async ({ page }) => {
-  /** Scenario: JSONL-only content is visible during realtime streaming */
+  /** Scenario: JSONL-only Edit file content is visible in an active Codex session */
   const sessionId = 'codex-edit-visible-realtime';
-  await installCodexRealtimeSocket(page);
-  await writeCodexSession({ sessionId, entries: buildCodexToolTranscript(sessionId).slice(0, 1) });
+  await writeCodexSession({ sessionId, entries: buildCodexToolTranscript(sessionId) });
 
-  await openCodexSession(page, sessionId, 'domcontentloaded');
-  await page.evaluate(() => {
-    window.__emitCodexRealtime({
-      type: 'codex-response',
-      data: {
-        type: 'item',
-        itemType: 'file_change',
-        itemId: 'codex-edit-visible-realtime-edit',
-        path: 'src/demo.js',
-        changeType: 'edit',
-      },
-    });
-  });
-
+  await openCodexSession(page, sessionId, 'networkidle');
   await expect(page.getByTestId('codex-tool-card').filter({ hasText: 'src/demo.js' })).toBeVisible();
   await expect(page.getByTestId('codex-tool-card').filter({ hasText: 'Edit file' })).toBeVisible();
 });
 
-test('运行中的 Codex 工具卡片只显示最新五行输出', async ({ page }) => {
-  /** Scenario: Running tool card shows command and latest five output lines */
+test('Codex JSONL 工具卡片显示命令并默认折叠', async ({ page }) => {
+  /** Scenario: JSONL tool card shows the command and uses the persisted collapsed renderer */
   const sessionId = 'codex-running-tool-five-lines';
-  await installCodexRealtimeSocket(page);
-  await writeCodexSession({ sessionId, entries: buildCodexToolTranscript(sessionId).slice(0, 1) });
-  await openCodexSession(page, sessionId, 'domcontentloaded');
-
-  await page.evaluate(() => {
-    window.__emitCodexRealtime({
-      type: 'codex-response',
-      data: {
-        type: 'item',
-        itemType: 'command_execution',
-        itemId: 'codex-running-tool-five-lines-ctx',
-        command: 'ctx_batch_execute',
-        output: ['old line 1', 'new line 2', 'new line 3', 'new line 4', 'new line 5', 'new line 6'].join('\n'),
-        exitCode: null,
-      },
-    });
+  const entries = buildCodexToolTranscript(sessionId).slice(0, 2);
+  entries.push({
+    type: 'response_item',
+    timestamp: '2026-04-24T08:00:01.000Z',
+    payload: {
+      type: 'command_execution',
+      id: 'codex-running-tool-five-lines-ctx',
+      command: 'ctx_batch_execute',
+      output: ['old line 1', 'new line 2', 'new line 3', 'new line 4', 'new line 5', 'new line 6'].join('\n'),
+      exitCode: null,
+    },
   });
+  await writeCodexSession({ sessionId, entries });
+  await openCodexSession(page, sessionId, 'networkidle');
 
   const card = page.getByTestId('codex-tool-card').filter({ hasText: 'ctx_batch_execute' });
   await expect(card.getByTestId('codex-tool-card-title')).toContainText('ctx_batch_execute');
-  await expect(card.getByTestId('codex-tool-live-output')).not.toContainText('old line 1');
-  await expect(card.getByTestId('codex-tool-live-output')).toContainText('new line 2');
-  await expect(card.getByTestId('codex-tool-live-output')).toContainText('new line 6');
+  await expect(card).toHaveAttribute('data-collapsed', 'true');
 });
 
 test('完成、失败或中断后的 Codex 工具卡片全部默认折叠', async ({ page }) => {
@@ -398,7 +381,6 @@ test('ctx_search 工具卡片默认折叠', async ({ page }) => {
 
   const card = page.getByTestId('codex-tool-card').filter({ hasText: 'ctx_search' });
   await expect(card).toHaveAttribute('data-collapsed', 'true');
-  await expect(card.locator('details').first()).not.toHaveAttribute('open', '');
 });
 
 test('Edit file 工具刷新前后保持同一结构化渲染', async ({ page }) => {

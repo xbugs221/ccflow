@@ -170,7 +170,7 @@ export default function AppContent() {
           routeIndex: options?.workflowRouteIndex,
         }
       : null;
-    const searchResultWorkflowSession = (targetWorkflow || searchResultWorkflow) && !workflowRouteSession && Number.isInteger(options?.routeIndex)
+    const searchResultWorkflowSession = (targetWorkflow || searchResultWorkflow) && !workflowRouteSession && (Number.isInteger(options?.routeIndex) || options?.workflowStageKey)
       ? {
           id: targetSessionId,
           routeIndex: options?.routeIndex,
@@ -263,9 +263,6 @@ export default function AppContent() {
       onSelectSession={handleSessionSelect}
       onSelectWorkflow={handleWorkflowSelect}
       onNewSession={handleNewSession}
-      onMarkWorkflowRead={(projectName: string, workflowIdToMark: string) =>
-        sidebarSharedProps.onWorkflowMarkRead?.(projectName, workflowIdToMark)
-      }
       onShowSettings={() => setShowSettings(true)}
       externalMessageUpdate={externalMessageUpdate}
     />

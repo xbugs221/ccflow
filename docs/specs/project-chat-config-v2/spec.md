@@ -2,20 +2,20 @@
 
 ## Purpose
 
-Define the v2 project-local `.ccflow/conf.json` structure for human-readable chat and workflow session state.
+Define the v2 project-local `.ccflow/conf.json` structure for human-readable manual chat session state.
 
 ## Requirements
 
-### Requirement: 项目配置必须用 chat 和 workflows 分组保存会话状态
+### Requirement: 项目配置必须用 chat 分组保存手动会话状态
 
-系统 MUST 将项目本地 `.ccflow/conf.json` 的会话状态保存为 `schemaVersion: 2`，并使用顶层 `chat` 和 `workflows` 两个分组表达人类可读的会话索引。
+系统 MUST 将项目本地 `.ccflow/conf.json` 的手动会话状态保存为 `schemaVersion: 2`，并使用顶层 `chat` 分组表达人类可读的手动会话索引。自动工作流不得写入 `.ccflow/conf.json.workflows`；工作流列表和详情必须从 `.ccflow/runs/<run-id>/state.json` 派生。
 
 #### Scenario: 保存项目配置时写入 v2 分组结构
 
-- **WHEN** 系统保存包含普通会话和工作流内部会话的项目配置
+- **WHEN** 系统保存包含普通会话的项目配置
 - **THEN** 配置文件包含 `schemaVersion: 2`
 - **AND** 普通会话只写入顶层 `chat`
-- **AND** 工作流内部会话只写入 `workflows["<编号>"].chat`
+- **AND** 配置文件不包含自动工作流镜像索引 `workflows`
 - **AND** 新配置不再写入 `manualSessionDrafts`、`sessionRouteIndex`、`sessionSummaryById`、`sessionWorkflowMetadataById`、`sessionModelStateById` 或 `sessionUiStateByPath`
 
 #### Scenario: 单条普通会话聚合所有展示状态

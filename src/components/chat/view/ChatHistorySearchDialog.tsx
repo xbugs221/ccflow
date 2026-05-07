@@ -16,6 +16,7 @@ type ChatSearchResult = {
   routeIndex?: number;
   workflowId?: string;
   workflowRouteIndex?: number;
+  workflowStageKey?: string;
   sessionSummary: string;
   messageKey?: string;
   snippet: string;
@@ -37,6 +38,7 @@ type ChatHistorySearchDialogProps = {
       routeIndex?: number;
       workflowId?: string;
       workflowRouteIndex?: number;
+      workflowStageKey?: string;
       routeSearch?: Record<string, string>;
     },
   ) => void;
@@ -268,6 +270,7 @@ export default function ChatHistorySearchDialog({
                   routeIndex: result.routeIndex,
                   workflowId: result.workflowId,
                   workflowRouteIndex: result.workflowRouteIndex,
+                  workflowStageKey: result.workflowStageKey,
                   routeSearch,
                 });
               }}

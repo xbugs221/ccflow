@@ -91,43 +91,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  markProjectWorkflowRead: (projectName, workflowId) =>
-    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/mark-read`, {
-      method: 'POST',
-    }),
-  deleteProjectWorkflow: (projectName, workflowId) =>
-    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}`, {
-      method: 'DELETE',
-    }),
-  updateProjectWorkflowUiState: (projectName, workflowId, payload) =>
-    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/ui-state`, {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    }),
-  updateProjectWorkflowGateDecision: (projectName, workflowId, gateDecision) =>
-    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/gate-decision`, {
-      method: 'PUT',
-      body: JSON.stringify({ gateDecision }),
-    }),
-  updateWorkflowStageProviders: (projectName, workflowId, stageProviders) =>
-    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/stage-providers`, {
-      method: 'PUT',
-      body: JSON.stringify({ stageProviders }),
-    }),
-  updateWorkflowSchedule: (projectName, workflowId, scheduledAt) =>
-    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/schedule`, {
-      method: 'PUT',
-      body: JSON.stringify({ scheduledAt }),
-    }),
-  renameProjectWorkflow: (projectName, workflowId, title) =>
-    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/rename`, {
-      method: 'PUT',
-      body: JSON.stringify({ title }),
-    }),
-  advanceProjectWorkflow: (projectName, workflowId) =>
-    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/advance`, {
-      method: 'POST',
-    }),
   resumeProjectWorkflowRun: (projectName, workflowId) =>
     authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/resume-run`, {
       method: 'POST',
@@ -135,16 +98,6 @@ export const api = {
   abortProjectWorkflowRun: (projectName, workflowId) =>
     authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/abort-run`, {
       method: 'POST',
-    }),
-  projectWorkflowLauncherConfig: (projectName, workflowId, payload) =>
-    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/launcher-config`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-  registerProjectWorkflowChildSession: (projectName, workflowId, payload) =>
-    authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/child-sessions`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
     }),
   sessions: (projectName, limit = 5, offset = 0) =>
     authenticatedFetch(`${projectApiPath(projectName)}/sessions?limit=${limit}&offset=${offset}`),

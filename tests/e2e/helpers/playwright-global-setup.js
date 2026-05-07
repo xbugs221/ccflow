@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /**
- * Create fake opsx/mc binaries for the isolated Playwright server process.
+ * Create fake ox/mc binaries for the isolated Playwright server process.
  * The scripts operate on real fixture docs/changes and .ccflow/runs files.
  * @param {string} cwd - Repository root.
  * @returns {string} Directory to prepend to PATH.
@@ -17,12 +17,13 @@ function ensureWorkflowToolFixtures(cwd) {
   const binDir = path.join(cwd, '.tmp', 'playwright-workflow-bin');
   fs.mkdirSync(binDir, { recursive: true });
   fs.writeFileSync(
-    path.join(binDir, 'opsx'),
+    path.join(binDir, 'ox'),
     [
       '#!/bin/sh',
+      'PATH="/usr/bin:/bin:$PATH"',
       'changes_dir="$PWD/docs/changes"',
       'case "$1" in',
-      '  --version) echo "opsx-playwright";;',
+      '  --version) echo "ox-playwright";;',
       '  list)',
       "    printf '{\"changes\":['",
       '    first=1',
@@ -50,10 +51,11 @@ function ensureWorkflowToolFixtures(cwd) {
     path.join(binDir, 'mc'),
     [
       '#!/bin/sh',
+      'PATH="/usr/bin:/bin:$PATH"',
       'run_id="playwright-run-$(date +%s%N)"',
       'if [ "$1" = "--version" ]; then echo "mc-playwright"; exit 0; fi',
       'if [ "$1" = "contract" ]; then echo \'{"version":"mc-playwright","json":true,"capabilities":["list-changes","run","resume","status","abort"]}\'; exit 0; fi',
-      'if [ "$1" = "list-changes" ]; then opsx list --json; exit 0; fi',
+      'if [ "$1" = "list-changes" ]; then ox list --json; exit 0; fi',
       'if [ "$1" = "run" ]; then',
       '  change=""',
       '  while [ "$#" -gt 0 ]; do',
@@ -82,6 +84,47 @@ function ensureWorkflowToolFixtures(cwd) {
     { mode: 0o755 },
   );
   return binDir;
+}
+
+/**
+ * Sleep synchronously during one-time global setup cleanup.
+ * @param {number} ms - Milliseconds to wait.
+ */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Stop any stale local process already listening on a Playwright-managed port.
+ * @param {string} port - TCP port owned by the isolated Playwright run.
+ */
+function stopPortListeners(port) {
+  let pidOutput = '';
+  try {
+    pidOutput = execFileSync('lsof', [`-tiTCP:${port}`, '-sTCP:LISTEN'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return;
+  }
+
+  const pids = pidOutput.split('\n').map((entry) => entry.trim()).filter(Boolean);
+  for (const pid of pids) {
+    try {
+      process.kill(Number(pid), 'SIGTERM');
+    } catch {
+      // Process exited between lsof and kill.
+    }
+  }
+  sleepSync(300);
+  for (const pid of pids) {
+    try {
+      process.kill(Number(pid), 'SIGKILL');
+    } catch {
+      // Process already exited after SIGTERM.
+    }
+  }
 }
 
 /**
@@ -181,6 +224,9 @@ export default async function globalSetup() {
   let serverStderr = '';
   let viteStdout = '';
   let viteStderr = '';
+
+  stopPortListeners(serverPort);
+  stopPortListeners(vitePort);
 
   if (!isUrlReady(serverUrl)) {
     serverProcess = spawn('pnpm', ['run', 'server'], {

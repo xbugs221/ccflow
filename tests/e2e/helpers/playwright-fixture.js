@@ -135,6 +135,7 @@ function writeClaudeSessionFixture(projectPath, sessionId, userMessage, messageP
     }));
   }
 
+  fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
   fs.writeFileSync(sessionPath, `${sessionLines.join('\n')}\n`, 'utf8');
 }
 
@@ -149,7 +150,7 @@ function writeAuthDatabaseFixture() {
     db.exec(fs.readFileSync(INIT_SQL_PATH, 'utf8'));
     db.prepare(
       `
-        INSERT INTO users (
+        INSERT OR IGNORE INTO users (
           username,
           password_hash,
           is_active,
@@ -173,29 +174,55 @@ function writeWorkflowStoreFixture() {
   }
 
   fs.mkdirSync(path.join(fixtureProjectPath, 'workflow-output'), { recursive: true });
+  fs.mkdirSync(path.join(fixtureProjectPath, 'notes'), { recursive: true });
+  fs.mkdirSync(path.join(fixtureProjectPath, 'assets'), { recursive: true });
+  fs.mkdirSync(path.join(fixtureProjectPath, 'data'), { recursive: true });
+  fs.mkdirSync(path.join(fixtureProjectPath, 'images'), { recursive: true });
   fs.mkdirSync(path.join(fixtureProjectPath, '.ccflow', 'runs', 'run-fixture', 'logs'), { recursive: true });
+  fs.writeFileSync(path.join(fixtureProjectPath, 'notes', 'todo.md'), '# TODO\n', 'utf8');
+  fs.writeFileSync(
+    path.join(fixtureProjectPath, 'notes', 'boundary.md'),
+    `${'a'.repeat(8191)}中\n\n# 边界标题\n\n这是一段中文正文。\n`,
+    'utf8',
+  );
+  fs.writeFileSync(path.join(fixtureProjectPath, 'assets', 'manual.pdf'), Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff, 0x0a]));
+  fs.writeFileSync(path.join(fixtureProjectPath, 'assets', 'archive.bin'), Buffer.from([0x10, 0x00, 0xff, 0x7f, 0x42, 0x24]));
+  fs.writeFileSync(path.join(fixtureProjectPath, 'data', 'weird.dat'), Buffer.from([0x48, 0x49, 0x00, 0x41, 0x42, 0x43]));
+  fs.writeFileSync(path.join(fixtureProjectPath, 'images', 'pixel.png'), Buffer.from('iVBORw0KGgo=', 'base64'));
   fs.writeFileSync(path.join(fixtureProjectPath, 'SUMMARY.md'), '# Workflow summary fixture\n', 'utf8');
   fs.writeFileSync(path.join(fixtureProjectPath, 'workflow-output', 'result.txt'), 'workflow artifact folder fixture\n', 'utf8');
   fs.writeFileSync(path.join(fixtureProjectPath, '.ccflow', 'runs', 'run-fixture', 'logs', 'executor.log'), 'executor log fixture\n', 'utf8');
   fs.writeFileSync(path.join(fixtureProjectPath, '.ccflow', 'runs', 'run-fixture', 'state.json'), `${JSON.stringify({
     runId: 'run-fixture',
-    changeName: 'fixture-change',
+    changeName: '登录升级',
     status: 'running',
     stage: 'review_1',
     stages: {
+      planning: 'completed',
       execution: 'completed',
       review_1: 'running',
     },
     paths: {
       executor_log: '.ccflow/runs/run-fixture/logs/executor.log',
+      summary: 'SUMMARY.md',
+      workflow_output: 'workflow-output',
     },
-    sessions: {},
+    sessions: {
+      planning: 'fixture-project-session',
+      execution: 'fixture-project-execution-session',
+    },
     processes: [
+      {
+        stage: 'planning',
+        role: 'executor',
+        status: 'completed',
+        sessionId: 'fixture-project-session',
+      },
       {
         stage: 'execution',
         role: 'executor',
         status: 'completed',
-        sessionId: 'codex-runner-execution-thread',
+        sessionId: 'fixture-project-execution-session',
         pid: 4321,
         logPath: '.ccflow/runs/run-fixture/logs/executor.log',
       },
@@ -206,52 +233,6 @@ function writeWorkflowStoreFixture() {
     PROJECT_CONF_PATH,
     `${JSON.stringify({
       schemaVersion: 2,
-      workflows: {
-        1: {
-          title: '登录升级',
-          objective: '把登录升级需求从规划推进到验收',
-          runner: 'go',
-          runnerProvider: 'codex',
-          runId: 'run-fixture',
-          stage: 'review_1',
-          runState: 'running',
-          hasUnreadActivity: true,
-          updatedAt: '2026-04-19T10:00:00.000Z',
-          gateDecision: 'pending',
-          stageStatuses: [
-            { key: 'planning', label: 'Planning', status: 'completed' },
-            { key: 'execution', label: 'Execution', status: 'completed' },
-            { key: 'verification', label: 'Verification', status: 'active' },
-            { key: 'ready_for_acceptance', label: 'Ready for acceptance', status: 'pending' },
-          ],
-          artifacts: [
-            { id: 'summary', label: 'SUMMARY.md', path: 'SUMMARY.md', type: 'file', stage: 'execution', substageKey: 'status_sync', status: 'ready' },
-            { id: 'workflow-output', label: 'workflow-output', path: 'workflow-output', type: 'directory', stage: 'verification', substageKey: 'verification_evidence', status: 'ready' },
-          ],
-          childSessions: [
-            {
-              id: 'fixture-project-session',
-              routeIndex: 1,
-              title: '子会话 规划',
-              summary: '需求分解与计划确认',
-              provider: 'claude',
-              workflowId: 'w1',
-              projectPath: fixtureProjectPath,
-              stageKey: 'planning',
-            },
-            {
-              id: 'fixture-project-execution-session',
-              routeIndex: 2,
-              title: '子会话 执行',
-              summary: '实现与运行状态同步',
-              provider: 'claude',
-              workflowId: 'w1',
-              projectPath: fixtureProjectPath,
-              stageKey: 'execution',
-            },
-          ],
-        },
-      },
     }, null, 2)}\n`,
     'utf8',
   );
@@ -268,11 +249,11 @@ export function ensurePlaywrightFixture(options = {}) {
    * it during per-test fixture resets so sqlite never writes to an unlinked file.
    */
   if (options.preserveAuthDatabase === true) {
-    fs.rmSync(path.join(FIXTURE_ROOT, 'workspace'), { recursive: true, force: true });
-    fs.rmSync(path.join(FIXTURE_ROOT, '.claude'), { recursive: true, force: true });
-    fs.rmSync(path.join(FIXTURE_ROOT, '.codex'), { recursive: true, force: true });
+    fs.rmSync(path.join(FIXTURE_ROOT, 'workspace'), { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+    fs.rmSync(path.join(FIXTURE_ROOT, '.claude'), { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+    fs.rmSync(path.join(FIXTURE_ROOT, '.codex'), { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   } else {
-    fs.rmSync(FIXTURE_ROOT, { recursive: true, force: true });
+    fs.rmSync(FIXTURE_ROOT, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   }
   fs.mkdirSync(FIXTURE_ROOT, { recursive: true });
 

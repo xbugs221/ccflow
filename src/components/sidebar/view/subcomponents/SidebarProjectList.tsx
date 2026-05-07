@@ -37,7 +37,6 @@ export type SidebarProjectListProps = {
   onToggleProject: (projectName: string) => void;
   onProjectSelect: (project: Project) => void;
   onWorkflowSelect?: (project: Project, workflow: ProjectWorkflow) => void;
-  onWorkflowMarkRead?: (projectName: string, workflowId: string) => Promise<void> | void;
   onStartEditingProject: (project: Project) => void;
   onCancelEditingProject: () => void;
   onSaveProjectName: (projectName: string) => void;
@@ -89,7 +88,6 @@ export default function SidebarProjectList({
   onToggleProject,
   onProjectSelect,
   onWorkflowSelect,
-  onWorkflowMarkRead,
   onStartEditingProject,
   onCancelEditingProject,
   onSaveProjectName,
@@ -172,7 +170,6 @@ export default function SidebarProjectList({
               onToggleProject={onToggleProject}
               onProjectSelect={onProjectSelect}
               onWorkflowSelect={onWorkflowSelect}
-              onWorkflowMarkRead={onWorkflowMarkRead}
               onStartEditingProject={onStartEditingProject}
               onCancelEditingProject={onCancelEditingProject}
               onSaveProjectName={onSaveProjectName}

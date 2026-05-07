@@ -15,6 +15,7 @@ test.beforeEach(async ({ page }) => {
   await authenticatePage(page);
   await page.addInitScript(() => {
     window.localStorage.setItem('selected-provider', 'claude');
+    window.localStorage.setItem('ccflow-thinking-mode', 'disabled');
   });
 });
 
@@ -38,13 +39,13 @@ async function selectThinkingMode(page, mode) {
 /**
  * Read the project-local session state written by the shared model-state API.
  */
-async function readPersistedThinkingMode(sessionId) {
-  const configPath = path.join(PRIMARY_FIXTURE_PROJECT_PATH, '.ccflow', 'conf.json');
+async function readPersistedThinkingMode(sessionId, projectPath = PRIMARY_FIXTURE_PROJECT_PATH) {
+  const configPath = path.join(projectPath, '.ccflow', 'conf.json');
   const rawConfig = await fs.readFile(configPath, 'utf8');
   const config = JSON.parse(rawConfig);
   const records = Object.values(config.chat || {});
   const record = records.find((entry) => entry?.sessionId === sessionId);
-  return record?.thinkingMode || '';
+  return record?.thinkingMode || config.sessionModelStateById?.[sessionId]?.thinkingMode || '';
 }
 
 /**
@@ -93,12 +94,14 @@ test('Claude thinking depth uses inferred provider when session metadata is miss
   /** Scenario: 旧会话对象没有 __provider，但它仍在项目 Claude sessions 列表中，thinking depth 同步必须按 Claude 处理。 */
   const sessionId = 'fixture-project-manual-session';
   let persistedProvider = '';
+  let persistedProjectPath = PRIMARY_FIXTURE_PROJECT_PATH;
 
   await serveLegacyClaudeSessionWithoutProvider(page, sessionId);
   await page.route('**/api/projects/*/sessions/*/model-state', async (route) => {
     if (route.request().method() === 'PUT') {
       const body = route.request().postDataJSON();
       persistedProvider = body?.provider || '';
+      persistedProjectPath = body?.projectPath || persistedProjectPath;
     }
     await route.continue();
   });
@@ -108,7 +111,7 @@ test('Claude thinking depth uses inferred provider when session metadata is miss
 
   await expect.poll(() => persistedProvider).toBe('claude');
   await expect.poll(
-    () => readPersistedThinkingMode(sessionId),
+    () => readPersistedThinkingMode(sessionId, persistedProjectPath),
   ).toBe('medium');
 
   await page.reload({ waitUntil: 'networkidle' });

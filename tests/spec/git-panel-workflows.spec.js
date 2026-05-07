@@ -24,7 +24,7 @@ test.beforeEach(async ({ page }) => {
 
 test('branches workflow shows separate local and remote branch sections', async ({ page }) => {
   /** Scenario: Viewing local and remote sections */
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openGitTab(page);
   await page.getByRole('button', { name: /^Branches$/i }).click();
   const localSection = page.locator('section').filter({ hasText: /^Local/ }).first();
@@ -37,7 +37,7 @@ test('branches workflow shows separate local and remote branch sections', async 
 
 test('user can create and switch to a new branch from the git panel', async ({ page }) => {
   /** Scenario: Creating and switching to a new branch */
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openGitTab(page);
   await page.getByRole('button', { name: /^Branches$/i }).click();
   const localSection = page.locator('section').filter({ hasText: /^Local/ }).first();
@@ -47,11 +47,12 @@ test('user can create and switch to a new branch from the git panel', async ({ p
 
   await expect(localSection.getByText('release/ui-refresh', { exact: true })).toBeVisible();
   await expect(page.locator('body')).toContainText(/current/i);
+  git(['checkout', 'main']);
 });
 
 test('current branch cannot be deleted from the git panel', async ({ page }) => {
   /** Scenario: Rejecting deletion of the current branch */
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openGitTab(page);
   await page.getByRole('button', { name: /^Branches$/i }).click();
 
@@ -60,7 +61,7 @@ test('current branch cannot be deleted from the git panel', async ({ page }) => 
 
 test('non-current branch deletion removes the branch from the local branch section', async ({ page }) => {
   /** Scenario: Deleting a non-current branch */
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openGitTab(page);
   await page.getByRole('button', { name: /^Branches$/i }).click();
   await expect(page.getByText('stale-ui', { exact: true })).toBeVisible();
@@ -75,7 +76,7 @@ test('changes workflow separates staged and unstaged files with a visible count'
   /** Scenario: Viewing staged and unstaged sections */
   await createMixedGitChanges();
 
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openGitTab(page);
 
   await expect(page.locator('body')).toContainText(/Staged/i);
@@ -89,7 +90,7 @@ test('failed fetch shows a dismissible inline error banner', async ({ page }) =>
   /** Scenario: Fetch failure shows an inline error banner */
   breakOriginRemote();
 
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openGitTab(page);
   await page.getByRole('button', { name: /Fetch/i }).click();
 

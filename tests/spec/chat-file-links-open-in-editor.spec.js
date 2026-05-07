@@ -70,6 +70,32 @@ async function writeAssistantLinkSession({ sessionId, assistantContent }) {
   );
 }
 
+/**
+ * Open a legacy session route with enough project identity for route recovery.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} sessionId
+ * @returns {Promise<void>}
+ */
+async function openFixtureClaudeSession(page, sessionId) {
+  const query = new URLSearchParams({
+    projectPath: PRIMARY_FIXTURE_PROJECT_PATH,
+    provider: 'claude',
+  });
+  await page.goto(`/session/${sessionId}?${query.toString()}`, { waitUntil: 'networkidle' });
+}
+
+/**
+ * Assert that editor opening keeps the chat session pathname active.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} sessionId
+ * @returns {Promise<void>}
+ */
+async function expectSessionPath(page, sessionId) {
+  await expect(page).toHaveURL((url) => url.pathname === `/session/${sessionId}`);
+}
+
 test.beforeEach(async ({ page }) => {
   await resetWorkspaceProject();
   await authenticatePage(page);
@@ -87,12 +113,12 @@ test('absolute workspace file links open the referenced file in the embedded edi
     assistantContent: `Open [absolute-link-target.ts](${absolutePath}) for the implementation details.`,
   });
 
-  await page.goto(`/session/${sessionId}`, { waitUntil: 'networkidle' });
+  await openFixtureClaudeSession(page, sessionId);
   await expect(page.getByRole('link', { name: 'absolute-link-target.ts' })).toBeVisible();
 
   await page.getByRole('link', { name: 'absolute-link-target.ts' }).click();
 
-  await expect(page).toHaveURL(new RegExp(`/session/${sessionId}$`));
+  await expectSessionPath(page, sessionId);
   await expect(page.getByRole('heading', { name: 'absolute-link-target.ts' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Save/i })).toBeVisible();
 });
@@ -108,14 +134,14 @@ test('project-relative workspace file links resolve against the selected project
     assistantContent: 'Review [relative-link-target.md](docs/relative-link-target.md) before editing.',
   });
 
-  await page.goto(`/session/${sessionId}`, { waitUntil: 'networkidle' });
+  await openFixtureClaudeSession(page, sessionId);
   await expect(page.getByRole('link', { name: 'relative-link-target.md' })).toBeVisible();
 
   await page.getByRole('link', { name: 'relative-link-target.md' }).click();
 
-  await expect(page).toHaveURL(new RegExp(`/session/${sessionId}$`));
-  await expect(page.getByText('relative-link-target.md', { exact: true })).toBeVisible();
-  await expect(page.locator('text=docs/relative-link-target.md')).toBeVisible();
+  await expectSessionPath(page, sessionId);
+  await expect(page.getByRole('heading', { name: 'relative-link-target.md' })).toBeVisible();
+  await expect(page.getByText('docs/relative-link-target.md', { exact: true })).toBeVisible();
 });
 
 test('workspace file links with line suffixes still open the file in the embedded editor', async ({ page }) => {
@@ -130,13 +156,13 @@ test('workspace file links with line suffixes still open the file in the embedde
     assistantContent: `Inspect [line-suffix-target.ts](${absolutePath}#L2) for the second export.`,
   });
 
-  await page.goto(`/session/${sessionId}`, { waitUntil: 'networkidle' });
+  await openFixtureClaudeSession(page, sessionId);
   await expect(page.getByRole('link', { name: 'line-suffix-target.ts' })).toBeVisible();
 
   await page.getByRole('link', { name: 'line-suffix-target.ts' }).click();
 
-  await expect(page).toHaveURL(new RegExp(`/session/${sessionId}$`));
-  await expect(page.getByText('line-suffix-target.ts', { exact: true })).toBeVisible();
+  await expectSessionPath(page, sessionId);
+  await expect(page.getByRole('heading', { name: 'line-suffix-target.ts' })).toBeVisible();
   await expect(page.locator('text=export const secondLine = 2;')).toBeVisible();
 });
 
@@ -151,13 +177,13 @@ test('clicking a workspace file reference keeps the current chat route active wh
     assistantContent: 'Open [sidebar-route-target.ts](src/sidebar-route-target.ts) without leaving this chat.',
   });
 
-  await page.goto(`/session/${sessionId}`, { waitUntil: 'networkidle' });
+  await openFixtureClaudeSession(page, sessionId);
   await expect(page.getByRole('link', { name: 'sidebar-route-target.ts' })).toBeVisible();
 
   await page.getByRole('link', { name: 'sidebar-route-target.ts' }).click();
 
-  await expect(page).toHaveURL(new RegExp(`/session/${sessionId}$`));
-  await expect(page.getByText('sidebar-route-target.ts', { exact: true })).toBeVisible();
+  await expectSessionPath(page, sessionId);
+  await expect(page.getByRole('heading', { name: 'sidebar-route-target.ts' })).toBeVisible();
   await expect(page.locator('text=src/sidebar-route-target.ts')).toBeVisible();
 });
 
@@ -170,7 +196,7 @@ test('external links keep normal browser navigation instead of opening the edito
     assistantContent: 'See [OpenAI docs](https://platform.openai.com/docs/overview) for external guidance.',
   });
 
-  await page.goto(`/session/${sessionId}`, { waitUntil: 'networkidle' });
+  await openFixtureClaudeSession(page, sessionId);
   await expect(page.getByRole('link', { name: 'OpenAI docs' })).toBeVisible();
 
   const [popup] = await Promise.all([
@@ -178,7 +204,7 @@ test('external links keep normal browser navigation instead of opening the edito
     page.getByRole('link', { name: 'OpenAI docs' }).click(),
   ]);
 
-  await expect(page).toHaveURL(new RegExp(`/session/${sessionId}$`));
+  await expectSessionPath(page, sessionId);
   await expect(page.getByRole('button', { name: /Save/i })).toHaveCount(0);
   await expect.poll(() => popup.url()).toMatch(/^https:\/\/platform\.openai\.com\/docs\/overview/);
   await popup.close();

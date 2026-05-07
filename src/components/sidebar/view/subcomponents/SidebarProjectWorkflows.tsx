@@ -9,12 +9,11 @@ import {
   type MouseEvent as ReactMouseEvent,
   type TouchEvent as ReactTouchEvent,
 } from 'react';
-import { ChevronDown, ChevronUp, Star, Clock, Workflow, Edit2, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Workflow } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { Button } from '../../../ui/button';
 import { cn } from '../../../../lib/utils';
 import type { Project, ProjectWorkflow } from '../../../../types/app';
-import { api } from '../../../../utils/api';
 import { formatTimeAgo } from '../../../../utils/dateUtils';
 import WorkflowStageProgress from '../../../workflow/WorkflowStageProgress';
 
@@ -36,48 +35,11 @@ type SidebarProjectWorkflowsProps = {
   t: TFunction;
 };
 
-function compareWorkflowPriority(
-  left: { favorite?: boolean; pending?: boolean },
-  right: { favorite?: boolean; pending?: boolean },
-): number {
-  const leftFavorite = left.favorite === true ? 1 : 0;
-  const rightFavorite = right.favorite === true ? 1 : 0;
-  if (leftFavorite !== rightFavorite) {
-    return rightFavorite - leftFavorite;
-  }
-
-  const leftPending = left.pending === true ? 1 : 0;
-  const rightPending = right.pending === true ? 1 : 0;
-  if (leftPending !== rightPending) {
-    return rightPending - leftPending;
-  }
-
-  return 0;
-}
-
 /**
  * PURPOSE: Prefer the freshest workflow activity when choosing recent items.
  */
 function getWorkflowUpdatedAt(workflow: ProjectWorkflow): number {
   return new Date(String(workflow.updatedAt || 0)).getTime();
-}
-
-function isWorkflowScheduledPending(workflow: ProjectWorkflow): boolean {
-  const scheduledAt = workflow.scheduledAt;
-  if (!scheduledAt) return false;
-  const scheduledTime = new Date(scheduledAt).getTime();
-  return Number.isFinite(scheduledTime) && Date.now() < scheduledTime;
-}
-
-function formatWorkflowScheduleTime(workflow: ProjectWorkflow): string {
-  const scheduledAt = workflow.scheduledAt;
-  if (!scheduledAt) return '';
-  const date = new Date(scheduledAt);
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hour = String(date.getHours()).padStart(2, '0');
-  const minute = String(date.getMinutes()).padStart(2, '0');
-  return `${month}-${day} ${hour}:${minute}`;
 }
 
 /**
@@ -141,14 +103,7 @@ export default function SidebarProjectWorkflows({
   const suppressNextClickRef = useRef(false);
 
   const workflows = [...(project.workflows || [])]
-    .filter((workflow) => workflow.hidden !== true)
-    .sort((left, right) => {
-      const priority = compareWorkflowPriority(left, right);
-      if (priority !== 0) {
-        return priority;
-      }
-      return compareWorkflowBySortMode(left, right, 'created' as WorkflowCardSortMode);
-    });
+    .sort((left, right) => compareWorkflowBySortMode(left, right, 'created' as WorkflowCardSortMode));
 
   const hasWorkflows = workflows.length > 0;
   const hasHiddenWorkflows = workflows.length > DEFAULT_VISIBLE_WORKFLOWS;
@@ -176,58 +131,6 @@ export default function SidebarProjectWorkflows({
    */
   const openWorkflowActionMenu = (workflowId: string, x: number, y: number) => {
     setWorkflowActionMenu({ isOpen: true, workflowId, x, y });
-  };
-
-  /**
-   * PURPOSE: Refresh the project list after mutating workflow metadata.
-   */
-  const refreshProject = async () => {
-    await window.refreshProjects?.();
-  };
-
-  /**
-   * PURPOSE: Toggle the workflow favorite flag from the contextual menu.
-   */
-  const handleToggleWorkflowFavorite = async (workflow: ProjectWorkflow) => {
-    closeWorkflowActionMenu();
-    await api.updateProjectWorkflowUiState(project.name, workflow.id, {
-      favorite: workflow.favorite !== true,
-      pending: workflow.pending === true,
-      hidden: workflow.hidden === true,
-    });
-    await refreshProject();
-  };
-
-  /**
-   * PURPOSE: Start workflow rename from the contextual menu.
-   */
-  const handleRenameWorkflow = async (workflow: ProjectWorkflow) => {
-    const nextTitle = window.prompt('请输入新的工作流名称', String(workflow.title || '').trim());
-    closeWorkflowActionMenu();
-    if (nextTitle == null) {
-      return;
-    }
-
-    const trimmedTitle = nextTitle.trim();
-    if (!trimmedTitle || trimmedTitle === workflow.title) {
-      return;
-    }
-
-    await api.renameProjectWorkflow(project.name, workflow.id, trimmedTitle);
-    await refreshProject();
-  };
-
-  /**
-   * PURPOSE: Delete a workflow only after explicit confirmation.
-   */
-  const handleDeleteWorkflow = async (workflow: ProjectWorkflow) => {
-    closeWorkflowActionMenu();
-    if (!window.confirm(`确定删除工作流“${workflow.title}”吗？此操作无法撤销。`)) {
-      return;
-    }
-
-    await api.deleteProjectWorkflow(project.name, workflow.id);
-    await refreshProject();
   };
 
   /**
@@ -398,60 +301,28 @@ export default function SidebarProjectWorkflows({
                     ? formatTimeAgo(workflow.updatedAt, currentTime, t)
                     : '未知时间'}
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                  {workflow.favorite === true && <Star className="h-3 w-3 fill-current text-yellow-500" />}
-                  {workflow.pending === true && <Clock className="h-3 w-3 text-amber-500" />}
-                  {isWorkflowScheduledPending(workflow) && (
-                    <span className="inline-flex items-center gap-1 text-blue-500" title={`定时启动: ${formatWorkflowScheduleTime(workflow)}`}>
-                      <Clock className="h-3 w-3" />
-                      {formatWorkflowScheduleTime(workflow)}
-                    </span>
-                  )}
-                  <WorkflowStageProgress stageStatuses={workflow.stageStatuses} size="sm" />
-                </div>
-              </button>
-              {isActionMenuOpen && (
-                <div
-                  ref={actionMenuRef}
-                  className="fixed z-[80] flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-lg"
-                  style={{ left: workflowActionMenu.x, top: workflowActionMenu.y }}
-                >
-                  <button
-                    type="button"
-                    className="flex h-9 w-9 items-center justify-center rounded-sm hover:bg-accent"
-                    onClick={() => void handleToggleWorkflowFavorite(workflow)}
-                    title={workflow.favorite === true ? '取消收藏工作流' : '收藏工作流'}
-                    aria-label={workflow.favorite === true ? '取消收藏工作流' : '收藏工作流'}
-                  >
-                    <Star
-                      className={cn(
-                        'h-4 w-4',
-                        workflow.favorite === true
-                          ? 'fill-current text-yellow-500 dark:text-yellow-400'
-                          : 'text-yellow-600/70 dark:text-yellow-500/70',
-                      )}
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    className="flex h-9 w-9 items-center justify-center rounded-sm hover:bg-accent"
-                    onClick={() => void handleRenameWorkflow(workflow)}
-                    title="改名工作流"
-                    aria-label="改名工作流"
-                  >
-                    <Edit2 className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    className="flex h-9 w-9 items-center justify-center rounded-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-                    onClick={() => void handleDeleteWorkflow(workflow)}
-                    title="删除工作流"
-                    aria-label="删除工作流"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              )}
+	                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+	                  <WorkflowStageProgress stageStatuses={workflow.stageStatuses} size="sm" />
+	                </div>
+	              </button>
+	              {isActionMenuOpen && (
+	                <div
+	                  ref={actionMenuRef}
+	                  className="fixed z-[80] flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-lg"
+	                  style={{ left: workflowActionMenu.x, top: workflowActionMenu.y }}
+	                >
+	                  <button
+	                    type="button"
+	                    className="rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
+	                    onClick={() => {
+	                      handleWorkflowClick(workflow);
+	                      closeWorkflowActionMenu();
+	                    }}
+	                  >
+	                    打开详情
+	                  </button>
+	                </div>
+	              )}
             </div>
           );
         })

@@ -65,7 +65,7 @@ test('directory context menu exposes create, rename, delete, copy, and download 
   /** Scenario: Opening a directory context menu */
   await writeWorkspaceTextFile('docs/spec.md', '# draft\n');
 
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openFilesTab(page);
 
   await page.getByText('docs', { exact: true }).first().click({ button: 'right' });
@@ -94,7 +94,7 @@ test('create file endpoint adds a root file that appears in the refreshed tree',
   expect(response.ok()).toBeTruthy();
   expect(await workspacePathExists('todo.md')).toBe(true);
 
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openFilesTab(page);
   await expect(page.getByText('todo.md', { exact: true })).toBeVisible();
 });
@@ -104,7 +104,7 @@ test('directory-heavy projects keep folders collapsed until the user expands the
   await writeWorkspaceTextFile('src/app.js', 'export const ready = true;\n');
   await writeWorkspaceTextFile('docs/guide.md', '# Guide\n');
 
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openFilesTab(page);
 
   await expect(page.getByText('app.js', { exact: true })).toHaveCount(0);
@@ -133,7 +133,7 @@ test('rename endpoint moves a directory and preserves its nested contents', asyn
   expect(await workspacePathExists('guides/guide.md')).toBe(true);
   expect(await workspacePathExists('docs/guide.md')).toBe(false);
 
-  await openFixtureProject(page);
+  await openFixtureProject(page, { reset: false });
   await openFilesTab(page);
   await expect(page.getByText('guides', { exact: true })).toBeVisible();
   await expect(page.getByText('docs', { exact: true })).toHaveCount(0);

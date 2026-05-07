@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Verify Go-backed workflow integration through fake opsx/mc JSON
+ * PURPOSE: Verify Go-backed workflow integration through fake ox/mc JSON
  * contracts instead of the retired Node auto-runner state machine.
  */
 import test from 'node:test';
@@ -17,11 +17,12 @@ async function withFakeGoWorkflowTools(testBody) {
   const binDir = path.join(tempRoot, 'bin');
   await fs.mkdir(binDir, { recursive: true });
   await fs.writeFile(
-    path.join(binDir, 'opsx'),
+    path.join(binDir, 'ox'),
     [
       '#!/bin/sh',
+      'PATH="/usr/bin:/bin:$PATH"',
       'case "$1" in',
-      '  --version) echo "opsx-fake";;',
+      '  --version) echo "ox-fake";;',
       '  list) echo \'{"changes":[{"name":"go-change"}]}\';;',
       '  status) echo "{\"name\":\"$2\",\"status\":\"active\"}";;',
       '  instructions) echo \'{"schemaName":"spec-driven","state":"ready","contextFiles":["docs/changes/go-change/tasks.md"],"progress":{"total":1,"completed":0,"remaining":1},"tasks":[]}\';;',
@@ -36,6 +37,7 @@ async function withFakeGoWorkflowTools(testBody) {
     path.join(binDir, 'mc'),
     [
       '#!/bin/sh',
+      'PATH="/usr/bin:/bin:$PATH"',
       'run_id="run-abc"',
       'run_dir="$PWD/.ccflow/runs/$run_id"',
       'state="$run_dir/state.json"',
@@ -114,16 +116,13 @@ test('Go-backed workflow persists run id and maps state.json into the read model
     const importKey = encodeURIComponent(`${tempRoot}-create`);
     const {
       createProjectWorkflow,
-      buildWorkflowLauncherConfig,
       getProjectWorkflow,
-      updateWorkflowStageProviders,
     } = await import(`../../server/workflows.js?go=${importKey}`);
 
     const workflow = await createProjectWorkflow(project, {
       title: 'Go runner adoption',
       objective: 'Use the external runner as source of truth',
       openspecChangeName: 'go-change',
-      stageProviders: { execution: 'claude' },
     });
 
     assert.equal(workflow.runner, 'go');
@@ -167,23 +166,15 @@ test('Go-backed workflow persists run id and maps state.json into the read model
         title: '执行',
         summary: '执行',
         provider: 'codex',
-        workflowId: 'w1',
+        role: 'executor',
+        workflowId: 'run-abc',
         stageKey: 'execution',
       },
     );
 
-    const stored = JSON.parse(await fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'));
-    assert.equal(stored.workflows['1'].runner, 'go');
-    assert.equal(stored.workflows['1'].runnerProvider, 'codex');
-    assert.equal(stored.workflows['1'].runId, 'run-abc');
-
     await assert.rejects(
-      () => updateWorkflowStageProviders(project, workflow.id, { review_1: 'claude' }),
-      /only support Codex/,
-    );
-    await assert.rejects(
-      () => buildWorkflowLauncherConfig(project, workflow.id, 'execution'),
-      /Go-backed workflows are controlled by the Go runner/,
+      () => fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'),
+      /ENOENT/,
     );
 
     const refreshed = await getProjectWorkflow(project, workflow.id);
@@ -249,7 +240,7 @@ test('Go-backed workflow prefers runner processes and preserves process metadata
       'utf8',
     );
 
-    const workflow = await getProjectWorkflow(project, 'w1');
+    const workflow = await getProjectWorkflow(project, 'run-abc');
     assert.deepEqual(workflow.runnerProcesses, [{
       stage: 'review_1',
       role: 'reviewer',
@@ -361,7 +352,7 @@ test('Go-backed workflow discovers and persists external running mc runs', async
     const workflows = await listProjectWorkflows(projectPath);
 
     assert.equal(workflows.length, 1);
-    assert.equal(workflows[0].id, 'w1');
+    assert.equal(workflows[0].id, 'external-run-a');
     assert.equal(workflows[0].runner, 'go');
     assert.equal(workflows[0].runId, 'external-run-a');
     assert.equal(workflows[0].openspecChangeName, 'go-change');
@@ -370,9 +361,10 @@ test('Go-backed workflow discovers and persists external running mc runs', async
     assert.equal(workflows[0].adoptsExternalGoRun, true);
     assert.equal(workflows[0].controllerEvents.at(-1)?.type, 'external_go_run_adopted');
 
-    const stored = JSON.parse(await fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'));
-    assert.equal(stored.workflows['1'].runId, 'external-run-a');
-    assert.equal(stored.workflows['1'].adoptsExternalGoRun, true);
+    await assert.rejects(
+      () => fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'),
+      /ENOENT/,
+    );
   });
 });
 
@@ -425,11 +417,12 @@ test('Go-backed workflow discovery is idempotent and reuses registered runs', as
 
     assert.equal(firstRead.length, 1);
     assert.equal(secondRead.length, 1);
-    assert.equal(firstRead[0].id, 'w1');
-    assert.equal(secondRead[0].id, 'w1');
-
-    const stored = JSON.parse(await fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'));
-    assert.deepEqual(Object.keys(stored.workflows), ['1']);
+    assert.equal(firstRead[0].id, 'external-run-a');
+    assert.equal(secondRead[0].id, 'external-run-a');
+    await assert.rejects(
+      () => fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'),
+      /ENOENT/,
+    );
   });
 });
 
@@ -477,7 +470,7 @@ test('Go-backed workflow discovery skips already-bound and corrupt external runs
     const workflows = await listProjectWorkflows(projectPath);
 
     assert.equal(workflows.length, 1);
-    assert.equal(workflows[0].id, 'w1');
+    assert.equal(workflows[0].id, 'run-abc');
     assert.equal(workflows[0].runId, 'run-abc');
   });
 });
@@ -606,7 +599,7 @@ test('Go-backed workflow maps runner execution, review, repair, and archive stag
         }),
         'utf8',
       );
-      const workflow = await getProjectWorkflow(project, 'w1');
+      const workflow = await getProjectWorkflow(project, 'run-abc');
       assert.equal(workflow.stage, expectedStage);
       assert.equal(workflow.stageStatuses.find((stage) => stage.key === expectedStage)?.status, expectedStatus);
     }

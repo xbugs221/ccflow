@@ -38,7 +38,6 @@ type SidebarProjectItemProps = {
   onToggleProject: (projectName: string) => void;
   onProjectSelect: (project: Project) => void;
   onWorkflowSelect?: (project: Project, workflow: ProjectWorkflow) => void;
-  onWorkflowMarkRead?: (projectName: string, workflowId: string) => Promise<void> | void;
   onStartEditingProject: (project: Project) => void;
   onCancelEditingProject: () => void;
   onSaveProjectName: (projectName: string) => void;
@@ -86,7 +85,6 @@ export default function SidebarProjectItem({
   onToggleProject,
   onProjectSelect,
   onWorkflowSelect,
-  onWorkflowMarkRead: _onWorkflowMarkRead,
   onStartEditingProject,
   onCancelEditingProject,
   onSaveProjectName,
@@ -109,7 +107,8 @@ export default function SidebarProjectItem({
   const isSelected = selectedProject?.name === project.name;
   const isEditing = editingProject === project.name;
   const taskStatus = getTaskIndicatorStatus(project, mcpServerStatus);
-  const hasActiveSession = sessions.some((session) => isSessionActive(session, currentTime));
+  const hasActiveSession = sessions.some((session) => isSessionActive(session, currentTime))
+    || (project.workflows || []).some((workflow) => workflow.runState === 'running');
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressNextClickRef = useRef(false);

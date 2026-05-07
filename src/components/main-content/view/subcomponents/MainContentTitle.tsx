@@ -81,6 +81,11 @@ export default function MainContentTitle({
             <h2 className="text-sm font-semibold text-foreground whitespace-nowrap overflow-x-auto scrollbar-hide leading-tight">
               {getSessionTitle(selectedSession)}
             </h2>
+            {selectedProject && (
+              <div className="mt-1 text-xs leading-tight text-muted-foreground">
+                {selectedProject.displayName || selectedProject.name}
+              </div>
+            )}
             {resumeCommand && (
               <div className="mt-1 overflow-x-auto scrollbar-hide text-[11px] leading-tight text-muted-foreground">
                 <code className="whitespace-nowrap font-mono">{resumeCommand}</code>

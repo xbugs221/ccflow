@@ -4,8 +4,8 @@
 import type { Project } from '../types/app';
 
 type ProjectRouteTarget = Pick<Project, 'fullPath' | 'path' | 'name'> & { routePath?: string };
-type WorkflowRouteTarget = { routeIndex?: number; id?: string };
-type SessionRouteTarget = { routeIndex?: number; id?: string };
+type WorkflowRouteTarget = { routeIndex?: number; id?: string; runId?: string };
+type SessionRouteTarget = { routeIndex?: number; id?: string; role?: string; stageKey?: string };
 
 function normalizeSlashPath(value: string): string {
   /**
@@ -64,7 +64,11 @@ export function buildProjectWorkflowRoute(
   /**
    * Build the canonical route for one project workflow.
    */
-  return appendRouteSegment(buildProjectRoute(project), assertIndexedSegment('w', workflow));
+  const runId = String(workflow.runId || workflow.id || '').trim();
+  if (!runId) {
+    throw new Error('Missing workflow run id');
+  }
+  return appendRouteSegment(buildProjectRoute(project), `runs/${encodeURIComponent(runId)}`);
 }
 
 export function buildProjectSessionRoute(
@@ -83,9 +87,16 @@ export function buildWorkflowChildSessionRoute(
   session: SessionRouteTarget,
 ): string {
   /**
-   * Build the canonical route for one workflow child chat session.
+   * Build the canonical route for one runner-owned workflow child chat session.
    */
-  return appendRouteSegment(buildProjectWorkflowRoute(project, workflow), assertIndexedSegment('c', session));
+  const sessionAddress = String(session.stageKey || session.role || session.id || '').trim();
+  if (!sessionAddress) {
+    throw new Error('Missing workflow child session address');
+  }
+  return appendRouteSegment(
+    buildProjectWorkflowRoute(project, workflow),
+    `sessions/${encodeURIComponent(sessionAddress)}`,
+  );
 }
 
 export function parseIndexedRouteSegment(segment: string, prefix: 'w' | 'c'): number | null {

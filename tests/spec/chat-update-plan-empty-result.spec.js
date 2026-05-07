@@ -65,6 +65,21 @@ test.beforeEach(async ({ page }) => {
   await authenticatePage(page);
 });
 
+/**
+ * Open a legacy Claude session with project identity for route recovery.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} sessionId
+ * @returns {Promise<void>}
+ */
+async function openFixtureClaudeSession(page, sessionId) {
+  const query = new URLSearchParams({
+    projectPath: PRIMARY_FIXTURE_PROJECT_PATH,
+    provider: 'claude',
+  });
+  await page.goto(`/session/${sessionId}?${query.toString()}`, { waitUntil: 'networkidle' });
+}
+
 test('update_plan 在空 result 时仍然展示 input 里的计划步骤', async ({ page }) => {
   /** Scenario: 真实运行中 tool_result 可能只返回空对象，输入侧的计划仍然必须可见。 */
   const sessionId = 'fixture-update-plan-empty-result';
@@ -114,7 +129,7 @@ test('update_plan 在空 result 时仍然展示 input 里的计划步骤', async
     }),
   });
 
-  await page.goto(`/session/${sessionId}`, { waitUntil: 'networkidle' });
+  await openFixtureClaudeSession(page, sessionId);
 
   await expect(page.getByTestId('tool-plan-content')).toContainText('先确认问题，再改渲染逻辑。');
   await expect(page.getByTestId('tool-plan-step-0')).toContainText('确认空白来源');

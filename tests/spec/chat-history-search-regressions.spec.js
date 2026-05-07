@@ -9,6 +9,7 @@ import { PLAYWRIGHT_FIXTURE_HOME } from '../e2e/helpers/playwright-fixture.js';
 import {
   PRIMARY_FIXTURE_PROJECT_PATH,
   authenticatePage,
+  openFixtureProject,
   resetWorkspaceProject,
 } from './helpers/spec-test-helpers.js';
 
@@ -19,6 +20,7 @@ const CHAT_SEARCH_LOADING = '[data-testid="chat-history-search-loading"]';
 const CHAT_SEARCH_EMPTY = '[data-testid="chat-history-search-empty"]';
 const CHAT_SEARCH_ERROR = '[data-testid="chat-history-search-error"]';
 const OPEN_CHAT_SEARCH = '[data-testid="open-chat-history-search"]';
+const CHAT_SEARCH_MODE_CONTENT = '[data-testid="chat-history-search-mode-content"]';
 
 /**
  * Encode an absolute project path the same way Claude stores project folders.
@@ -118,9 +120,10 @@ function buildCodexTranscript({ sessionId, records }) {
  * @returns {Promise<import('@playwright/test').Locator>}
  */
 async function runChatSearch(page, query) {
-  await page.goto('/', { waitUntil: 'networkidle' });
+  await openFixtureProject(page, { reset: false });
   await page.locator(OPEN_CHAT_SEARCH).first().click();
   await expect(page.locator(CHAT_SEARCH_INPUT)).toBeVisible();
+  await page.locator(CHAT_SEARCH_MODE_CONTENT).click();
   await page.locator(CHAT_SEARCH_INPUT).fill(query);
   await page.locator(CHAT_SEARCH_INPUT).press('Enter');
   return page.locator(CHAT_SEARCH_RESULT);
