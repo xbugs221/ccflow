@@ -132,25 +132,14 @@ export default function AccountContent({
                     : t('agents.login.description', { agent: config.name })}
                 </div>
               </div>
-              {agent === 'opencode' ? (
-                /**
-                 * PURPOSE: Hide the login trigger for placeholder providers so a
-                 * click cannot reach a missing server route or dirty another
-                 * provider's auth status.
-                 */
-                <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
-                  {t('agents.authStatus.placeholder', { defaultValue: 'Coming soon' })}
-                </Badge>
-              ) : (
-                <Button
-                  onClick={onLogin}
-                  className={`${config.buttonClass} text-white`}
-                  size="sm"
-                >
-                  <LogIn className="w-4 h-4 mr-2" />
-                  {authStatus.authenticated ? t('agents.login.reLoginButton') : t('agents.login.button')}
-                </Button>
-              )}
+              <Button
+                onClick={onLogin}
+                className={`${config.buttonClass} text-white`}
+                size="sm"
+              >
+                <LogIn className="w-4 h-4 mr-2" />
+                {authStatus.authenticated ? t('agents.login.reLoginButton') : t('agents.login.button')}
+              </Button>
             </div>
           </div>
 
@@ -162,15 +151,9 @@ export default function AccountContent({
             </div>
           )}
 
-          {agent !== 'opencode' && (
-            /**
-             * PURPOSE: Skip the quota panel for placeholder providers; rendering
-             * a label without ever requesting data made the section look broken.
-             */
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-              <UsageProviderQuota provider={agent} enabled={usageEnabled} />
-            </div>
-          )}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+            <UsageProviderQuota provider={agent} enabled={usageEnabled} />
+          </div>
         </div>
       </div>
     </div>

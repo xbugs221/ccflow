@@ -756,6 +756,35 @@ export function useChatComposerState({
             attachments: uploadedAttachments,
           },
         });
+      } else if (provider === 'opencode') {
+        sendMessage({
+          type: 'opencode-command',
+          clientRequestId,
+          command: messageContent,
+          sessionId: effectiveSessionId,
+          ccflowSessionId,
+          ccflow_session_id: ccflowSessionId,
+          startRequestId: clientRequestId,
+          start_request_id: clientRequestId,
+          clientRef: messageContent,
+          client_ref: messageContent,
+          options: {
+            cwd: resolvedProjectPath,
+            projectPath: resolvedProjectPath,
+            projectName: resolvedProjectName,
+            sessionId: effectiveSessionId,
+            ccflowSessionId,
+            ccflow_session_id: ccflowSessionId,
+            clientRequestId,
+            startRequestId: clientRequestId,
+            start_request_id: clientRequestId,
+            clientRef: messageContent,
+            client_ref: messageContent,
+            resume: Boolean(effectiveSessionId),
+            permissionMode,
+            attachments: uploadedAttachments,
+          },
+        });
       } else {
         sendMessage({
           type: 'claude-command',

@@ -214,9 +214,6 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
   /**
    * PURPOSE: Route auth status updates to the correct provider's state slot so
    * a 404 on one provider's status endpoint cannot pollute another provider.
-   * OpenCode currently has no backend status route in this change scope, so its
-   * branch is intentionally a no-op placeholder; AccountContent renders the
-   * Settings.tsx-supplied stub instead of any state from this hook.
    */
   const setAuthStatusByProvider = useCallback((provider: AgentProvider, status: AuthStatus) => {
     if (provider === 'claude') {
@@ -229,15 +226,24 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
       return;
     }
 
-    // opencode: placeholder, no backend route, never write to other providers.
+    if (provider === 'opencode') {
+      // OpenCode auth status is managed locally since it uses local CLI
+      return;
+    }
   }, []);
 
   const checkAuthStatus = useCallback(async (provider: AgentProvider) => {
     /**
-     * PURPOSE: Skip the network probe for placeholder providers so a missing
-     * server route cannot land an error into another provider's auth slot.
+     * PURPOSE: Skip the network probe for local CLI providers (OpenCode)
+     * since they don't require remote authentication.
      */
     if (provider === 'opencode') {
+      setAuthStatusByProvider(provider, {
+        authenticated: true,
+        email: null,
+        loading: false,
+        error: null,
+      });
       return;
     }
     try {
@@ -650,8 +656,7 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
 
   const openLoginForProvider = useCallback((provider: AgentProvider) => {
     /**
-     * PURPOSE: Refuse to open the login modal for placeholder providers so the
-     * UI stays consistent with the absence of a real auth flow for OpenCode.
+     * PURPOSE: OpenCode uses local CLI authentication, so skip the login modal.
      */
     if (provider === 'opencode') {
       return;

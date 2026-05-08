@@ -405,9 +405,11 @@ export function useChatRealtimeHandlers({
       const lifecycleMessageTypes = new Set([
         'claude-complete',
         'codex-complete',
+        'opencode-complete',
         'session-aborted',
         'claude-error',
         'codex-error',
+        'opencode-error',
       ]);
 
       const isClaudeSystemInit =
@@ -435,7 +437,8 @@ export function useChatRealtimeHandlers({
         pendingViewSessionRef.current &&
         !pendingViewSessionRef.current.sessionId &&
         (latestMessage.type === 'claude-error' ||
-          latestMessage.type === 'codex-error');
+          latestMessage.type === 'codex-error' ||
+          latestMessage.type === 'opencode-error');
 
       const handleBackgroundLifecycle = (sessionId?: string) => {
         if (!sessionId) {
@@ -968,6 +971,81 @@ export function useChatRealtimeHandlers({
           {
             type: 'error',
             content: latestMessage.error || 'An error occurred with Codex',
+            timestamp: new Date(),
+          },
+        ]);
+        break;
+
+      case 'opencode-response': {
+        const opencodeData = latestMessage.data;
+        if (!opencodeData) {
+          break;
+        }
+
+        if (opencodeData.type === 'item' && !['agent_message', 'command_execution', 'error'].includes(opencodeData.itemType)) {
+          console.log('[OpenCode] Unhandled item type:', opencodeData.itemType, opencodeData);
+        }
+
+        if (opencodeData.type === 'turn_complete') {
+          clearLoadingIndicators();
+          setChatMessages((previous) => markUserMessagesPersisted(previous));
+          markSessionsAsCompleted(latestMessage.sessionId, currentSessionId, selectedSession?.id);
+          onTurnOutcome?.({
+            sessionId: latestMessage.sessionId || currentSessionId || selectedSession?.id || null,
+            status: 'completed',
+          });
+        }
+
+        if (opencodeData.type === 'turn_failed') {
+          clearLoadingIndicators();
+          markSessionsAsCompleted(latestMessage.sessionId, currentSessionId, selectedSession?.id);
+          onTurnOutcome?.({
+            sessionId: latestMessage.sessionId || currentSessionId || selectedSession?.id || null,
+            status: 'failed',
+          });
+        }
+        break;
+      }
+
+      case 'opencode-complete': {
+        const opencodePendingSessionId = sessionStorage.getItem('pendingSessionId');
+        const opencodeActualSessionId = latestMessage.actualSessionId || opencodePendingSessionId;
+        const opencodeCompletedSessionId =
+          latestMessage.sessionId || currentSessionId || opencodePendingSessionId;
+
+        clearLoadingIndicators();
+        setChatMessages((previous) => markUserMessagesPersisted(previous));
+        markSessionsAsCompleted(
+          opencodeCompletedSessionId,
+          opencodeActualSessionId,
+          currentSessionId,
+          selectedSession?.id,
+          opencodePendingSessionId,
+        );
+
+        if (opencodePendingSessionId && !currentSessionId) {
+          setCurrentSessionId(opencodeActualSessionId);
+          setIsSystemSessionChange(true);
+          if (opencodeActualSessionId) {
+            onNavigateToSession?.(opencodeActualSessionId);
+          }
+          sessionStorage.removeItem('pendingSessionId');
+        }
+
+        if (selectedProject) {
+          safeLocalStorage.removeItem(`chat_messages_${selectedProject.name}`);
+        }
+        break;
+      }
+
+      case 'opencode-error':
+        setIsLoading(false);
+        setCanAbortSession(false);
+        setChatMessages((previous) => [
+          ...previous,
+          {
+            type: 'error',
+            content: latestMessage.error || 'An error occurred with OpenCode',
             timestamp: new Date(),
           },
         ]);

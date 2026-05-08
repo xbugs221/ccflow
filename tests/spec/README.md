@@ -14,6 +14,10 @@
 
 - `opencode-provider-integration.spec.js`: 派生自 `openspec/changes/28-add-opencode-provider-support/specs/opencode-provider-integration/spec.md`。本变更范围已收窄至 OpenCode UI/类型脚手架，因此该测试只静态校验 `SessionProvider`、`AgentProvider`、`AGENT_PROVIDERS`、`AUTH_STATUS_ENDPOINTS`、agent 选项卡视觉配置以及聊天空状态文案占位是否就位；OpenCode 后端 SDK、REST 路由、会话发现、WebSocket、工作流执行属于后续独立变更，不在本测试范围内。
 
+## integrate-opencode-provider
+
+- `integrate-opencode-provider.spec.js`: 派生自 `docs/changes/2026-05-08-integrate-opencode-provider/specs/integrate-opencode-provider/spec.md`，覆盖 OpenCode 后端 SDK（事件转换、steer 队列、CLI 参数构建）、REST 路由（models/sessions/messages/delete）、WebSocket 集成（opencode-command/abort/status/active-sessions/error）、会话发现（opencodeSessions）以及前端 provider picker 和消息处理。
+
 ## 29-merge-upstream-critical-fixes
 
 - `upstream-critical-fixes.spec.js`: 派生自 `openspec/changes/29-merge-upstream-critical-fixes/specs/upstream-critical-fixes/spec.md`，覆盖安全 frontmatter 解析、Claude CLI 路径传递、SDK permission 语义、二进制下载和 Service Worker 缓存修复。

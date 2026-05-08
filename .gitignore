@@ -94,3 +94,4 @@ planner-output.json
 execution-manifest.json
 verification-evidence.json
 delivery-summary.md
+/wo.yaml

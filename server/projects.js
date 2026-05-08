@@ -721,6 +721,7 @@ async function mergeActiveProviderSessionsIntoProjects({
         isCustomName: resolvedDisplayName.isCustomName,
         sessions: [],
         codexSessions: [],
+        opencodeSessions: [],
         sessionMeta: {
           hasMore: false,
           total: 0,
@@ -987,7 +988,9 @@ function normalizeSessionUiState(rawState = {}) {
  * PURPOSE: Resolve the provider stored on a v2 chat record.
  */
 function normalizeProjectChatProvider(provider) {
-  return provider === 'claude' ? 'claude' : 'codex';
+  if (provider === 'claude') return 'claude';
+  if (provider === 'opencode') return 'opencode';
+  return 'codex';
 }
 
 /**
@@ -2559,8 +2562,8 @@ function mergeWorktreeProjects(projects) {
       };
     }
 
-    // Merge Codex sessions if present
-    for (const key of ['codexSessions']) {
+    // Merge Codex and OpenCode sessions if present
+    for (const key of ['codexSessions', 'opencodeSessions']) {
       if (wtProject[key]?.length > 0) {
         parent[key] = [
           ...(parent[key] || []),
@@ -2671,7 +2674,8 @@ async function getProjects(progressCallback = null) {
         sessionMeta: {
           hasMore: false,
           total: 0
-        }
+        },
+        opencodeSessions: []
       };
 
       // Project overview must surface every already-loaded manual session card.
@@ -2796,7 +2800,8 @@ async function getProjects(progressCallback = null) {
           hasMore: false,
           total: 0
         },
-        codexSessions: []
+        codexSessions: [],
+        opencodeSessions: []
       };
 
       // Try to fetch Codex sessions for manual projects too
@@ -2897,6 +2902,7 @@ async function getProjects(progressCallback = null) {
         includeHidden: true,
         excludeWorkflowChildSessions: true,
       }),
+      opencodeSessions: [],
       sessionMeta: {
         hasMore: false,
         total: 0
@@ -4301,7 +4307,8 @@ async function addProjectManually(projectPath, displayName = null) {
     displayName: displayName || await generateDisplayName(projectName, absolutePath),
     isManuallyAdded: true,
     sessions: [],
-    codexSessions: []
+    codexSessions: [],
+    opencodeSessions: []
   };
 }
 
@@ -4532,6 +4539,82 @@ async function getCodexSessions(projectPath, options = {}) {
 }
 
 /**
+ * Get OpenCode sessions for a project by calling opencode CLI.
+ */
+async function getOpencodeSessions(projectPath) {
+  try {
+    const { spawn } = await import('child_process');
+    const { resolveOpencodeCliPath } = await import('./opencode-sdk.js');
+    const cliPath = resolveOpencodeCliPath();
+
+    return await new Promise((resolve, reject) => {
+      const proc = spawn(cliPath, ['session', 'list', '--json'], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout?.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      proc.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(stderr || `opencode exited with code ${code}`));
+          return;
+        }
+
+        try {
+          const allSessions = JSON.parse(stdout);
+          if (!Array.isArray(allSessions)) {
+            resolve([]);
+            return;
+          }
+
+          const normalizedProjectPath = path.resolve(projectPath);
+          const sessions = allSessions
+            .filter((session) => {
+              if (!session.directory) return false;
+              return path.resolve(session.directory) === normalizedProjectPath;
+            })
+            .map((session) => ({
+              id: session.id,
+              name: session.title || session.id,
+              lastActivity: session.updated || session.created || new Date().toISOString(),
+              createdAt: session.created || new Date().toISOString(),
+              messageCount: 0,
+              provider: 'opencode',
+              __provider: 'opencode',
+              projectPath: session.directory || projectPath,
+              cwd: session.directory || projectPath,
+            }));
+
+          resolve(sessions);
+        } catch (error) {
+          reject(new Error(`Failed to parse opencode session list: ${error.message}`));
+        }
+      });
+
+      proc.on('error', (error) => {
+        if (error.code === 'ENOENT') {
+          resolve([]);
+        } else {
+          reject(error);
+        }
+      });
+    });
+  } catch (error) {
+    console.warn(`[OpenCode] Could not list sessions for ${projectPath}:`, error.message);
+    return [];
+  }
+}
+
+/**
  * Attach the next non-recycled manual session route number to a project payload.
  */
 async function attachManualSessionNextRouteIndex(project, projectPath) {
@@ -4539,6 +4622,7 @@ async function attachManualSessionNextRouteIndex(project, projectPath) {
   const currentStandaloneCount = (
     (Array.isArray(project.sessions) ? project.sessions.length : 0)
     + (Array.isArray(project.codexSessions) ? project.codexSessions.length : 0)
+    + (Array.isArray(project.opencodeSessions) ? project.opencodeSessions.length : 0)
   );
   project.manualSessionNextRouteIndex = getNextManualSessionRouteIndex(
     config,
@@ -4570,10 +4654,11 @@ async function populateProjectCollections(project, projectName, actualProjectDir
       includeHidden: true,
       excludeWorkflowChildSessions: true,
     }),
+    getOpencodeSessions(actualProjectDir),
     detectTaskMasterFolder(actualProjectDir),
   ]);
 
-  const [claudeResult, codexResult, taskMasterResult] = results;
+  const [claudeResult, codexResult, opencodeResult, taskMasterResult] = results;
 
   if (includeClaudeSessions) {
     if (claudeResult.status === 'fulfilled' && claudeResult.value) {
@@ -4596,6 +4681,13 @@ async function populateProjectCollections(project, projectName, actualProjectDir
   } else {
     console.warn(`Could not load Codex sessions for project ${projectName}:`, codexResult.reason?.message || codexResult.reason);
     project.codexSessions = [];
+  }
+
+  if (opencodeResult.status === 'fulfilled') {
+    project.opencodeSessions = opencodeResult.value;
+  } else {
+    console.warn(`Could not load OpenCode sessions for project ${projectName}:`, opencodeResult.reason?.message || opencodeResult.reason);
+    project.opencodeSessions = [];
   }
 
   if (taskMasterResult.status === 'fulfilled') {

@@ -71,6 +71,7 @@ import {
 } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions, resolveToolApproval } from './claude-sdk.js';
 import { queryCodex, abortCodexSession, isCodexSessionActive, getActiveCodexSessions } from './openai-codex.js';
+import { queryOpencode, abortOpencodeSession, isOpencodeSessionActive, getActiveOpencodeSessions } from './opencode-sdk.js';
 import { resolveChatProjectOptions } from './chat-project-path.js';
 import { getUsageRemaining } from './usage-remaining.js';
 import {
@@ -90,6 +91,7 @@ import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
 import codexRoutes from './routes/codex.js';
 import claudeRoutes from './routes/claude.js';
+import opencodeRoutes from './routes/opencode.js';
 import { initializeDatabase } from './database/db.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
@@ -809,6 +811,9 @@ app.use('/api/codex', authenticateToken, codexRoutes);
 
 // Claude API Routes (protected)
 app.use('/api/claude', authenticateToken, claudeRoutes);
+
+// OpenCode API Routes (protected)
+app.use('/api/cli/opencode', authenticateToken, opencodeRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
@@ -1988,6 +1993,8 @@ function handleChatConnection(ws, request) {
                 if (runtime?.cancelRequested) {
                     if (runtimeProvider === 'codex') {
                         abortCodexSession(payload.sessionId);
+                    } else if (runtimeProvider === 'opencode') {
+                        abortOpencodeSession(payload.sessionId);
                     } else {
                         await abortClaudeSDKSession(payload.sessionId);
                     }
@@ -2213,6 +2220,72 @@ function handleChatConnection(ws, request) {
                         console.warn('[Codex] Failed to persist session model state:', modelStateError.message);
                     }
                 }
+            } else if (data.type === 'opencode-command') {
+                if (!acceptChatRequestId(data.clientRequestId || data.options?.clientRequestId)) {
+                    console.warn('[DEBUG] Ignoring duplicate OpenCode request:', data.clientRequestId || data.options?.clientRequestId);
+                    return;
+                }
+                const resolvedOptions = await resolveChatProjectOptions(data.options, extractProjectDirectory);
+                const {
+                    ccflowSessionId,
+                    startRequestId,
+                    clientRef,
+                } = resolveCcflowSessionStartContext(data, resolvedOptions);
+                const shouldStartCcflowDraft = ccflowSessionId && (
+                    (!resolvedOptions?.sessionId || isCcflowRouteSessionId(resolvedOptions.sessionId))
+                    && (!data.sessionId || isCcflowRouteSessionId(data.sessionId))
+                );
+                const opencodeProviderOptions = shouldStartCcflowDraft
+                    ? { ...resolvedOptions, sessionId: undefined, resume: false }
+                    : resolvedOptions;
+                writer.setSessionIndexContext(ccflowSessionId ? {
+                    projectName: opencodeProviderOptions?.projectName || data.options?.projectName || '',
+                    projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
+                    provider: 'opencode',
+                    ccflowSessionId,
+                    startRequestId,
+                } : null);
+                if (shouldStartCcflowDraft) {
+                    const startResult = await startManualSessionDraft(
+                        opencodeProviderOptions?.projectName || data.options?.projectName || '',
+                        opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
+                        ccflowSessionId,
+                        'opencode',
+                        startRequestId,
+                    );
+                    if (!startResult.started) {
+                        writer.send({
+                            type: 'session-start-rejected',
+                            sessionId: ccflowSessionId,
+                            ccflowSessionId,
+                            provider: 'opencode',
+                            reason: startResult.reason,
+                            startRequestId: startResult.startRequestId,
+                        });
+                        return;
+                    }
+                }
+                sendMessageAccepted(writer, {
+                    sessionId: ccflowSessionId || opencodeProviderOptions?.sessionId || data.sessionId || data.options?.sessionId,
+                    ccflowSessionId,
+                    provider: 'opencode',
+                    clientRequestId: startRequestId,
+                    startRequestId,
+                });
+                console.log('[DEBUG] OpenCode message:', data.command || '[Continue/Resume]');
+                console.log('📁 Project:', opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || 'Unknown');
+                console.log('🔄 Session:', opencodeProviderOptions?.sessionId ? 'Resume' : 'New');
+                const resolvedSessionId = await queryOpencode(data.command, opencodeProviderOptions, writer);
+                if (ccflowSessionId && resolvedSessionId) {
+                    await finalizeCcflowRouteSession({
+                        projectName: opencodeProviderOptions?.projectName || data.options?.projectName || '',
+                        projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
+                        provider: 'opencode',
+                        ccflowSessionId,
+                        startRequestId,
+                        providerSessionId: resolvedSessionId,
+                    });
+                }
             } else if (data.type === 'abort-session') {
                 console.log('[DEBUG] Abort session request:', data.sessionId);
                 const provider = data.provider || 'claude';
@@ -2243,6 +2316,8 @@ function handleChatConnection(ws, request) {
                 if (targetSessionId) {
                     if (provider === 'codex') {
                         success = abortCodexSession(targetSessionId);
+                    } else if (provider === 'opencode') {
+                        success = abortOpencodeSession(targetSessionId);
                     } else {
                         // Use Claude Agents SDK
                         success = await abortClaudeSDKSession(targetSessionId);
@@ -2277,6 +2352,8 @@ function handleChatConnection(ws, request) {
 
                 if (provider === 'codex') {
                     isActive = isCodexSessionActive(sessionId);
+                } else if (provider === 'opencode') {
+                    isActive = isOpencodeSessionActive(sessionId);
                 } else {
                     // Use Claude Agents SDK
                     isActive = isClaudeSDKSessionActive(sessionId);
@@ -2293,6 +2370,7 @@ function handleChatConnection(ws, request) {
                 const activeSessions = {
                     claude: getActiveClaudeSDKSessions(),
                     codex: getActiveCodexSessions(),
+                    opencode: getActiveOpencodeSessions(),
                 };
                 writer.send({
                     type: 'active-sessions',
@@ -2311,6 +2389,8 @@ function handleChatConnection(ws, request) {
                 errorType = 'claude-error';
             } else if (data?.type === 'codex-command') {
                 errorType = 'codex-error';
+            } else if (data?.type === 'opencode-command') {
+                errorType = 'opencode-error';
             }
             writer.send({
                 type: errorType,

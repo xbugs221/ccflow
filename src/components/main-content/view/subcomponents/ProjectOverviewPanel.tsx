@@ -914,6 +914,15 @@ export default function ProjectOverviewPanel({
                   <Button
                     type="button"
                     size="sm"
+                    variant="outline"
+                    data-testid="project-new-session-provider-opencode"
+                    onClick={() => handleCreateSession('opencode')}
+                  >
+                    OpenCode
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
                     variant="ghost"
                     onClick={() => setProviderPickerOpen(false)}
                   >
