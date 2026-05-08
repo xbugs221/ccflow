@@ -2585,6 +2585,81 @@ function mergeWorktreeProjects(projects) {
   }
 }
 
+/**
+ * Detect Go-style temporary test workspaces that should not become normal projects.
+ * @param {string} projectPath - Absolute project path from discovery.
+ * @returns {boolean} Whether the path is an obvious /tmp/Test.../001 fixture.
+ */
+function isGoTestTempProjectPath(projectPath) {
+  const relativeToTmp = path.relative(os.tmpdir(), path.resolve(String(projectPath || '')));
+  if (!relativeToTmp || relativeToTmp.startsWith('..') || path.isAbsolute(relativeToTmp)) {
+    return false;
+  }
+  const segments = relativeToTmp.split(path.sep).filter(Boolean);
+  return segments.length >= 2 && /^Test[^/\\]+$/.test(segments[0]) && /^\d+$/.test(segments[1]);
+}
+
+/**
+ * Check whether a discovered project has user-visible business data.
+ * @param {object} project - Project response object.
+ * @returns {Promise<boolean>} Whether sessions, workflows, or manual retention exist.
+ */
+async function projectHasBusinessData(project) {
+  if (project?.isManuallyAdded || project?.isCustomName) {
+    return true;
+  }
+  if ((Array.isArray(project?.sessions) && project.sessions.length > 0)
+    || (Array.isArray(project?.codexSessions) && project.codexSessions.length > 0)
+    || (Array.isArray(project?.opencodeSessions) && project.opencodeSessions.length > 0)) {
+    return true;
+  }
+  const workflows = await listProjectWorkflows(project?.fullPath || project?.path || '');
+  return workflows.length > 0;
+}
+
+/**
+ * Hide obvious test leftovers and make remaining duplicate names distinguishable.
+ * @param {Array<object>} projects - Mutable project list.
+ * @returns {Promise<Array<object>>} Filtered project list with stable route fields intact.
+ */
+async function filterAndDisambiguateProjects(projects) {
+  const kept = [];
+  for (const project of projects) {
+    const projectPath = project?.fullPath || project?.path || '';
+    if (isGoTestTempProjectPath(projectPath) && !(await projectHasBusinessData(project))) {
+      continue;
+    }
+    kept.push(project);
+  }
+
+  const byDisplayName = new Map();
+  for (const project of kept) {
+    const displayName = String(project.displayName || project.name || '').trim();
+    byDisplayName.set(displayName, [...(byDisplayName.get(displayName) || []), project]);
+  }
+
+  for (const [displayName, sameNameProjects] of byDisplayName.entries()) {
+    if (!displayName || sameNameProjects.length < 2) {
+      continue;
+    }
+    for (const project of sameNameProjects) {
+      if (project.isCustomName) {
+        continue;
+      }
+      const projectPath = project.fullPath || project.path || '';
+      const parentName = path.basename(path.dirname(projectPath));
+      project.displayName = parentName ? `${displayName} - ${parentName}` : displayName;
+    }
+  }
+
+  return kept;
+}
+
+export const __projectDiscoveryForTest = {
+  filterAndDisambiguateProjects,
+  isGoTestTempProjectPath,
+};
+
 async function getProjects(progressCallback = null) {
   const claudeDir = path.join(os.homedir(), '.claude', 'projects');
   const config = await loadProjectConfig();
@@ -2945,7 +3020,7 @@ async function getProjects(progressCallback = null) {
     });
   }
 
-  return projects;
+  return filterAndDisambiguateProjects(projects);
 }
 
 async function getSessions(projectName, limit = 5, offset = 0, options = {}) {

@@ -60,6 +60,25 @@ function writeSyntheticClaudeSession(projectPath, sessionId, sessionTitle, times
 }
 
 /**
+ * Add a discovered project whose basename is 001 so the sidebar test exercises
+ * real project discovery instead of a mocked project array.
+ *
+ * @param {string} parentName
+ * @returns {string}
+ */
+function writeTemp001ClaudeProject(parentName) {
+  const projectPath = path.join('/tmp', parentName, '001');
+  fs.mkdirSync(projectPath, { recursive: true });
+  writeSyntheticClaudeSession(
+    projectPath,
+    `${parentName.toLowerCase()}-session`,
+    `${parentName} fixture session`,
+    '2026-04-20T08:00:00.000Z',
+  );
+  return projectPath;
+}
+
+/**
  * Force one fixture workflow into a target stage so acceptance tests can
  * exercise the matching control-plane CTA with real persisted state.
  *
@@ -91,7 +110,11 @@ function rewriteFixtureRunState(nextState) {
     'state.json',
   );
   const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-  fs.writeFileSync(statePath, `${JSON.stringify({ ...state, ...nextState }, null, 2)}\n`, 'utf8');
+  const mergedState = { ...state, ...nextState };
+  if (!Object.prototype.hasOwnProperty.call(nextState, 'workflow_display')) {
+    delete mergedState.workflow_display;
+  }
+  fs.writeFileSync(statePath, `${JSON.stringify(mergedState, null, 2)}\n`, 'utf8');
 }
 
 /**
@@ -227,6 +250,57 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(page.getByTestId('workflow-display-lines')).toContainText('review');
     await page.getByTestId('workflow-display-lines').getByRole('button', { name: /fixture-project-execution-session\.jsonl/ }).click();
     await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/execution$/);
+  });
+
+  test('项目导航不出现重复 001 且 workflow 详情保留 wo 进度文本', async ({ page }) => {
+    await openFixtureProject(page);
+    const firstTempProject = writeTemp001ClaudeProject('TestCcflowDuplicate001A');
+    const secondTempProject = writeTemp001ClaudeProject('TestCcflowDuplicate001B');
+
+    const projectsResponse = await page.request.get('/api/projects', { headers: authHeaders() });
+    expect(projectsResponse.ok()).toBeTruthy();
+    const projects = await projectsResponse.json();
+    const tempProjects = Array.isArray(projects)
+      ? projects.filter((project) => [firstTempProject, secondTempProject].includes(project.fullPath))
+      : [];
+    expect(tempProjects.map((project) => project.displayName).sort()).toEqual([
+      '001 - TestCcflowDuplicate001A',
+      '001 - TestCcflowDuplicate001B',
+    ]);
+    const duplicate001Count = tempProjects
+      ? projects.filter((project) => project.displayName === '001').length
+      : 0;
+    expect(duplicate001Count).toBeLessThan(2);
+
+    rewriteFixtureRunState({
+      stage: 'review_2',
+      status: 'running',
+      stages: { execution: 'completed', review_1: 'completed', repair_1: 'completed', review_2: 'running' },
+      workflow_display: {
+        lines: [
+          { marker: '✓', text: 'start', stage_key: 'execution' },
+          { marker: '✓', text: 'review', stage_key: 'review_1' },
+          { marker: '✓', text: '1 fix', stage_key: 'repair_1' },
+          { marker: '→', text: '1 fix review', stage_key: 'review_2' },
+        ],
+      },
+    });
+
+    await openFixtureProject(page, { reset: false });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('button', { name: /自动工作流/ })).toBeVisible();
+    const projectList = page.getByTestId('project-list');
+    await expect(projectList.getByRole('button', { name: /^001$/ })).toHaveCount(0);
+    await expect(projectList.getByRole('button', { name: /001 - TestCcflowDuplicate001A/ })).toBeVisible();
+    await expect(projectList.getByRole('button', { name: /001 - TestCcflowDuplicate001B/ })).toBeVisible();
+
+    await page.getByRole('button', { name: /自动工作流/ }).click();
+    await page.getByRole('button', { name: /登录升级/ }).click();
+
+    const displayLines = page.getByTestId('workflow-display-lines');
+    await expect(displayLines).toContainText('1 fix review');
+    await expect(displayLines).not.toContainText('review 2');
+    await expect(displayLines).not.toContainText('复审');
   });
 
   test('无法匹配的 workflow jsonl 名称保留为普通文本', async ({ page }) => {

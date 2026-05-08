@@ -8,9 +8,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { listOpenSpecChanges } from '../../server/domains/openspec/oz-client.js';
-import { startGoWorkflowRun } from '../../server/domains/workflows/go-runner-client.js';
-import { listWoWorkflowReadModels } from '../../server/domains/workflows/wo-read-model.js';
+import { listOpenSpecChanges } from '../server/domains/openspec/oz-client.js';
+import { startGoWorkflowRun } from '../server/domains/workflows/go-runner-client.js';
+import { listWoWorkflowReadModels } from '../server/domains/workflows/wo-read-model.js';
 
 async function writeExecutable(filePath, content) {
   /**

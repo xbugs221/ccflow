@@ -6,9 +6,11 @@ import path from 'path';
 import { promises as fs } from 'fs';
 
 const RUNS_ROOT = path.join('.wo', 'runs');
-const KNOWN_STAGES = ['execution', 'review_1', 'repair_1', 'review_2', 'repair_2', 'review_3', 'repair_3', 'archive'];
 const STAGE_LABELS = {
+  planning: '规划提案',
   execution: '执行',
+  verification: '审核',
+  ready_for_acceptance: '待验收',
   review_1: '初审',
   repair_1: '初修',
   review_2: '再审',
@@ -17,13 +19,22 @@ const STAGE_LABELS = {
   repair_3: '三修',
   archive: '归档',
 };
+const LEGACY_STAGE_ORDER = {
+  planning: -1,
+  verification: Number.MAX_SAFE_INTEGER - 4,
+  ready_for_acceptance: Number.MAX_SAFE_INTEGER - 3,
+};
+const TERMINAL_METADATA_STAGES = new Set(['done']);
 const REVIEW_TITLES = {
   review_1: '需求与范围覆盖',
   review_2: '实现风险与回归',
   review_3: '验收与交付闭环',
 };
 const SUBSTAGE_TITLES = {
+  planning: '规划提案',
   execution: '提案落地',
+  verification: '审核',
+  ready_for_acceptance: '待验收',
   review_1: '需求与范围覆盖',
   repair_1: '初修产物',
   review_2: '实现风险与回归',
@@ -112,7 +123,16 @@ function inferRole(stage) {
  * Build a human-facing stage label.
  */
 function stageLabel(stage) {
-  return STAGE_LABELS[stage] || stage;
+  const normalized = String(stage || '').trim();
+  const reviewMatch = normalized.match(/^review_(\d+)$/);
+  if (reviewMatch) {
+    return Number(reviewMatch[1]) === 1 ? '初审' : `${Number(reviewMatch[1])}审`;
+  }
+  const repairMatch = normalized.match(/^repair_(\d+)$/);
+  if (repairMatch) {
+    return Number(repairMatch[1]) === 1 ? '初修' : `${Number(repairMatch[1])}修`;
+  }
+  return STAGE_LABELS[normalized] || normalized;
 }
 
 /**
@@ -138,6 +158,40 @@ function stageDisplayText(stage) {
     return `${Number(reviewMatch[1]) - 1} fix review`;
   }
   return normalized;
+}
+
+/**
+ * Parse wo runner stage keys into sortable workflow positions.
+ */
+function parseRunnerStage(stage) {
+  const normalized = String(stage || '').trim();
+  if (!normalized || TERMINAL_METADATA_STAGES.has(normalized)) {
+    return { known: true, displayable: false, order: Number.POSITIVE_INFINITY };
+  }
+  if (normalized === 'execution') {
+    return { known: true, displayable: true, order: 0 };
+  }
+  if (Object.prototype.hasOwnProperty.call(LEGACY_STAGE_ORDER, normalized)) {
+    return { known: true, displayable: true, order: LEGACY_STAGE_ORDER[normalized] };
+  }
+  if (normalized === 'archive') {
+    return { known: true, displayable: true, order: Number.MAX_SAFE_INTEGER - 1 };
+  }
+  const reviewMatch = normalized.match(/^review_(\d+)$/);
+  if (reviewMatch) {
+    const iteration = Number(reviewMatch[1]);
+    if (Number.isInteger(iteration) && iteration > 0) {
+      return { known: true, displayable: true, order: iteration * 2 - 1 };
+    }
+  }
+  const repairMatch = normalized.match(/^repair_(\d+)$/);
+  if (repairMatch) {
+    const iteration = Number(repairMatch[1]);
+    if (Number.isInteger(iteration) && iteration > 0) {
+      return { known: true, displayable: true, order: iteration * 2 };
+    }
+  }
+  return { known: false, displayable: true, order: Number.MAX_SAFE_INTEGER };
 }
 
 /**
@@ -233,26 +287,24 @@ async function buildPathReadModel(projectPath, state, warnings) {
 function buildStageStatuses(state, currentStage, rawStatus, warnings) {
   const stages = pick(state, 'stages') || {};
   const stageKeys = new Set();
-  if (currentStage) {
+  if (currentStage && parseRunnerStage(currentStage).displayable) {
     stageKeys.add(currentStage);
   }
   for (const stage of Object.keys(stages && typeof stages === 'object' ? stages : {})) {
+    const parsedStage = parseRunnerStage(stage);
+    if (!parsedStage.displayable) {
+      continue;
+    }
     stageKeys.add(stage);
-    if (!KNOWN_STAGES.includes(stage)) {
+    if (!parsedStage.known) {
       warnings.push(`Unknown runner stage: ${stage}`);
     }
   }
   return [...stageKeys].sort((left, right) => {
-    const leftIndex = KNOWN_STAGES.indexOf(left);
-    const rightIndex = KNOWN_STAGES.indexOf(right);
-    if (leftIndex !== -1 && rightIndex !== -1) {
-      return leftIndex - rightIndex;
-    }
-    if (leftIndex !== -1) {
-      return -1;
-    }
-    if (rightIndex !== -1) {
-      return 1;
+    const leftStage = parseRunnerStage(left);
+    const rightStage = parseRunnerStage(right);
+    if (leftStage.order !== rightStage.order) {
+      return leftStage.order - rightStage.order;
     }
     return left.localeCompare(right);
   }).map((key) => ({

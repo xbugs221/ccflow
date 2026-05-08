@@ -366,6 +366,7 @@ function renderWorkflowDisplayLines(
   project: Project,
   workflow: ProjectWorkflow,
   onNavigateToSession: WorkflowDetailViewProps['onNavigateToSession'],
+  testId = 'workflow-display-lines',
 ) {
   /**
    * Render wo-visible checklist rows as the workflow's primary progress view.
@@ -393,7 +394,7 @@ function renderWorkflowDisplayLines(
   };
 
   return (
-    <section className="space-y-2" data-testid="workflow-display-lines" aria-label="workflow display">
+    <section className="space-y-2" data-testid={testId} aria-label="workflow display">
       {lines.map((line) => {
         const session = buildSession(line);
         const label = line.sessionRef?.label;
@@ -1149,6 +1150,9 @@ export default function WorkflowDetailView({
     return (
       <div className="max-h-[70vh] overflow-auto rounded-md border border-border/60 bg-background/95 shadow-sm backdrop-blur-sm">
         {stageTree}
+        <div className="border-t border-border/40 p-3">
+          {renderWorkflowDisplayLines(project, currentWorkflow, onNavigateToSession, 'workflow-display-lines-preview')}
+        </div>
       </div>
     );
   }
@@ -1216,6 +1220,7 @@ export default function WorkflowDetailView({
               )}
             </div>
           )}
+          {stageTree}
           {renderWorkflowDisplayLines(project, currentWorkflow, onNavigateToSession)}
           {renderRunnerProcesses(project, currentWorkflow, onNavigateToSession, onOpenArtifactFile)}
         </div>
