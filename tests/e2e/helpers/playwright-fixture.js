@@ -178,7 +178,7 @@ function writeWorkflowStoreFixture() {
   fs.mkdirSync(path.join(fixtureProjectPath, 'assets'), { recursive: true });
   fs.mkdirSync(path.join(fixtureProjectPath, 'data'), { recursive: true });
   fs.mkdirSync(path.join(fixtureProjectPath, 'images'), { recursive: true });
-  fs.mkdirSync(path.join(fixtureProjectPath, '.ccflow', 'runs', 'run-fixture', 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(fixtureProjectPath, '.wo', 'runs', 'run-fixture', 'logs'), { recursive: true });
   fs.writeFileSync(path.join(fixtureProjectPath, 'notes', 'todo.md'), '# TODO\n', 'utf8');
   fs.writeFileSync(
     path.join(fixtureProjectPath, 'notes', 'boundary.md'),
@@ -191,10 +191,10 @@ function writeWorkflowStoreFixture() {
   fs.writeFileSync(path.join(fixtureProjectPath, 'images', 'pixel.png'), Buffer.from('iVBORw0KGgo=', 'base64'));
   fs.writeFileSync(path.join(fixtureProjectPath, 'SUMMARY.md'), '# Workflow summary fixture\n', 'utf8');
   fs.writeFileSync(path.join(fixtureProjectPath, 'workflow-output', 'result.txt'), 'workflow artifact folder fixture\n', 'utf8');
-  fs.writeFileSync(path.join(fixtureProjectPath, '.ccflow', 'runs', 'run-fixture', 'logs', 'executor.log'), 'executor log fixture\n', 'utf8');
-  fs.writeFileSync(path.join(fixtureProjectPath, '.ccflow', 'runs', 'run-fixture', 'state.json'), `${JSON.stringify({
-    runId: 'run-fixture',
-    changeName: '登录升级',
+  fs.writeFileSync(path.join(fixtureProjectPath, '.wo', 'runs', 'run-fixture', 'logs', 'executor.log'), 'executor log fixture\n', 'utf8');
+  fs.writeFileSync(path.join(fixtureProjectPath, '.wo', 'runs', 'run-fixture', 'state.json'), `${JSON.stringify({
+    run_id: 'run-fixture',
+    change_name: '登录升级',
     status: 'running',
     stage: 'review_1',
     stages: {
@@ -203,7 +203,7 @@ function writeWorkflowStoreFixture() {
       review_1: 'running',
     },
     paths: {
-      executor_log: '.ccflow/runs/run-fixture/logs/executor.log',
+      executor_log: '.wo/runs/run-fixture/logs/executor.log',
       summary: 'SUMMARY.md',
       workflow_output: 'workflow-output',
     },
@@ -224,7 +224,7 @@ function writeWorkflowStoreFixture() {
         status: 'completed',
         sessionId: 'fixture-project-execution-session',
         pid: 4321,
-        logPath: '.ccflow/runs/run-fixture/logs/executor.log',
+        logPath: '.wo/runs/run-fixture/logs/executor.log',
       },
     ],
   }, null, 2)}\n`, 'utf8');

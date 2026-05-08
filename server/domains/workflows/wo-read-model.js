@@ -1,14 +1,13 @@
 /**
- * PURPOSE: Convert sealed mc runner state files into ccflow ProjectWorkflow
+ * PURPOSE: Convert sealed wo runner state files into ccflow ProjectWorkflow
  * read models without reading or writing legacy workflow mirror config.
  */
 import path from 'path';
 import { promises as fs } from 'fs';
 
-const RUNS_ROOT = path.join('.ccflow', 'runs');
-const KNOWN_STAGES = ['planning', 'execution', 'review_1', 'repair_1', 'review_2', 'repair_2', 'review_3', 'repair_3', 'archive'];
+const RUNS_ROOT = path.join('.wo', 'runs');
+const KNOWN_STAGES = ['execution', 'review_1', 'repair_1', 'review_2', 'repair_2', 'review_3', 'repair_3', 'archive'];
 const STAGE_LABELS = {
-  planning: '规划提案',
   execution: '执行',
   review_1: '初审',
   repair_1: '初修',
@@ -24,7 +23,6 @@ const REVIEW_TITLES = {
   review_3: '验收与交付闭环',
 };
 const SUBSTAGE_TITLES = {
-  planning: '规划提案',
   execution: '提案落地',
   review_1: '需求与范围覆盖',
   repair_1: '初修产物',
@@ -51,10 +49,10 @@ const KNOWN_PROCESS_FIELDS = new Set([
 ]);
 
 /**
- * Return the first non-empty value from camelCase or snake_case runner fields.
+ * Return a snake_case runner field value.
  */
-function pick(object, camelKey, snakeKey) {
-  return object?.[camelKey] ?? object?.[snakeKey];
+function pick(object, snakeKey) {
+  return object?.[snakeKey];
 }
 
 /**
@@ -104,7 +102,7 @@ function mapStageStatus(status) {
 }
 
 /**
- * Infer a default runner role for a stage when mc only reports stage state.
+ * Infer a default runner role for a stage when wo only reports stage state.
  */
 function inferRole(stage) {
   return String(stage || '').startsWith('review') ? 'reviewer' : 'executor';
@@ -115,6 +113,31 @@ function inferRole(stage) {
  */
 function stageLabel(stage) {
   return STAGE_LABELS[stage] || stage;
+}
+
+/**
+ * Convert wo internal stage keys into the exact user-visible checklist text.
+ */
+function stageDisplayText(stage) {
+  const normalized = String(stage || '').trim();
+  if (normalized === 'execution') {
+    return 'start';
+  }
+  if (normalized === 'review_1') {
+    return 'review';
+  }
+  if (normalized === 'archive') {
+    return 'archive';
+  }
+  const repairMatch = normalized.match(/^repair_(\d+)$/);
+  if (repairMatch) {
+    return `${repairMatch[1]} fix`;
+  }
+  const reviewMatch = normalized.match(/^review_(\d+)$/);
+  if (reviewMatch) {
+    return `${Number(reviewMatch[1]) - 1} fix review`;
+  }
+  return normalized;
 }
 
 /**
@@ -172,7 +195,7 @@ async function pathExists(projectPath, relativePath) {
 async function buildPathReadModel(projectPath, state, warnings) {
   const artifacts = [];
   const logsByKey = new Map();
-  const paths = pick(state, 'paths', 'paths') || {};
+  const paths = pick(state, 'paths') || {};
   for (const [key, value] of Object.entries(paths && typeof paths === 'object' ? paths : {})) {
     const relativePath = normalizeRelativePath(projectPath, value);
     const classification = classifyPath(key, relativePath);
@@ -208,8 +231,8 @@ async function buildPathReadModel(projectPath, state, warnings) {
  * Normalize stage statuses from runner state and current stage fallback.
  */
 function buildStageStatuses(state, currentStage, rawStatus, warnings) {
-  const stages = pick(state, 'stages', 'stages') || {};
-  const stageKeys = new Set(KNOWN_STAGES);
+  const stages = pick(state, 'stages') || {};
+  const stageKeys = new Set();
   if (currentStage) {
     stageKeys.add(currentStage);
   }
@@ -219,7 +242,20 @@ function buildStageStatuses(state, currentStage, rawStatus, warnings) {
       warnings.push(`Unknown runner stage: ${stage}`);
     }
   }
-  return [...stageKeys].map((key) => ({
+  return [...stageKeys].sort((left, right) => {
+    const leftIndex = KNOWN_STAGES.indexOf(left);
+    const rightIndex = KNOWN_STAGES.indexOf(right);
+    if (leftIndex !== -1 && rightIndex !== -1) {
+      return leftIndex - rightIndex;
+    }
+    if (leftIndex !== -1) {
+      return -1;
+    }
+    if (rightIndex !== -1) {
+      return 1;
+    }
+    return left.localeCompare(right);
+  }).map((key) => ({
     key,
     label: stageLabel(key),
     status: mapStageStatus(key === currentStage ? rawStatus : (stages[key] || 'pending')),
@@ -231,7 +267,7 @@ function buildStageStatuses(state, currentStage, rawStatus, warnings) {
  * Normalize runner process rows from explicit processes or stage fallbacks.
  */
 function buildRunnerProcesses(state, stageStatuses, logsByKey, warnings) {
-  const explicit = pick(state, 'processes', 'processes');
+  const explicit = pick(state, 'processes');
   if (Array.isArray(explicit) && explicit.length > 0) {
     return explicit.map((process) => {
       const unknownFields = Object.keys(process && typeof process === 'object' ? process : {})
@@ -239,26 +275,26 @@ function buildRunnerProcesses(state, stageStatuses, logsByKey, warnings) {
       unknownFields.forEach((key) => {
         warnings.push(`Unknown runner process field: ${key}`);
       });
-      const stage = String(pick(process, 'stage', 'stage') || '').trim();
-      const role = String(pick(process, 'role', 'role') || inferRole(stage)).trim();
-      const logPath = normalizeRelativePath('', pick(process, 'logPath', 'log_path') || logsByKey.get(`${stage}_${role}_log`) || logsByKey.get(`${role}_log`) || logsByKey.get(`${stage}_log`));
+      const stage = String(pick(process, 'stage') || '').trim();
+      const role = String(pick(process, 'role') || inferRole(stage)).trim();
+      const logPath = normalizeRelativePath('', pick(process, 'log_path') || process?.logPath || logsByKey.get(`${stage}_${role}_log`) || logsByKey.get(`${role}_log`) || logsByKey.get(`${stage}_log`));
       return {
         stage,
         role,
-        status: String(pick(process, 'status', 'status') || '').trim() || undefined,
-        sessionId: String(pick(process, 'sessionId', 'session_id') || '').trim() || undefined,
+        status: String(pick(process, 'status') || '').trim() || undefined,
+        sessionId: String(pick(process, 'session_id') || process?.sessionId || '').trim() || undefined,
         pid: Number.isInteger(process?.pid) ? process.pid : undefined,
-        exitCode: Number.isInteger(pick(process, 'exitCode', 'exit_code')) ? pick(process, 'exitCode', 'exit_code') : undefined,
+        exitCode: Number.isInteger(pick(process, 'exit_code') ?? process?.exitCode) ? (pick(process, 'exit_code') ?? process?.exitCode) : undefined,
         failed: process?.failed === true,
         logPath: logPath || undefined,
       };
     }).map((process) => Object.fromEntries(Object.entries(process).filter(([, value]) => value !== undefined && value !== '')));
   }
 
-  const sessions = pick(state, 'sessions', 'sessions') || {};
+  const sessions = pick(state, 'sessions') || {};
   return stageStatuses.map((stageStatus) => {
     const role = inferRole(stageStatus.key);
-    const allowRoleFallback = stageStatus.status === 'active' || String(pick(state, 'stage', 'stage') || '') === stageStatus.key;
+    const allowRoleFallback = stageStatus.status === 'active' || String(pick(state, 'stage') || '') === stageStatus.key;
     const sessionId = String(
       sessions[stageStatus.key]
       || sessions[`${stageStatus.key}_${role}`]
@@ -314,8 +350,106 @@ function buildChildSessions(runId, processes, warnings) {
   });
 }
 
+function sessionMatchesJsonlName(sessionId, jsonlName) {
+  /**
+   * Match wo display jsonl labels to the runner session id they are derived
+   * from; a same-stage session is not enough evidence for a link.
+   */
+  const normalizedSessionId = String(sessionId || '').trim();
+  const normalizedJsonlName = path.posix.basename(String(jsonlName || '').trim());
+  if (!normalizedSessionId || !normalizedJsonlName) {
+    return false;
+  }
+  return normalizedJsonlName === `${normalizedSessionId}.jsonl`
+    || normalizedJsonlName.replace(/\.jsonl$/i, '') === normalizedSessionId;
+}
+
 /**
- * Build the frontend stage tree read model from mc-derived fields.
+ * Match wo checklist jsonl labels to runner child sessions.
+ */
+function findSessionRefForStage(stageKey, childSessions, runnerProcesses, warnings, jsonlName) {
+  const hasJsonlName = Boolean(String(jsonlName || '').trim());
+  const stageSession = childSessions.find((session) => (
+    session.stageKey === stageKey
+    && (!hasJsonlName || sessionMatchesJsonlName(session.id, jsonlName))
+  ));
+  if (stageSession) {
+    return {
+      label: jsonlName || `${stageSession.id}.jsonl`,
+      sessionId: stageSession.id,
+      provider: stageSession.provider || 'codex',
+      stageKey,
+      address: stageSession.address,
+      routePath: stageSession.routePath,
+    };
+  }
+  const process = runnerProcesses.find((entry) => (
+    entry.stage === stageKey
+    && entry.sessionId
+    && (!hasJsonlName || sessionMatchesJsonlName(entry.sessionId, jsonlName))
+  ));
+  if (process) {
+    return {
+      label: jsonlName || `${process.sessionId}.jsonl`,
+      sessionId: process.sessionId,
+      provider: 'codex',
+      stageKey,
+      routePath: `/runs/${encodeURIComponent(childSessions[0]?.workflowId || '')}/sessions/by-id/${encodeURIComponent(process.sessionId)}`,
+    };
+  }
+  if (hasJsonlName) {
+    warnings.push(`Unable to match workflow display session: ${jsonlName}`);
+    return {
+      label: jsonlName,
+      stageKey,
+    };
+  }
+  return null;
+}
+
+/**
+ * Generate only the wo checklist lines that have happened or are currently active.
+ */
+function buildWorkflowDisplayLines(state, stageStatuses, childSessions, runnerProcesses, warnings) {
+  const displayLines = Array.isArray(state?.workflow_display?.lines) ? state.workflow_display.lines : [];
+  if (displayLines.length > 0) {
+    return displayLines.map((line, index) => {
+      const rawLine = String(line?.raw_line || line?.rawLine || '').trim();
+      const marker = String(line?.marker || rawLine.match(/^[✓→ ]/)?.[0] || '').trim() || ' ';
+      const text = String(line?.text || rawLine.replace(/^[✓→ ]\s*/, '').replace(/\s+\S+\.jsonl$/, '') || '').trim();
+      const jsonlName = rawLine.match(/(\S+\.jsonl)\s*$/)?.[1] || String(line?.session_ref?.label || '').trim();
+      const stageKey = String(line?.stage_key || stageStatuses[index]?.key || '').trim();
+      return {
+        id: String(line?.id || `${index}:${text}`),
+        marker,
+        text,
+        status: String(line?.status || (marker === '✓' ? 'completed' : marker === '→' ? 'active' : 'pending')),
+        rawLine: rawLine || [marker, text, jsonlName].filter(Boolean).join(' '),
+        ...(jsonlName ? { sessionRef: findSessionRefForStage(stageKey, childSessions, runnerProcesses, warnings, jsonlName) } : {}),
+      };
+    });
+  }
+
+  return stageStatuses
+    .filter((stage) => stage.status !== 'pending')
+    .map((stage) => {
+      const marker = stage.status === 'completed' ? '✓' : stage.status === 'active' ? '→' : ' ';
+      const text = stageDisplayText(stage.key);
+      const sessionRef = findSessionRefForStage(stage.key, childSessions, runnerProcesses, warnings, '');
+      const rawLine = [marker, text, sessionRef?.label].filter(Boolean).join(' ');
+      return {
+        id: stage.key,
+        marker,
+        text,
+        status: stage.status,
+        rawLine,
+        ...(sessionRef ? { sessionRef } : {}),
+      };
+    });
+}
+
+/**
+ * Build the legacy auxiliary inspection model from wo-derived fields.
  */
 function buildStageInspections(stageStatuses, childSessions, artifacts, runnerError, diagnostics) {
   return stageStatuses.map((stage) => {
@@ -361,25 +495,28 @@ function buildStageInspections(stageStatuses, childSessions, artifacts, runnerEr
 /**
  * Convert one parsed state file into a ProjectWorkflow read model.
  */
-export async function buildMcWorkflowReadModel({ projectPath, runDirName, state, statePath, stateStat }) {
+export async function buildWoWorkflowReadModel({ projectPath, runDirName, state, statePath, stateStat }) {
   const warnings = [];
-  const runId = String(pick(state, 'runId', 'run_id') || runDirName || '').trim();
-  const changeName = String(pick(state, 'changeName', 'change_name') || '').trim();
-  const rawStatus = String(pick(state, 'status', 'status') || '').trim();
-  const rawStage = String(pick(state, 'stage', 'stage') || '').trim();
-  const updatedAt = String(pick(state, 'updatedAt', 'updated_at') || stateStat?.mtime?.toISOString?.() || runDirName || '').trim();
+  const runId = String(pick(state, 'run_id') || runDirName || '').trim();
+  const changeName = String(pick(state, 'change_name') || '').trim();
+  const rawStatus = String(pick(state, 'status') || '').trim();
+  const rawStage = String(pick(state, 'stage') || '').trim();
+  const updatedAt = String(pick(state, 'updated_at') || stateStat?.mtime?.toISOString?.() || runDirName || '').trim();
   const { artifacts, logsByKey } = await buildPathReadModel(projectPath, state, warnings);
   const stageStatuses = buildStageStatuses(state, rawStage, rawStatus, warnings);
   const runnerProcesses = buildRunnerProcesses(state, stageStatuses, logsByKey, warnings);
   const childSessions = buildChildSessions(runId, runnerProcesses, warnings);
-  const runnerError = String(pick(state, 'error', 'error') || '').trim();
+  const workflowDisplay = {
+    lines: buildWorkflowDisplayLines(state, stageStatuses, childSessions, runnerProcesses, warnings),
+  };
+  const runnerError = String(pick(state, 'error') || '').trim();
   const diagnostics = {
     statePath: normalizeRelativePath(projectPath, statePath),
     stateMtime: stateStat?.mtime?.toISOString?.() || null,
     rawStatus,
     rawStage,
-    mcContractVersion: String(pick(state, 'contractVersion', 'contract_version') || ''),
-    mcContractOk: true,
+    woContractVersion: String(pick(state, 'contract_version') || ''),
+    woContractOk: true,
     runnerError,
     pathCount: Object.keys(state?.paths || {}).length,
     sessionCount: Object.keys(state?.sessions || {}).length,
@@ -407,6 +544,7 @@ export async function buildMcWorkflowReadModel({ projectPath, runDirName, state,
     artifacts,
     childSessions,
     runnerProcesses,
+    workflowDisplay,
     stageInspections,
     controlPlaneReadModel: { stages: stageInspections },
     controllerEvents: diagnostics.warnings.map((message) => ({
@@ -421,10 +559,10 @@ export async function buildMcWorkflowReadModel({ projectPath, runDirName, state,
 }
 
 /**
- * Discover all mc state files and convert valid ones without one bad run
+ * Discover all wo state files and convert valid ones without one bad run
  * preventing other runs from rendering.
  */
-export async function listMcWorkflowReadModels(projectPath) {
+export async function listWoWorkflowReadModels(projectPath) {
   if (!projectPath) {
     return [];
   }
@@ -448,7 +586,7 @@ export async function listMcWorkflowReadModels(projectPath) {
     try {
       const stateStat = await fs.stat(statePath);
       const state = JSON.parse(await fs.readFile(statePath, 'utf8'));
-      workflows.push(await buildMcWorkflowReadModel({
+      workflows.push(await buildWoWorkflowReadModel({
         projectPath,
         runDirName: entry.name,
         state,
@@ -477,8 +615,8 @@ export async function listMcWorkflowReadModels(projectPath) {
             stateMtime: null,
             rawStatus: '',
             rawStage: '',
-            mcContractVersion: '',
-            mcContractOk: false,
+            woContractVersion: '',
+            woContractOk: false,
             runnerError: `Unreadable runner state: ${error?.message || String(error)}`,
             pathCount: 0,
             sessionCount: 0,

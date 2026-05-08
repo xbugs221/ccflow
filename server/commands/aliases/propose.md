@@ -1,4 +1,4 @@
-创建 openspec 变更并生成所有 artifact
+创建 oz 变更并生成所有 artifact
 
 - proposal.md（做什么 & 为什么）
 - design.md（怎么做）
@@ -10,13 +10,13 @@
 创建变更目录
 
 ```bash
-openspec new change "<name>"
+oz create "<name>"
 ```
 
 在 `docs/changes/<name>/` 创建含 `.openspec.yaml` 的脚手架变更。
 
 ```bash
-openspec status "<name>" --json
+oz status "<name>" --json
 ```
 
 解析 JSON 获取：
@@ -30,19 +30,8 @@ openspec status "<name>" --json
 
 a. **对每个 `ready` 状态的 artifact（依赖已满足）**：
 
-- 获取指令：
-
-    ```bash
-    openspec instructions <artifact-id> --change "<name>" --json
-    ```
-
-- 指令 JSON 包含：
-  - `context`：项目背景（你的约束，不要写入输出）
-  - `rules`：artifact 特定规则（你的约束，不要写入输出）
-  - `template`：输出文件的结构
-  - `instruction`：此 artifact 类型的 schema 特定指引
-  - `outputPath`：artifact 的写入位置
-  - `dependencies`：已完成的 artifact，供参考上下文
+- 根据当前 oz change 的 proposal、design、spec、task 文件约定创建 artifact。
+- 先读取已有依赖 artifact 获取上下文，再按本仓库 `docs/changes/<change-name>/` 结构写入缺失文件。
 - 读取已完成的依赖文件获取上下文
 - 使用 `template` 作为结构创建 artifact 文件
 - 将 `context` 和 `rules` 作为约束——但不要将其复制到文件中
@@ -50,7 +39,7 @@ a. **对每个 `ready` 状态的 artifact（依赖已满足）**：
 
 b. **继续直到所有 `applyRequires` artifact 完成**
 
-- 创建每个 artifact 后，重新运行 `openspec status "<name>" --json`
+- 创建每个 artifact 后，重新运行 `oz status "<name>" --json`
 - 检查 `applyRequires` 中的每个 artifact ID 是否在 artifacts 数组中有 `status: "done"`
 - 所有 applyRequires artifact 完成后停止
 
@@ -87,7 +76,7 @@ d. **生成 `tests/spec/README.md`**（简短）：
 e. **生成 `test_cmd.sh`**（变更目录下）：
 
 - 一个可直接执行的 shell 脚本，封装测试运行命令
-- 用于 openspec-scheduler 的 `test_cmd` 字段
+- 用于 oz 的 `test_cmd` 字段
 - 退出码 0 = 验收通过，非 0 = 验收失败
 - 只运行 `tests/spec/` 下的验收测试，不运行其他测试
 
@@ -132,7 +121,7 @@ class TestDashboard:
 ```bash
 # test_cmd.sh
 #!/bin/bash
-# 验收测试运行脚本 — 供 openspec-scheduler test_cmd 使用
+# 验收测试运行脚本 — 供 oz test_cmd 使用
 # 只运行 tests/spec/ 下的验收测试，不干扰其他测试
 set -e
 cd "$(dirname "$0")/.."
@@ -152,7 +141,7 @@ pytest tests/spec/ -v --tb=short
 **每个功能组的最后一个 task 必须是运行对应测试文件并确认通过。**
 
 ```bash
-openspec status "<name>"
+oz status "<name>"
 ```
 
 **输出**
@@ -163,11 +152,11 @@ openspec status "<name>"
 - 已创建的 artifact 列表及简短描述
 - 验收测试数量和覆盖的 spec 数量
 - 就绪状态："所有 artifact 已创建！可以开始实现了。"
-- 提示："运行 `/apply` 开始实现。AI 实现后将自动运行 `test_cmd.sh` 验收。"
+- 提示："运行 `wo start` 开始执行当前 oz change。"
 
 **Artifact 创建指引**
 
-- 按 `openspec instructions` 中的 `instruction` 字段创建各 artifact
+- 按当前 oz change 的 proposal、design、spec、task 约定创建各 artifact
 - schema 定义了每个 artifact 的内容，严格遵循
 - 创建新 artifact 前读取依赖 artifact 获取上下文
 - 使用 `template` 作为输出文件的结构——填写其各节内容

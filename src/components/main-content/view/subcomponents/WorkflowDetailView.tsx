@@ -12,6 +12,7 @@ import type {
   SessionProvider,
   WorkflowArtifact,
   WorkflowChildSession,
+  WorkflowDisplayLine,
   WorkflowRunnerProcess,
   WorkflowStageInspection,
   WorkflowSubstageInspection,
@@ -337,7 +338,7 @@ function buildSubstageStatusKey(stageKey: string, substageKey: string): string {
 
 function getWorkflowDiagnosticsValue(workflow: ProjectWorkflow, key: string): string {
   /**
-   * Read display-only mc diagnostics without requiring the frontend to parse raw
+   * Read display-only wo diagnostics without requiring the frontend to parse raw
    * runner state or know the original state.json shape.
    */
   const diagnostics = (workflow.runnerDiagnostics || workflow.diagnostics || {}) as Record<string, unknown>;
@@ -359,6 +360,72 @@ function getWorkflowDiagnosticWarnings(workflow: ProjectWorkflow): string[] {
   return Array.isArray(diagnostics.warnings)
     ? diagnostics.warnings.map((warning) => String(warning)).filter(Boolean)
     : [];
+}
+
+function renderWorkflowDisplayLines(
+  project: Project,
+  workflow: ProjectWorkflow,
+  onNavigateToSession: WorkflowDetailViewProps['onNavigateToSession'],
+) {
+  /**
+   * Render wo-visible checklist rows as the workflow's primary progress view.
+   */
+  const lines = workflow.workflowDisplay?.lines || [];
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const buildSession = (line: WorkflowDisplayLine): WorkflowChildSession | null => {
+    const ref = line.sessionRef;
+    if (!ref?.sessionId) {
+      return null;
+    }
+    return {
+      id: ref.sessionId,
+      title: ref.label,
+      summary: ref.label,
+      provider: ref.provider || 'codex',
+      workflowId: workflow.runId || workflow.id,
+      stageKey: ref.stageKey,
+      address: ref.address,
+      routePath: ref.routePath,
+    };
+  };
+
+  return (
+    <section className="space-y-2" data-testid="workflow-display-lines" aria-label="workflow display">
+      {lines.map((line) => {
+        const session = buildSession(line);
+        const label = line.sessionRef?.label;
+        return (
+          <div
+            key={line.id}
+            className="flex min-h-8 items-center gap-3 rounded-md border border-border/50 bg-background/70 px-3 py-1.5 text-sm"
+            data-testid={`workflow-display-line-${line.id}`}
+          >
+            <span className={line.marker === '✓' ? 'text-green-500' : line.marker === '→' ? 'text-blue-500' : 'text-muted-foreground'}>
+              {line.marker || ' '}
+            </span>
+            <span className="font-medium text-foreground">{line.text}</span>
+            {label && session ? (
+              <button
+                type="button"
+                className="truncate text-primary underline decoration-current underline-offset-2"
+                onClick={() => onNavigateToSession(
+                  session.id,
+                  buildWorkflowSessionRouteOptions(project, workflow, session),
+                )}
+              >
+                {label}
+              </button>
+            ) : label ? (
+              <span className="truncate text-muted-foreground">{label}</span>
+            ) : null}
+          </div>
+        );
+      })}
+    </section>
+  );
 }
 
 function hasSubstageEvidence(substage: WorkflowSubstageInspection): boolean {
@@ -955,7 +1022,7 @@ export default function WorkflowDetailView({
         'relative space-y-3',
         treeOnly ? 'p-3' : 'mt-4 border-t border-border/40 pt-4',
       ].join(' ')}
-      data-testid={treeOnly ? 'workflow-stage-tree-preview' : 'workflow-stage-tree'}
+      data-testid={treeOnly ? 'workflow-inspection-preview' : 'workflow-inspection-tree'}
     >
       <svg className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible" aria-hidden="true">
         {graphPaths.map((path) => (
@@ -1134,7 +1201,7 @@ export default function WorkflowDetailView({
                 <div><dt className="inline text-muted-foreground">state mtime: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'stateMtime')}</dd></div>
                 <div><dt className="inline text-muted-foreground">raw status: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'rawStatus')}</dd></div>
                 <div><dt className="inline text-muted-foreground">raw stage: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'rawStage')}</dd></div>
-                <div><dt className="inline text-muted-foreground">mc contract: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'mcContractVersion')} / ok {getWorkflowDiagnosticsValue(currentWorkflow, 'mcContractOk')}</dd></div>
+                <div><dt className="inline text-muted-foreground">wo contract: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'woContractVersion')} / ok {getWorkflowDiagnosticsValue(currentWorkflow, 'woContractOk')}</dd></div>
                 <div><dt className="inline text-muted-foreground">runner error: </dt><dd className="inline text-foreground">{currentWorkflow.runnerError || getWorkflowDiagnosticsValue(currentWorkflow, 'runnerError')}</dd></div>
                 <div><dt className="inline text-muted-foreground">paths: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'pathCount')}</dd></div>
                 <div><dt className="inline text-muted-foreground">sessions: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'sessionCount')}</dd></div>
@@ -1149,8 +1216,8 @@ export default function WorkflowDetailView({
               )}
             </div>
           )}
+          {renderWorkflowDisplayLines(project, currentWorkflow, onNavigateToSession)}
           {renderRunnerProcesses(project, currentWorkflow, onNavigateToSession, onOpenArtifactFile)}
-          {stageTree}
         </div>
 
       </div>

@@ -21,45 +21,45 @@ async function writeFakeCommand(binDir, name, body) {
   return filePath;
 }
 
-test('runtime diagnostics report fake ox and mc contract from PATH', async () => {
+test('runtime diagnostics report fake oz and wo contract from PATH', async () => {
   const previousPath = process.env.PATH;
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-runtime-bin-'));
-  await writeFakeCommand(binDir, 'ox', '#!/bin/sh\nif [ "$1" = "--version" ]; then echo ox-test; exit 0; fi\necho "{}"\n');
-  await writeFakeCommand(binDir, 'mc', [
+  await writeFakeCommand(binDir, 'oz', '#!/bin/sh\nif [ "$1" = "--version" ]; then echo oz-test; exit 0; fi\necho "{}"\n');
+  await writeFakeCommand(binDir, 'wo', [
     '#!/bin/sh',
-    'if [ "$1" = "--version" ]; then echo mc-test; exit 0; fi',
-    'if [ "$1" = "contract" ]; then echo \'{"version":"mc-test","json":true,"capabilities":["list-changes","run","resume","status","abort"]}\'; exit 0; fi',
+    'if [ "$1" = "--version" ]; then echo wo-test; exit 0; fi',
+    'if [ "$1" = "contract" ]; then echo \'{"version":"wo-test","json":true,"capabilities":["list-changes","run","resume","status","abort"]}\'; exit 0; fi',
     'echo "{}"',
   ].join('\n'));
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ''}`;
   try {
     const diagnostics = checkRequiredRuntimeDependencies();
     assert.equal(diagnostics.ok, true);
-    assert.match(diagnostics.commands.ox.path, /ox$/);
-    assert.match(diagnostics.commands.ox.version.output, /ox-test/);
-    assert.equal(diagnostics.commands.mc.contract.ok, true);
+    assert.match(diagnostics.commands.oz.path, /oz$/);
+    assert.match(diagnostics.commands.oz.version.output, /oz-test/);
+    assert.equal(diagnostics.commands.wo.contract.ok, true);
   } finally {
     process.env.PATH = previousPath;
   }
 });
 
-test('runtime diagnostics fail when mc lacks JSON workflow contract', async () => {
+test('runtime diagnostics fail when wo lacks JSON workflow contract', async () => {
   const previousPath = process.env.PATH;
   const binDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-runtime-bin-'));
-  await writeFakeCommand(binDir, 'ox', '#!/bin/sh\nif [ "$1" = "--version" ]; then echo ox-test; exit 0; fi\necho "{}"\n');
-  await writeFakeCommand(binDir, 'mc', [
+  await writeFakeCommand(binDir, 'oz', '#!/bin/sh\nif [ "$1" = "--version" ]; then echo oz-test; exit 0; fi\necho "{}"\n');
+  await writeFakeCommand(binDir, 'wo', [
     '#!/bin/sh',
-    'if [ "$1" = "--version" ]; then echo mc-test; exit 0; fi',
-    'if [ "$1" = "contract" ]; then echo \'{"version":"mc-test","json":true,"capabilities":["list-changes","run","status"]}\'; exit 0; fi',
+    'if [ "$1" = "--version" ]; then echo wo-test; exit 0; fi',
+    'if [ "$1" = "contract" ]; then echo \'{"version":"wo-test","json":true,"capabilities":["list-changes","run","status"]}\'; exit 0; fi',
     'echo "{}"',
   ].join('\n'));
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ''}`;
   try {
     const diagnostics = getRuntimeDependencyDiagnostics();
     assert.equal(diagnostics.ok, false);
-    assert.equal(diagnostics.commands.mc.contract.ok, false);
-    assert.deepEqual(diagnostics.commands.mc.contract.missing, ['resume', 'abort']);
-    assert.throws(() => checkRequiredRuntimeDependencies(), /mc contract/);
+    assert.equal(diagnostics.commands.wo.contract.ok, false);
+    assert.deepEqual(diagnostics.commands.wo.contract.missing, ['resume', 'abort']);
+    assert.throws(() => checkRequiredRuntimeDependencies(), /wo contract/);
   } finally {
     process.env.PATH = previousPath;
   }
@@ -71,8 +71,8 @@ test('runtime diagnostics fail clearly when required CLIs are missing', () => {
   try {
     const diagnostics = getRuntimeDependencyDiagnostics();
     assert.equal(diagnostics.ok, false);
-    assert.equal(diagnostics.commands.ox.path, '');
-    assert.throws(() => checkRequiredRuntimeDependencies(), /Missing from PATH: ox, mc/);
+    assert.equal(diagnostics.commands.oz.path, '');
+    assert.throws(() => checkRequiredRuntimeDependencies(), /Missing from PATH: oz, wo/);
   } finally {
     process.env.PATH = previousPath;
   }

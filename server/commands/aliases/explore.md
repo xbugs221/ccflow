@@ -63,16 +63,16 @@
 
 ---
 
-## OpenSpec 感知
+## oz 感知
 
-充分了解 OpenSpec 系统，自然使用，不要强行套用。
+充分了解 oz 变更系统，自然使用，不要强行套用。
 
 ### 检查上下文
 
 开始时快速检查已有内容：
 
 ```bash
-openspec list
+oz list --json
 ```
 
 这告诉你：

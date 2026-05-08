@@ -25,7 +25,7 @@ function buildExpectedProjectRoutePrefix() {
 
 async function rewriteFixtureRunState(partialState) {
   /**
-   * Rewrite the fixture mc state so route recovery can verify role and by-id
+   * Rewrite the fixture wo state so route recovery can verify role and by-id
    * addresses without depending on legacy workflow route indexes.
    */
   const statePath = path.join(PRIMARY_FIXTURE_PROJECT_PATH, '.ccflow', 'runs', 'run-fixture', 'state.json');
@@ -45,7 +45,7 @@ async function resetFixtureRunState() {
     stage: 'review_1',
     stages: { planning: 'completed', execution: 'completed', review_1: 'running' },
     paths: {
-      executor_log: '.ccflow/runs/run-fixture/logs/executor.log',
+      executor_log: '.wo/runs/run-fixture/logs/executor.log',
       summary: 'SUMMARY.md',
       workflow_output: 'workflow-output',
     },
@@ -61,7 +61,7 @@ async function resetFixtureRunState() {
         status: 'completed',
         sessionId: 'fixture-project-execution-session',
         pid: 4321,
-        logPath: '.ccflow/runs/run-fixture/logs/executor.log',
+        logPath: '.wo/runs/run-fixture/logs/executor.log',
       },
     ],
   }, null, 2)}\n`, 'utf8');

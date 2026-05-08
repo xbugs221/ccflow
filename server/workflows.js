@@ -1,15 +1,15 @@
 /**
- * PURPOSE: Build project workflow read models from Go mc runner state.
+ * PURPOSE: Build project workflow read models from wo runner state.
  * ccflow keeps the Web control plane thin: automatic workflow facts come from
- * `.ccflow/runs/<run-id>/state.json`, not from a local workflow mirror.
+ * `.wo/runs/<run-id>/state.json`, not from a local workflow mirror.
  */
-import { listOpenSpecChanges } from './domains/openspec/ox-client.js';
+import { listOpenSpecChanges } from './domains/openspec/oz-client.js';
 import {
   abortGoWorkflowRun,
   resumeGoWorkflowRun,
   startGoWorkflowRun,
 } from './domains/workflows/go-runner-client.js';
-import { listMcWorkflowReadModels } from './domains/workflows/mc-read-model.js';
+import { listWoWorkflowReadModels } from './domains/workflows/wo-read-model.js';
 
 /**
  * Read active OpenSpec changes through the CLI so ccflow follows OpenSpec's own discovery rules.
@@ -71,7 +71,7 @@ export async function listProjectWorkflows(projectPath) {
   if (!projectPath) {
     return [];
   }
-  return listMcWorkflowReadModels(projectPath);
+  return listWoWorkflowReadModels(projectPath);
 }
 
 export async function attachWorkflowMetadata(projects) {
@@ -115,7 +115,7 @@ export async function createProjectWorkflow(project, payload = {}) {
     throw new Error('Go-backed workflows require an active OpenSpec change. Create or select one from docs/changes first.');
   }
   const runResult = await startGoWorkflowRun(projectPath, providedChangeName);
-  const runId = String(runResult?.runId || runResult?.run_id || '').trim();
+  const runId = String(runResult?.run_id || '').trim();
   if (!runId) {
     throw new Error('Go runner did not return runId for the new workflow run.');
   }
@@ -194,5 +194,4 @@ export async function abortWorkflowRun(project, workflowId) {
   await abortGoWorkflowRun(projectPath, workflow.runId);
   return getProjectWorkflow(project, workflowId);
 }
-
 

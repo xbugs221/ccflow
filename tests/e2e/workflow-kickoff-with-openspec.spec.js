@@ -91,12 +91,17 @@ test('creating a workflow with existing OpenSpec change binds correctly', async 
 
   // Verify navigation to workflow detail page
   await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/playwright-run-[^/]+$`));
-  await expect(page.getByTestId('workflow-stage-tree')).toBeVisible();
+  await expect(page.getByTestId('workflow-display-lines')).toBeVisible();
   await expect(page.getByTestId('project-workflow-group')).toContainText(OPEN_SPEC_CHANGE_NAME);
 
-  // Verify the workflow stage tree shows the Go runner-controlled execution stage.
-  await expect(page.getByTestId('workflow-stage-planning')).toBeVisible();
-  await expect(page.getByTestId('workflow-stage-execution')).toBeVisible();
+  // Verify the wo display lines are the primary workflow view and link to the child session.
+  await expect(page.getByTestId('workflow-display-lines')).toContainText('✓');
+  await expect(page.getByTestId('workflow-display-lines')).toContainText('start');
+  await expect(page.getByTestId('workflow-display-lines')).toContainText('review', { timeout: 10000 });
+  await expect(page.getByTestId('workflow-stage-tree')).toHaveCount(0);
+  await page.getByTestId('workflow-display-lines').getByRole('button', { name: 'codex-exec-thread.jsonl' }).click();
+  await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/playwright-run-[^/]+/sessions/execution$`));
+  await page.goto(`${projectRoutePrefix}/runs/${workflowIdFromUrl(page.url())}`);
   await expect(page.getByText(/Go runner: playwright-run-/)).toBeVisible();
   await expect(page.getByText('阶段: review_1')).toBeVisible({ timeout: 10000 });
 
@@ -120,3 +125,10 @@ test('creating a workflow with existing OpenSpec change binds correctly', async 
   expect(workflow.stageStatuses.some((stage) => stage.key === 'review_1' && stage.status === 'active')).toBe(true);
   expect(workflow.runnerProcesses.some((process) => process.logPath?.includes('logs/reviewer.log'))).toBe(true);
 });
+
+function workflowIdFromUrl(url) {
+  /**
+   * Recover the current workflow id after a child-session navigation.
+   */
+  return url.match(/\/runs\/([^/]+)/)?.[1] || '';
+}

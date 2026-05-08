@@ -521,7 +521,7 @@ async function watchGoWorkflowRun(project, workflow) {
     }
 
     const chokidar = (await import('chokidar')).default;
-    const runDir = path.join(projectPath, '.ccflow', 'runs', runId);
+    const runDir = path.join(projectPath, '.wo', 'runs', runId);
     await fsPromises.mkdir(runDir, { recursive: true });
     const watcher = chokidar.watch(runDir, {
         persistent: true,
@@ -3345,7 +3345,7 @@ async function startServer() {
                 console.info(`[SessionVisibility] Periodic scan enabled (${scanIntervalMs}ms)`);
             }
 
-            console.info('[WorkflowAutoRunner] Disabled; Go runner mc is the workflow state machine.');
+            console.info('[WorkflowAutoRunner] Disabled; wo is the workflow state machine.');
 
             try {
                 // Start watching provider and Go runner output folders after the workflow runner is live.

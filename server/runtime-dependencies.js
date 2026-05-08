@@ -4,7 +4,7 @@
  */
 import { execFileSync, spawnSync } from 'child_process';
 
-const REQUIRED_COMMANDS = ['ox', 'mc'];
+const REQUIRED_COMMANDS = ['oz', 'wo'];
 const RUNNER_CONTRACT_COMMAND = ['contract', '--json'];
 const REQUIRED_RUNNER_CAPABILITIES = ['list-changes', 'run', 'resume', 'status', 'abort'];
 
@@ -40,13 +40,13 @@ function readCommandVersion(commandName) {
  * the web adapter.
  */
 function checkRunnerContract() {
-  const result = spawnSync('mc', RUNNER_CONTRACT_COMMAND, { encoding: 'utf8' });
+  const result = spawnSync('wo', RUNNER_CONTRACT_COMMAND, { encoding: 'utf8' });
   const output = `${result.stdout || ''}\n${result.stderr || ''}`.trim();
   if (result.error || result.status !== 0) {
     return {
       ok: false,
-      required: [`mc ${RUNNER_CONTRACT_COMMAND.join(' ')}`],
-      missing: [`mc ${RUNNER_CONTRACT_COMMAND.join(' ')}`],
+      required: [`wo ${RUNNER_CONTRACT_COMMAND.join(' ')}`],
+      missing: [`wo ${RUNNER_CONTRACT_COMMAND.join(' ')}`],
       error: result.error ? result.error.message : output,
     };
   }
@@ -56,7 +56,7 @@ function checkRunnerContract() {
   } catch (error) {
     return {
       ok: false,
-      required: [`mc ${RUNNER_CONTRACT_COMMAND.join(' ')}`],
+      required: [`wo ${RUNNER_CONTRACT_COMMAND.join(' ')}`],
       missing: ['valid JSON contract output'],
       error: error.message,
     };
@@ -70,7 +70,7 @@ function checkRunnerContract() {
   }
   return {
     ok: missing.length === 0,
-    required: [`mc ${RUNNER_CONTRACT_COMMAND.join(' ')}`],
+    required: [`wo ${RUNNER_CONTRACT_COMMAND.join(' ')}`],
     missing,
     capabilities,
     version: payload.version || '',
@@ -86,18 +86,18 @@ export function checkRequiredRuntimeDependencies() {
     .filter(([, command]) => !command.path)
     .map(([name]) => name);
   const incompatible = [];
-  if (diagnostics.commands.ox.path && !diagnostics.commands.ox.version.ok) {
-    incompatible.push('ox --version');
+  if (diagnostics.commands.oz.path && !diagnostics.commands.oz.version.ok) {
+    incompatible.push('oz --version');
   }
-  if (diagnostics.commands.mc.path && !diagnostics.commands.mc.contract.ok) {
-    incompatible.push(`mc contract: ${diagnostics.commands.mc.contract.missing.join(', ')}`);
+  if (diagnostics.commands.wo.path && !diagnostics.commands.wo.contract.ok) {
+    incompatible.push(`wo contract: ${diagnostics.commands.wo.contract.missing.join(', ')}`);
   }
   if (missing.length > 0 || incompatible.length > 0) {
     throw new Error([
       'Missing or incompatible required workflow binaries.',
       missing.length > 0 ? `Missing from PATH: ${missing.join(', ')}` : '',
       incompatible.length > 0 ? `Incompatible: ${incompatible.join('; ')}` : '',
-      'Install ox and mc manually, then ensure the service process PATH can see them.',
+      'Install oz and wo manually, then ensure the service process PATH can see them.',
       `PATH=${process.env.PATH || ''}`,
     ].filter(Boolean).join(' '));
   }
@@ -118,13 +118,13 @@ export function getRuntimeDependencyDiagnostics() {
       version: commandPath ? readCommandVersion(commandName) : { ok: false, output: '', error: 'not found in PATH' },
     };
   }
-  commands.mc.contract = commands.mc.path
+  commands.wo.contract = commands.wo.path
     ? checkRunnerContract()
-    : { ok: false, required: [`mc ${RUNNER_CONTRACT_COMMAND.join(' ')}`], missing: ['mc'] };
+    : { ok: false, required: [`wo ${RUNNER_CONTRACT_COMMAND.join(' ')}`], missing: ['wo'] };
   return {
     ok: REQUIRED_COMMANDS.every((commandName) => Boolean(commands[commandName].path))
-      && commands.ox.version.ok
-      && commands.mc.contract.ok,
+      && commands.oz.version.ok
+      && commands.wo.contract.ok,
     commands,
     path: process.env.PATH || '',
   };

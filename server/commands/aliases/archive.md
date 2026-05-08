@@ -1,6 +1,6 @@
-归档已完成的变更，若无法从上下文中判断，运行 `openspec list` 获取可用变更
+归档已完成的 oz 变更，若无法从上下文中判断，运行 `oz list --json` 获取可用变更
 
-运行 `openspec status "<name>" --json` 检查 artifact 完成情况。
+运行 `oz status "<name>" --json` 检查 artifact 完成情况。
 
 解析 JSON 以了解：
 
@@ -29,25 +29,12 @@
 
 **若存在 delta specs：**
 
-- 将每个 delta spec 与 `openspec/specs/<capability>/spec.md` 中对应的主 spec 对比
+- 将每个 delta spec 与 `docs/specs/<capability>/spec.md` 中对应的主 spec 对比
 - 确定将应用的变更（新增、修改、删除、重命名）
 - 显示综合摘要，直接开始同步，不必询问
 
-若不存在则创建归档目录：
-
 ```bash
-mkdir -p docs/changes/archive
-```
-
-使用当前日期生成目标名称：`YYYY-MM-DD-<change-name>`
-
-**检查目标是否已存在：**
-
-- 若存在：报错，建议重命名现有归档或使用不同日期
-- 若不存在：移动变更目录到归档
-
-```bash
-mv docs/changes/<name> docs/changes/archive/YYYY-MM-DD-<name>
+oz archive "<name>" --yes --json
 ```
 
 显示归档完成摘要，包括：
@@ -62,7 +49,7 @@ mv docs/changes/<name> docs/changes/archive/YYYY-MM-DD-<name>
 
 **约束**
 
-- 使用openspec status --json检查完成状态
+- 使用 `oz status --json` 检查完成状态
 - 警告不阻止归档，仅提示并确认
-- 移动目录时保留 .openspec.yaml（随目录一起移动）
+- 归档操作交给 `oz archive` 执行
 - 清晰展示操作摘要

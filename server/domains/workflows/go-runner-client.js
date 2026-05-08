@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Adapt ccflow workflow APIs to the external Go runner without
+ * PURPOSE: Adapt ccflow workflow APIs to the external wo runner without
  * parsing provider JSONL or reimplementing runner state transitions.
  */
 import path from 'path';
@@ -8,13 +8,13 @@ import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
-const RUNS_ROOT = path.join('.ccflow', 'runs');
+const RUNS_ROOT = path.join('.wo', 'runs');
 
 /**
- * Execute mc with JSON output and parse the response payload.
+ * Execute wo with JSON output and parse the response payload.
  */
-async function runMcJson(args, projectPath) {
-  const { stdout } = await execFileAsync('mc', args, {
+async function runWoJson(args, projectPath) {
+  const { stdout } = await execFileAsync('wo', args, {
     cwd: projectPath,
     timeout: 10000,
     maxBuffer: 1024 * 1024 * 4,
@@ -44,10 +44,10 @@ async function waitForRunStateFile(projectPath, runId) {
 }
 
 /**
- * Start a long-running mc process and resolve after it exposes its run id.
+ * Start a long-running wo process and resolve after it exposes its run id.
  */
-async function spawnMcRun(args, projectPath) {
-  const child = spawn('mc', args, {
+async function spawnWoRun(args, projectPath) {
+  const child = spawn('wo', args, {
     cwd: projectPath,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -82,7 +82,7 @@ async function spawnMcRun(args, projectPath) {
       }
       if (!finishPromise) {
         finishPromise = (async () => {
-          const runId = String(payload?.runId || payload?.run_id || '').trim();
+          const runId = String(payload?.run_id || '').trim();
           await waitForRunStateFile(projectPath, runId);
           settled = true;
           clearTimeout(timeout);
@@ -102,7 +102,7 @@ async function spawnMcRun(args, projectPath) {
         return;
       }
       const payload = JSON.parse(firstJsonLine);
-      const runId = String(payload?.runId || payload?.run_id || '').trim();
+      const runId = String(payload?.run_id || '').trim();
       if (runId) {
         await finish(payload);
       }
@@ -166,28 +166,28 @@ async function spawnMcRun(args, projectPath) {
  * Start a new Go-backed run for an active OpenSpec change.
  */
 export async function startGoWorkflowRun(projectPath, changeName) {
-  return spawnMcRun(['run', '--change', changeName, '--json'], projectPath);
+  return spawnWoRun(['run', '--change', changeName, '--json'], projectPath);
 }
 
 /**
  * Resume an existing Go-backed run.
  */
 export async function resumeGoWorkflowRun(projectPath, runId) {
-  return spawnMcRun(['resume', '--run-id', runId, '--json'], projectPath);
+  return spawnWoRun(['resume', '--run-id', runId, '--json'], projectPath);
 }
 
 /**
  * Query a Go-backed run through the runner contract.
  */
 export async function getGoWorkflowRunStatus(projectPath, runId) {
-  return runMcJson(['status', '--run-id', runId, '--json'], projectPath);
+  return runWoJson(['status', '--run-id', runId, '--json'], projectPath);
 }
 
 /**
  * Abort an existing Go-backed run.
  */
 export async function abortGoWorkflowRun(projectPath, runId) {
-  return runMcJson(['abort', '--run-id', runId, '--json'], projectPath);
+  return runWoJson(['abort', '--run-id', runId, '--json'], projectPath);
 }
 
 /**

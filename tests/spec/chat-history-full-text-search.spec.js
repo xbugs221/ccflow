@@ -114,7 +114,7 @@ async function writeCodexSessionFile({ fileName, entries }) {
 }
 
 /**
- * Update the fixture mc state so JSONL search can prove runner-owned routing.
+ * Update the fixture wo state so JSONL search can prove runner-owned routing.
  *
  * @param {string} thread
  * @returns {Promise<void>}

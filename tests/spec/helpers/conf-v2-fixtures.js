@@ -55,12 +55,12 @@ export async function withIsolatedProject(testBody) {
 async function writeFakeGoWorkflowTools(binDir) {
   await fs.mkdir(binDir, { recursive: true });
   await fs.writeFile(
-    path.join(binDir, 'ox'),
+    path.join(binDir, 'oz'),
     [
       '#!/bin/sh',
       'PATH="/usr/bin:/bin:$PATH"',
       'changes_dir="$PWD/docs/changes"',
-      'if [ "$1" = "--version" ]; then echo ox-conf-test; exit 0; fi',
+      'if [ "$1" = "--version" ]; then echo oz-conf-test; exit 0; fi',
       'if [ "$1" = "list" ]; then',
       "  printf '{\"changes\":['",
       '  first=1',
@@ -85,28 +85,28 @@ async function writeFakeGoWorkflowTools(binDir) {
     { mode: 0o755 },
   );
   await fs.writeFile(
-    path.join(binDir, 'mc'),
+    path.join(binDir, 'wo'),
     [
       '#!/bin/sh',
       'PATH="/usr/bin:/bin:$PATH"',
       'run_id="conf-test-run-$(date +%s%N)"',
-      'if [ "$1" = "--version" ]; then echo mc-conf-test; exit 0; fi',
+      'if [ "$1" = "--version" ]; then echo wo-conf-test; exit 0; fi',
       'if [ "$1" = "run" ]; then',
       '  change=""',
       '  while [ "$#" -gt 0 ]; do',
       '    if [ "$1" = "--change" ]; then shift; change="$1"; fi',
       '    shift || break',
       '  done',
-      '  run_dir="$PWD/.ccflow/runs/$run_id"',
+      '  run_dir="$PWD/.wo/runs/$run_id"',
       '  mkdir -p "$run_dir/logs"',
       '  echo log > "$run_dir/logs/executor.log"',
       '  cat > "$run_dir/state.json" <<JSON',
-      '{"runId":"$run_id","changeName":"$change","status":"running","stage":"execution","stages":{"execution":"running"},"paths":{"executor_log":".ccflow/runs/$run_id/logs/executor.log"},"sessions":{},"error":""}',
+      '{"run_id":"$run_id","change_name":"$change","status":"running","stage":"execution","stages":{"execution":"running"},"paths":{"executor_log":".wo/runs/$run_id/logs/executor.log"},"sessions":{},"error":""}',
       'JSON',
-      '  printf \'{"runId":"%s","changeName":"%s","status":"running","stage":"execution"}\\n\' "$run_id" "$change"',
+      '  printf \'{"run_id":"%s","change_name":"%s","status":"running","stage":"execution"}\\n\' "$run_id" "$change"',
       '  exit 0',
       'fi',
-      'echo "usage: mc run resume status abort --json --run-id --change"',
+      'echo "usage: wo run resume status abort --json --run-id --change"',
     ].join('\n'),
     { mode: 0o755 },
   );

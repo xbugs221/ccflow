@@ -1,6 +1,6 @@
 /**
  * PURPOSE: Share manual session creation option types without owning workflow
- * runner startup; mc resume/run is the only automatic workflow execution path.
+ * runner startup; wo resume/run is the only automatic workflow execution path.
  */
 import type { SessionProvider } from '../types/app';
 

@@ -8,7 +8,7 @@
  */
 export async function ensureGoRunnerWatchersForProjects(projects = [], watchWorkflowRun) {
   /**
-   * PURPOSE: Workflow listing can adopt external mc runs after startup, so the
+   * PURPOSE: Workflow listing can adopt external wo runs after startup, so the
    * caller must be able to make those newly visible runs live-refreshable.
    */
   if (typeof watchWorkflowRun !== 'function') {

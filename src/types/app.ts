@@ -84,6 +84,22 @@ export interface WorkflowControllerEvent {
   createdAt?: string;
 }
 
+export interface WorkflowDisplayLine {
+  id: string;
+  marker: string;
+  text: string;
+  status: string;
+  rawLine?: string;
+  sessionRef?: {
+    label: string;
+    sessionId?: string;
+    provider?: SessionProvider | string;
+    stageKey?: string;
+    address?: string;
+    routePath?: string;
+  } | null;
+}
+
 export interface ProjectWorkflow {
   id: string;
   title: string;
@@ -107,6 +123,9 @@ export interface ProjectWorkflow {
   runnerProcesses?: WorkflowRunnerProcess[];
   runnerDiagnostics?: Record<string, unknown>;
   diagnostics?: Record<string, unknown>;
+  workflowDisplay?: {
+    lines?: WorkflowDisplayLine[];
+  };
   openspecTaskProgress?: {
     name?: string;
     status?: string;
