@@ -422,6 +422,16 @@ export function useChatRealtimeHandlers({
 
       const activeViewSessionId =
         selectedSession?.id || currentSessionId || pendingViewSessionRef.current?.sessionId || null;
+      const selectedRouteSessionId = Number.isInteger(Number(selectedSession?.routeIndex))
+        ? `c${Number(selectedSession?.routeIndex)}`
+        : null;
+      const activeViewSessionIds = new Set(
+        [
+          activeViewSessionId,
+          selectedRouteSessionId,
+          selectedSession?.providerSessionId,
+        ].filter((value): value is string => typeof value === 'string' && value.length > 0),
+      );
       const isTemporaryViewSession = isTemporarySessionId(activeViewSessionId);
       const isCcflowRouteView = isCcflowRouteSessionId(activeViewSessionId);
       const messageRouteSessionId =
@@ -499,7 +509,7 @@ export function useChatRealtimeHandlers({
           return;
         }
 
-        if (messageRouteSessionId && messageRouteSessionId !== activeViewSessionId) {
+        if (messageRouteSessionId && !activeViewSessionIds.has(messageRouteSessionId)) {
           if (messageRouteSessionId && lifecycleMessageTypes.has(String(latestMessage.type))) {
             handleBackgroundLifecycle(messageRouteSessionId);
           }
@@ -1130,9 +1140,17 @@ export function useChatRealtimeHandlers({
         }
 
         const isCurrentSession =
-          statusSessionId === currentSessionId || (selectedSession && statusSessionId === selectedSession.id);
+          statusSessionId === currentSessionId
+          || (selectedSession && (
+            statusSessionId === selectedSession.id
+            || statusSessionId === selectedRouteSessionId
+            || statusSessionId === selectedSession.providerSessionId
+          ));
 
         if (latestMessage.isProcessing) {
+          if (latestMessage.turnId || latestMessage.turn_id) {
+            sessionStorage.setItem(`ccflow-active-turn:${statusSessionId}`, String(latestMessage.turnId || latestMessage.turn_id));
+          }
           onSessionProcessing?.(statusSessionId);
           if (isCurrentSession) {
             setIsLoading(true);
@@ -1143,6 +1161,7 @@ export function useChatRealtimeHandlers({
 
         onSessionInactive?.(statusSessionId);
         onSessionNotProcessing?.(statusSessionId);
+        sessionStorage.removeItem(`ccflow-active-turn:${statusSessionId}`);
         if (isCurrentSession) {
           clearLoadingIndicators();
         }

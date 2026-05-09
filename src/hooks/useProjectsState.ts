@@ -247,7 +247,24 @@ const resolveRouteSelection = (
     const session = getProjectSessions(matchedProject).find((entry) => (
       entry.routeIndex === sessionRouteIndex && !isWorkflowOwnedSession(matchedProject, entry)
     )) || null;
-    return { project: matchedProject, workflow: null, session };
+    if (session) {
+      return { project: matchedProject, workflow: null, session };
+    }
+
+    return {
+      project: matchedProject,
+      workflow: null,
+      session: {
+        id: `c${sessionRouteIndex}`,
+        routeIndex: sessionRouteIndex,
+        title: `会话${sessionRouteIndex}`,
+        summary: `会话${sessionRouteIndex}`,
+        provider: 'codex',
+        __provider: 'codex',
+        projectPath: matchedProject.fullPath || matchedProject.path || '',
+        __projectName: matchedProject.name,
+      } as ProjectSession,
+    };
   }
 
   if (workflowRunId && routeSegments.length >= 4 && routeSegments[2] === 'sessions') {

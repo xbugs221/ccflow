@@ -196,13 +196,29 @@ test('OpenCode REST routes handle models, sessions, messages, and delete', async
 // WebSocket integration assertions
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('server/index.js imports opencode SDK functions', async () => {
+test('server/index.js routes OpenCode chat through co client functions', async () => {
   const source = await readRepoFile('server/index.js');
-  assert.match(source, /from '\.\/opencode-sdk\.js'/, 'must import from opencode-sdk.js');
-  assert.match(source, /queryOpencode/, 'must import queryOpencode');
-  assert.match(source, /abortOpencodeSession/, 'must import abortOpencodeSession');
-  assert.match(source, /isOpencodeSessionActive/, 'must import isOpencodeSessionActive');
-  assert.match(source, /getActiveOpencodeSessions/, 'must import getActiveOpencodeSessions');
+  assert.match(source, /from '\.\/co-client\.js'/, 'must import co client');
+  assert.match(source, /buildCoRequest/, 'must build co requests');
+  assert.match(source, /writeCoRequest/, 'must write co requests');
+  assert.match(source, /observeCoConversationTurns\(coRequest\.conversation_id/, 'must observe async co state before tailing events');
+  assert.match(source, /excludeTurnId:\s*previousActiveTurnId/, 'queued running turns must wait for a different active turn');
+  assert.match(source, /observer\.seenTurnIds\.add\(activeTurnId\)/, 'conversation observer must remember every tailed turn');
+  assert.match(source, /observer\.timer = setTimeout\(poll, intervalMs\)/, 'conversation observer must continue polling after each active turn');
+  assert.doesNotMatch(source, /from '\.\/opencode-sdk\.js'/, 'chat websocket must not import opencode SDK runner functions');
+});
+
+test('server/index.js checks co before accepting chat submissions', async () => {
+  const source = await readRepoFile('server/index.js');
+  const codexBlock = source.slice(source.indexOf("data.type === 'codex-command'"), source.indexOf("data.type === 'opencode-command'"));
+  const opencodeBlock = source.slice(source.indexOf("data.type === 'opencode-command'"), source.indexOf("data.type === 'abort-session'"));
+
+  assert.ok(codexBlock.indexOf("await ensureCoAvailable('codex')") > -1, 'codex path must check co provider');
+  assert.ok(codexBlock.indexOf("await ensureCoAvailable('codex')") < codexBlock.indexOf('startManualSessionDraft'), 'codex path must check co before draft mutation');
+  assert.ok(codexBlock.indexOf('sendMessageAccepted') > codexBlock.indexOf('await writeCoRequest(coRequest)'), 'codex path must accept only after request write succeeds');
+  assert.ok(opencodeBlock.indexOf("await ensureCoAvailable('opencode')") > -1, 'opencode path must check co provider');
+  assert.ok(opencodeBlock.indexOf("await ensureCoAvailable('opencode')") < opencodeBlock.indexOf('startManualSessionDraft'), 'opencode path must check co before draft mutation');
+  assert.ok(opencodeBlock.indexOf('sendMessageAccepted') > opencodeBlock.indexOf('await writeCoRequest(coRequest)'), 'opencode path must accept only after request write succeeds');
 });
 
 test('server/index.js mounts OpenCode REST routes', async () => {
@@ -218,23 +234,46 @@ test('server/index.js handles opencode-command WebSocket messages', async () => 
 
 test('server/index.js handles opencode in abort-session', async () => {
   const source = await readRepoFile('server/index.js');
-  assert.match(source, /provider === 'opencode'[\s\S]*?abortOpencodeSession/, 'must abort opencode sessions');
+  assert.match(source, /provider = data\.provider === 'opencode' \? 'opencode' : 'codex'/, 'must preserve opencode provider on abort');
+  assert.match(source, /target_turn_id is required for abort/, 'must reject abort without target turn id');
+  assert.match(source, /op: 'abort'[\s\S]*?await writeCoRequest\(coRequest\)/, 'must submit abort through co');
+});
+
+test('server/index.js normalizes co event fields for existing frontend handlers', async () => {
+  const source = await readRepoFile('server/index.js');
+  assert.match(source, /function normalizeCoEventPayload/, 'must normalize co protocol events');
+  assert.match(source, /payload\.session_id[\s\S]*?normalized\.sessionId/, 'must map session_id to sessionId');
+  assert.match(source, /payload\.turn_id[\s\S]*?normalized\.turnId/, 'must map turn_id to turnId');
+  assert.match(source, /normalizeCoEventPayload\(payload\)/, 'co tail must normalize events before broadcast/finalize');
+  assert.match(source, /normalizeCoEventPayload\(JSON\.parse\(line\)\)/, 'co reconnect replay must normalize events before sending');
+  assert.match(source, /ccflowSessionId:\s*turn\.ccflowSessionId/, 'co reconnect replay must preserve route session id');
 });
 
 test('server/index.js handles opencode in check-session-status', async () => {
   const source = await readRepoFile('server/index.js');
-  assert.match(source, /provider === 'opencode'[\s\S]*?isOpencodeSessionActive/, 'must check opencode session status');
+  assert.match(source, /provider = data\.provider === 'opencode' \? 'opencode' : 'codex'/, 'must preserve opencode provider in status checks');
+  assert.match(source, /data\.ccflowSessionId \|\| data\.ccflow_session_id \|\| data\.sessionId/, 'status checks must prefer ccflow route conversation id');
+  assert.match(source, /recoverCoConversation\(sessionId/, 'must recover status from co conversation state');
+  assert.match(source, /turnId:\s*conversation\?\.active_turn_id/, 'status response must include active turn id for abort target');
+  assert.match(source, /turn_id:\s*conversation\?\.active_turn_id/, 'status response must include snake_case active turn id for protocol parity');
+});
+
+test('server/index.js lets finalized cN routes continue an existing co conversation', async () => {
+  const source = await readRepoFile('server/index.js');
+  assert.match(source, /startResult\.reason === 'missing-draft'[\s\S]*?readCoConversationState\(ccflowSessionId\)/, 'finalized cN routes must recover existing co state instead of rejecting follow-up messages');
+  assert.match(source, /canContinueExistingConversation[\s\S]*?Boolean\(existingConversation\?\.conversation_id\)/, 'follow-up sends must require an existing co conversation when the draft record is gone');
 });
 
 test('server/index.js includes opencode in get-active-sessions', async () => {
   const source = await readRepoFile('server/index.js');
-  assert.match(source, /opencode:\s*\[[\s\S]*?getActiveOpencodeSessions\(\)[\s\S]*?runnerSessions\.filter\(\(turn\)\s*=>\s*turn\.provider\s*===\s*'opencode'\)/, 'must include opencode and runner sessions in active sessions');
+  assert.match(source, /opencode:\s*activeTurns\.filter\(\(turn\) => turn\.provider === 'opencode'\)/, 'must include opencode co turns in active sessions');
 });
 
-test('server/index.js does not replay terminal runner turns after reconnect', async () => {
+test('server/index.js does not replay terminal co turns after reconnect', async () => {
   const source = await readRepoFile('server/index.js');
-  assert.match(source, /if\s*\(turn\.status !== 'running'\)\s*\{[\s\S]*?continue;/, 'runner replay must skip terminal turns');
-  assert.match(source, /runnerActiveTurns\.delete\(turnKey\)/, 'terminal runner events must be removed from active replay set');
+  assert.match(source, /const existingTail = coTurnTails\.get\(turnKey\)[\s\S]*?return existingTail;/, 'recover must not rebuild an existing co tail from the beginning');
+  assert.match(source, /if\s*\(turn\.status !== 'running'\)\s*\{[\s\S]*?continue;/, 'co replay must skip terminal turns');
+  assert.match(source, /coActiveTurns\.delete\(turnKey\)/, 'terminal co events must be removed from active replay set');
 });
 
 test('server/index.js handles opencode-error in catch block', async () => {
@@ -298,6 +337,34 @@ test('useChatRealtimeHandlers handles opencode-complete events', async () => {
 test('useChatRealtimeHandlers handles opencode-error events', async () => {
   const source = await readRepoFile('src/components/chat/hooks/useChatRealtimeHandlers.ts');
   assert.match(source, /case 'opencode-error':/, 'must handle opencode-error');
+});
+
+test('frontend stores active co turn id and sends it with abort requests', async () => {
+  const realtimeSource = await readRepoFile('src/components/chat/hooks/useChatRealtimeHandlers.ts');
+  const composerSource = await readRepoFile('src/components/chat/hooks/useChatComposerState.ts');
+
+  assert.match(realtimeSource, /ccflow-active-turn:\$\{statusSessionId\}/, 'session-status must persist active turn id');
+  assert.match(realtimeSource, /sessionStorage\.removeItem\(`ccflow-active-turn:\$\{statusSessionId\}`\)/, 'inactive status must clear stale active turn id');
+  assert.match(composerSource, /sessionStorage\.getItem\(`ccflow-active-turn:\$\{targetSessionId\}`\)/, 'abort must read active turn id for the target session');
+  assert.match(composerSource, /targetTurnId,/, 'abort websocket payload must include targetTurnId');
+});
+
+test('frontend check-session-status and abort use cN route aliases after provider finalization', async () => {
+  const chatSource = await readRepoFile('src/components/chat/view/ChatInterface.tsx');
+  const composerSource = await readRepoFile('src/components/chat/hooks/useChatComposerState.ts');
+
+  assert.match(chatSource, /activeRouteSessionId[\s\S]*?`c\$\{Number\(selectedSession\?\.routeIndex\)\}`/, 'status reconciliation must derive cN from routeIndex');
+  assert.match(chatSource, /ccflowSessionId:\s*activeRouteSessionId/, 'status checks must send ccflowSessionId');
+  assert.match(composerSource, /selectedRouteSessionId[\s\S]*?`c\$\{Number\(selectedSession\?\.routeIndex\)\}`/, 'abort must derive cN from routeIndex');
+  assert.match(composerSource, /ccflowSessionId:\s*selectedRouteSessionId/, 'abort must prefer cN ccflowSessionId');
+});
+
+test('Playwright fake co enforces duplicate request and stale abort semantics', async () => {
+  const source = await readRepoFile('tests/e2e/helpers/playwright-global-setup.js');
+  assert.match(source, /const seenRequestIds = new Set\(\)/, 'fake co must remember request ids');
+  assert.match(source, /seenRequestIds\.has\(request\.request_id\)/, 'fake co must ignore duplicate request ids');
+  assert.match(source, /activeTurnId && activeTurnId === request\.target_turn_id/, 'fake co abort must only affect the currently active target turn');
+  assert.match(source, /active\.delete\(request\.conversation_id\)[\s\S]*?processNext\(request\.conversation_id\)/, 'fake co abort processing must release the per-conversation queue');
 });
 
 test('useChatComposerState sends opencode-command messages', async () => {

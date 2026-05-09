@@ -69,14 +69,15 @@ import {
     clearProjectDirectoryCache,
     refreshMissingProjectPathCache
 } from './projects.js';
-import { queryCodex, abortCodexSession, isCodexSessionActive, getActiveCodexSessions } from './openai-codex.js';
-import { queryOpencode, abortOpencodeSession, isOpencodeSessionActive, getActiveOpencodeSessions } from './opencode-sdk.js';
 import {
-    abortRunnerTurn,
-    recoverRunnerTurns,
-    startRunnerTurn,
-    tailTurnEvents,
-} from './runner-turns.js';
+    buildCoRequest,
+    isCoProviderAvailable,
+    readCoConversationState,
+    resolveCoHome,
+    runCoDoctor,
+    tailCoEvents,
+    writeCoRequest,
+} from './co-client.js';
 import { resolveChatProjectOptions } from './chat-project-path.js';
 import { getUsageRemaining } from './usage-remaining.js';
 import {
@@ -135,10 +136,10 @@ const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true });
 const TEXT_SAMPLE_BYTES = 8192;
 const CC_ROUTE_SESSION_PATTERN = /^c\d+$/;
-const runnerTurnTails = new Map();
-const ccflowSessionTurnDirs = new Map();
-const providerSessionTurnDirs = new Map();
-const runnerActiveTurns = new Map();
+const coTurnTails = new Map();
+const coActiveTurns = new Map();
+const coConversationObservers = new Map();
+let coDoctorStatus = { ok: false, error: 'co doctor has not run', contract: '' };
 
 /**
  * Return the first non-empty string from mixed websocket protocol fields.
@@ -220,6 +221,23 @@ function sendMessageAccepted(writer, {
         clientRequestId,
         startRequestId,
     });
+}
+
+/**
+ * Require a healthy co binary before mutating manual-session state or accepting
+ * a user chat request.
+ */
+async function ensureCoAvailable(provider) {
+    if (!coDoctorStatus.ok) {
+        coDoctorStatus = await runCoDoctor();
+    }
+    if (!coDoctorStatus.ok) {
+        throw new Error(`co is unavailable: ${coDoctorStatus.error || 'doctor failed'}`);
+    }
+    if (!isCoProviderAvailable(coDoctorStatus, provider)) {
+        throw new Error(`co provider "${provider}" is unavailable`);
+    }
+    return coDoctorStatus;
 }
 
 /**
@@ -407,83 +425,104 @@ function broadcastChatEvent(payload, sourceUserId = null) {
 }
 
 /**
- * Attach a durable runner event stream to WebSocket clients and ccflow draft finalization.
+ * Attach a co event stream to WebSocket clients and ccflow draft finalization.
  */
-function attachRunnerTurnTail(turnDir, state, sourceUserId = null) {
-    const turnKey = state.turnId || turnDir;
-    runnerTurnTails.get(turnKey)?.close?.();
-    runnerActiveTurns.set(turnKey, {
-        turnDir,
-        id: state.providerSessionId || state.ccflowSessionId || state.turnId,
-        turnId: state.turnId,
+function attachCoTurnTail(turnId, state, sourceUserId = null) {
+    const turnKey = turnId || state.active_turn_id;
+    if (!turnKey) {
+        return null;
+    }
+    coActiveTurns.set(turnKey, {
+        id: state.provider_session_id || state.conversation_id || turnKey,
+        turnId: turnKey,
         provider: state.provider,
         status: state.status || 'running',
-        startedAt: state.startedAt || new Date().toISOString(),
-        projectPath: state.projectPath || '',
-        ccflowSessionId: state.ccflowSessionId || null,
-        providerSessionId: state.providerSessionId || null,
+        startedAt: state.started_at || state.updated_at || new Date().toISOString(),
+        projectPath: state.project_path || '',
+        ccflowSessionId: state.conversation_id || null,
+        providerSessionId: state.provider_session_id || null,
         sourceUserId,
     });
-    if (state.ccflowSessionId) {
-        ccflowSessionTurnDirs.set(state.ccflowSessionId, turnDir);
-    }
-    if (state.providerSessionId) {
-        providerSessionTurnDirs.set(state.providerSessionId, turnDir);
+    const existingTail = coTurnTails.get(turnKey);
+    if (existingTail) {
+        return existingTail;
     }
 
-    const tail = tailTurnEvents(turnDir, (payload) => {
-        const activeTurn = runnerActiveTurns.get(turnKey);
+    const tail = tailCoEvents(turnKey, (payload) => {
+        const normalizedPayload = normalizeCoEventPayload(payload);
+        const activeTurn = coActiveTurns.get(turnKey);
         let isTerminalPayload = false;
         if (activeTurn) {
-            if (payload?.sessionId) {
-                activeTurn.id = payload.sessionId;
-                activeTurn.providerSessionId = payload.sessionId;
-                providerSessionTurnDirs.set(payload.sessionId, turnDir);
+            if (normalizedPayload?.sessionId) {
+                activeTurn.id = normalizedPayload.sessionId;
+                activeTurn.providerSessionId = normalizedPayload.sessionId;
             }
-            if (payload?.type === `${activeTurn.provider}-complete` || payload?.type === 'session-aborted' || String(payload?.type || '').endsWith('-error')) {
+            if (normalizedPayload?.type === `${activeTurn.provider}-complete` || normalizedPayload?.type === 'session-aborted' || String(normalizedPayload?.type || '').endsWith('-error')) {
                 isTerminalPayload = true;
-                activeTurn.status = payload.type === 'session-aborted'
+                activeTurn.status = normalizedPayload.type === 'session-aborted'
                     ? 'aborted'
-                    : String(payload?.type || '').endsWith('-error')
+                    : String(normalizedPayload?.type || '').endsWith('-error')
                         ? 'failed'
                         : 'completed';
             }
         }
-        const indexedPayload = state.ccflowSessionId
+        const indexedPayload = state.conversation_id
             ? {
-                ...payload,
-                ccflowSessionId: state.ccflowSessionId,
-                ccflow_session_id: state.ccflowSessionId,
+                ...normalizedPayload,
+                ccflowSessionId: state.conversation_id,
+                ccflow_session_id: state.conversation_id,
             }
-            : payload;
-        if (state.ccflowSessionId && payload?.type === 'session-created' && payload?.sessionId) {
+            : normalizedPayload;
+        if (state.conversation_id && normalizedPayload?.type === 'session-created' && normalizedPayload?.sessionId) {
             void finalizeCcflowRouteSession({
                 projectName: '',
-                projectPath: state.projectPath || '',
-                provider: payload.provider || state.provider,
-                ccflowSessionId: state.ccflowSessionId,
-                startRequestId: state.clientRequestId || '',
-                providerSessionId: payload.sessionId,
+                projectPath: state.project_path || '',
+                provider: normalizedPayload.provider || state.provider,
+                ccflowSessionId: state.conversation_id,
+                startRequestId: '',
+                providerSessionId: normalizedPayload.sessionId,
             }).catch((error) => {
-                console.warn('[RunnerTurn] Failed to finalize manual session draft:', error.message);
+                console.warn('[co] Failed to finalize manual session draft:', error.message);
             });
         }
         broadcastChatEvent(indexedPayload, sourceUserId);
         if (isTerminalPayload) {
-            runnerTurnTails.get(turnKey)?.close?.();
-            runnerTurnTails.delete(turnKey);
-            runnerActiveTurns.delete(turnKey);
+            coTurnTails.get(turnKey)?.close?.();
+            coTurnTails.delete(turnKey);
+            coActiveTurns.delete(turnKey);
         }
     });
-    runnerTurnTails.set(turnKey, tail);
+    coTurnTails.set(turnKey, tail);
     return tail;
 }
 
 /**
- * Replay durable runner events to a reconnecting chat client.
+ * Convert co's snake_case protocol fields into the camelCase fields consumed by
+ * the existing browser realtime handlers while preserving the original payload.
  */
-async function replayRunnerTurnEvents(ws, sourceUserId = null) {
-    for (const turn of runnerActiveTurns.values()) {
+function normalizeCoEventPayload(payload) {
+    if (!payload || typeof payload !== 'object') {
+        return payload;
+    }
+
+    const normalized = { ...payload };
+    if (!normalized.sessionId && typeof payload.session_id === 'string') {
+        normalized.sessionId = payload.session_id;
+    }
+    if (!normalized.turnId && typeof payload.turn_id === 'string') {
+        normalized.turnId = payload.turn_id;
+    }
+    if (!normalized.conversationId && typeof payload.conversation_id === 'string') {
+        normalized.conversationId = payload.conversation_id;
+    }
+    return normalized;
+}
+
+/**
+ * Replay durable co events to a reconnecting chat client.
+ */
+async function replayCoTurnEvents(ws, sourceUserId = null) {
+    for (const turn of coActiveTurns.values()) {
         if (turn.status !== 'running') {
             continue;
         }
@@ -491,13 +530,13 @@ async function replayRunnerTurnEvents(ws, sourceUserId = null) {
             continue;
         }
 
-        const eventsPath = path.join(turn.turnDir, 'events.jsonl');
+        const eventsPath = path.join(resolveCoHome(), 'turns', turn.turnId, 'events.jsonl');
         let content = '';
         try {
             content = await fsPromises.readFile(eventsPath, 'utf8');
         } catch (error) {
             if (error?.code !== 'ENOENT') {
-                console.warn('[RunnerTurn] Failed to replay events:', error.message);
+                console.warn('[co] Failed to replay events:', error.message);
             }
             continue;
         }
@@ -510,12 +549,152 @@ async function replayRunnerTurnEvents(ws, sourceUserId = null) {
                 continue;
             }
             try {
-                ws.send(JSON.stringify(JSON.parse(line)));
+                const payload = normalizeCoEventPayload(JSON.parse(line));
+                const indexedPayload = turn.ccflowSessionId
+                    ? {
+                        ...payload,
+                        ccflowSessionId: turn.ccflowSessionId,
+                        ccflow_session_id: turn.ccflowSessionId,
+                    }
+                    : payload;
+                ws.send(JSON.stringify(indexedPayload));
             } catch (error) {
-                console.warn('[RunnerTurn] Failed to replay event:', error.message);
+                console.warn('[co] Failed to replay event:', error.message);
             }
         }
     }
+}
+
+/**
+ * Replay durable events for a known co conversation to one reconnecting client.
+ */
+async function replayCoConversationEvents(ws, conversation) {
+    const turns = Array.isArray(conversation?.turns) ? conversation.turns : [];
+    for (const turnId of turns) {
+        if (!turnId || ws.readyState !== WebSocket.OPEN) {
+            continue;
+        }
+        const eventsPath = path.join(resolveCoHome(), 'turns', turnId, 'events.jsonl');
+        let content = '';
+        try {
+            content = await fsPromises.readFile(eventsPath, 'utf8');
+        } catch (error) {
+            if (error?.code !== 'ENOENT') {
+                console.warn('[co] Failed to replay conversation events:', error.message);
+            }
+            continue;
+        }
+
+        for (const line of content.split('\n')) {
+            if (ws.readyState !== WebSocket.OPEN) {
+                return;
+            }
+            if (!line.trim()) {
+                continue;
+            }
+            try {
+                const payload = normalizeCoEventPayload(JSON.parse(line));
+                ws.send(JSON.stringify({
+                    ...payload,
+                    ccflowSessionId: conversation.conversation_id,
+                    ccflow_session_id: conversation.conversation_id,
+                }));
+            } catch (error) {
+                console.warn('[co] Failed to replay conversation event:', error.message);
+            }
+        }
+    }
+}
+
+/**
+ * Recover a running co conversation and start tailing its active turn.
+ */
+async function recoverCoConversation(conversationId, sourceUserId = null) {
+    const state = await readCoConversationState(conversationId);
+    if (!state?.active_turn_id) {
+        return state;
+    }
+    attachCoTurnTail(state.active_turn_id, state, sourceUserId);
+    return state;
+}
+
+/**
+ * Keep observing a co conversation after requests are queued. co serializes
+ * requests per conversation, so a later turn may appear long after the current
+ * active turn finishes.
+ */
+function observeCoConversationTurns(conversationId, writer, provider, sourceUserId = null, { excludeTurnId = '', intervalMs = 250, idleMs = 300000 } = {}) {
+    if (!conversationId) {
+        return null;
+    }
+
+    let observer = coConversationObservers.get(conversationId);
+    if (!observer) {
+        observer = {
+            closed: false,
+            idleStartedAt: null,
+            provider,
+            sourceUserId,
+            writers: new Set(),
+            seenTurnIds: new Set(),
+            timer: null,
+        };
+        coConversationObservers.set(conversationId, observer);
+    }
+
+    observer.provider = provider || observer.provider;
+    observer.sourceUserId = sourceUserId ?? observer.sourceUserId;
+    if (writer) {
+        observer.writers.add(writer);
+    }
+    if (excludeTurnId) {
+        observer.seenTurnIds.add(excludeTurnId);
+    }
+
+    if (observer.timer) {
+        return observer;
+    }
+
+    const poll = async () => {
+        if (observer.closed) {
+            return;
+        }
+
+        try {
+            const state = await recoverCoConversation(conversationId, observer.sourceUserId);
+            const activeTurnId = state?.active_turn_id || '';
+            if (activeTurnId) {
+                observer.idleStartedAt = null;
+                if (!observer.seenTurnIds.has(activeTurnId)) {
+                    observer.seenTurnIds.add(activeTurnId);
+                    const status = {
+                        type: 'session-status',
+                        sessionId: conversationId,
+                        provider: state.provider || observer.provider,
+                        isProcessing: true,
+                        turnId: activeTurnId,
+                    };
+                    for (const targetWriter of observer.writers) {
+                        targetWriter.send(status);
+                    }
+                }
+            } else if (observer.idleStartedAt === null) {
+                observer.idleStartedAt = Date.now();
+            }
+        } catch (error) {
+            console.warn('[co] Failed while observing conversation:', error.message);
+        }
+
+        if (observer.idleStartedAt !== null && Date.now() - observer.idleStartedAt >= idleMs) {
+            observer.closed = true;
+            coConversationObservers.delete(conversationId);
+            return;
+        }
+        observer.timer = setTimeout(poll, intervalMs);
+    };
+
+    observer.timer = setTimeout(poll, intervalMs);
+    return observer;
 }
 
 /**
@@ -923,10 +1102,38 @@ app.use('/api/settings', authenticateToken, settingsRoutes);
 
 app.get('/api/diagnostics/runtime-dependencies', authenticateToken, async (req, res) => {
     /**
-     * PURPOSE: Expose resolved Go CLI paths and versions for settings and
+     * PURPOSE: Expose resolved CLI paths and co doctor status for settings and
      * diagnostics without allowing runtime path overrides.
      */
-    res.json(getRuntimeDependencyDiagnostics());
+    if (!coDoctorStatus.ok) {
+        coDoctorStatus = await runCoDoctor();
+    }
+    const diagnostics = getRuntimeDependencyDiagnostics();
+    res.json({
+        ...diagnostics,
+        ok: diagnostics.ok && coDoctorStatus.ok,
+        commands: {
+            ...diagnostics.commands,
+            co: {
+                name: 'co',
+                path: coDoctorStatus.home || resolveCoHome(),
+                version: {
+                    ok: coDoctorStatus.ok,
+                    output: coDoctorStatus.version || '',
+                    error: coDoctorStatus.error || '',
+                },
+                contract: {
+                    ok: coDoctorStatus.ok,
+                    version: coDoctorStatus.contract || '',
+                    capabilities: Object.entries(coDoctorStatus.providers || {})
+                        .filter(([, provider]) => provider?.available)
+                        .map(([name]) => name),
+                    missing: coDoctorStatus.ok ? [] : ['co-request-v1'],
+                    error: coDoctorStatus.error || '',
+                },
+            },
+        },
+    });
 });
 
 // CLI Authentication API Routes (protected)
@@ -2112,14 +2319,6 @@ function handleChatConnection(ws, request) {
                     indexContext.ccflowSessionId,
                 );
                 const runtimeProvider = runtime?.provider || payload.provider || indexContext.provider || 'codex';
-                if (runtime?.cancelRequested) {
-                    if (runtimeProvider === 'codex') {
-                        abortCodexSession(payload.sessionId);
-                    } else if (runtimeProvider === 'opencode') {
-                        abortOpencodeSession(payload.sessionId);
-                    }
-                    return;
-                }
                 await finalizeCcflowRouteSession({
                     projectName: indexContext.projectName || '',
                     projectPath: indexContext.projectPath || '',
@@ -2137,7 +2336,7 @@ function handleChatConnection(ws, request) {
 
     // Wrap WebSocket with writer for consistent interface with SSEStreamWriter
     const writer = new WebSocketWriter(ws, sendToChatClients);
-    void replayRunnerTurnEvents(ws, request?.user?.id || null);
+    void replayCoTurnEvents(ws, request?.user?.id || null);
 
     ws.on('message', async (message) => {
         let data = null;
@@ -2164,6 +2363,7 @@ function handleChatConnection(ws, request) {
                 const codexProviderOptions = shouldStartCcflowDraft
                     ? { ...resolvedOptions, sessionId: undefined, resume: false }
                     : resolvedOptions;
+                await ensureCoAvailable('codex');
                 writer.setSessionIndexContext(ccflowSessionId ? {
                     projectName: codexProviderOptions?.projectName || data.options?.projectName || '',
                     projectPath: codexProviderOptions?.projectPath || codexProviderOptions?.cwd || '',
@@ -2179,7 +2379,11 @@ function handleChatConnection(ws, request) {
                         'codex',
                         startRequestId,
                     );
-                    if (!startResult.started) {
+                    const existingConversation = !startResult.started && startResult.reason === 'missing-draft'
+                        ? await readCoConversationState(ccflowSessionId).catch(() => null)
+                        : null;
+                    const canContinueExistingConversation = startResult.reason === 'already-started' || Boolean(existingConversation?.conversation_id);
+                    if (!startResult.started && !canContinueExistingConversation) {
                         writer.send({
                             type: 'session-start-rejected',
                             sessionId: ccflowSessionId,
@@ -2191,16 +2395,8 @@ function handleChatConnection(ws, request) {
                         return;
                     }
                 }
-                sendMessageAccepted(writer, {
-                    sessionId: ccflowSessionId || codexProviderOptions?.sessionId || data.sessionId || data.options?.sessionId,
-                    ccflowSessionId,
-                    provider: 'codex',
-                    clientRequestId: startRequestId,
-                    startRequestId,
-                });
-                console.log('[DEBUG] Codex message:', data.command || '[Continue/Resume]');
+                console.log('[DEBUG] Codex request:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', codexProviderOptions?.projectPath || codexProviderOptions?.cwd || 'Unknown');
-                console.log('🔄 Session:', codexProviderOptions?.sessionId ? 'Resume' : 'New');
                 console.log('🤖 Model:', codexProviderOptions?.model || 'default');
                 const sessionModelState = codexProviderOptions?.sessionId
                     ? await getSessionModelState(
@@ -2212,19 +2408,50 @@ function handleChatConnection(ws, request) {
                     ...codexProviderOptions,
                     reasoningEffort: sessionModelState.reasoningEffort || codexProviderOptions?.reasoningEffort,
                 };
-                const turn = await startRunnerTurn({
+                const coRequest = buildCoRequest({
                     provider: 'codex',
+                    requestId: startRequestId || data.clientRequestId || data.options?.clientRequestId || '',
+                    conversationId: ccflowSessionId || codexOptions?.conversationId || codexOptions?.sessionId || data.sessionId,
                     projectPath: codexOptions?.projectPath || codexOptions?.cwd || '',
-                    prompt: data.command || '',
-                    ccflowSessionId,
-                    providerSessionId: codexOptions?.sessionId || '',
-                    clientRequestId: startRequestId || data.clientRequestId || data.options?.clientRequestId || '',
+                    text: data.command || '',
+                    activePolicy: data.activePolicy || data.active_policy || data.options?.activePolicy || 'queue',
+                    targetTurnId: data.targetTurnId || data.target_turn_id || data.options?.targetTurnId || '',
+                    providerSessionIdHint: codexOptions?.sessionId || '',
                     model: codexOptions?.model || '',
-                    reasoningEffort: codexOptions?.reasoningEffort || '',
-                    permissionMode: codexOptions?.permissionMode || '',
+                    options: {
+                        model: codexOptions?.model || '',
+                        reasoningEffort: codexOptions?.reasoningEffort || '',
+                        permissionMode: codexOptions?.permissionMode || '',
+                    },
                     attachments: codexOptions?.attachments || [],
+                    actor: {
+                        userId: request?.user?.id || 'local',
+                        deviceId: data.deviceId || data.options?.deviceId || '',
+                        windowId: data.windowId || data.options?.windowId || '',
+                    },
                 });
-                attachRunnerTurnTail(turn.turnDir, turn.state, request?.user?.id || null);
+                const previousActiveTurnId = (await readCoConversationState(coRequest.conversation_id).catch(() => null))?.active_turn_id || '';
+                await writeCoRequest(coRequest);
+                sendMessageAccepted(writer, {
+                    sessionId: ccflowSessionId || codexProviderOptions?.sessionId || data.sessionId || data.options?.sessionId,
+                    ccflowSessionId,
+                    provider: 'codex',
+                    clientRequestId: startRequestId,
+                    startRequestId,
+                });
+                const recovered = await recoverCoConversation(coRequest.conversation_id, request?.user?.id || null);
+                if (recovered?.active_turn_id) {
+                    writer.send({
+                        type: 'session-status',
+                        sessionId: coRequest.conversation_id,
+                        provider: 'codex',
+                        isProcessing: true,
+                        turnId: recovered.active_turn_id,
+                    });
+                }
+                observeCoConversationTurns(coRequest.conversation_id, writer, 'codex', request?.user?.id || null, {
+                    excludeTurnId: previousActiveTurnId,
+                });
             } else if (data.type === 'opencode-command') {
                 if (!acceptChatRequestId(data.clientRequestId || data.options?.clientRequestId)) {
                     console.warn('[DEBUG] Ignoring duplicate OpenCode request:', data.clientRequestId || data.options?.clientRequestId);
@@ -2243,6 +2470,7 @@ function handleChatConnection(ws, request) {
                 const opencodeProviderOptions = shouldStartCcflowDraft
                     ? { ...resolvedOptions, sessionId: undefined, resume: false }
                     : resolvedOptions;
+                await ensureCoAvailable('opencode');
                 writer.setSessionIndexContext(ccflowSessionId ? {
                     projectName: opencodeProviderOptions?.projectName || data.options?.projectName || '',
                     projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
@@ -2258,7 +2486,11 @@ function handleChatConnection(ws, request) {
                         'opencode',
                         startRequestId,
                     );
-                    if (!startResult.started) {
+                    const existingConversation = !startResult.started && startResult.reason === 'missing-draft'
+                        ? await readCoConversationState(ccflowSessionId).catch(() => null)
+                        : null;
+                    const canContinueExistingConversation = startResult.reason === 'already-started' || Boolean(existingConversation?.conversation_id);
+                    if (!startResult.started && !canContinueExistingConversation) {
                         writer.send({
                             type: 'session-start-rejected',
                             sessionId: ccflowSessionId,
@@ -2270,6 +2502,31 @@ function handleChatConnection(ws, request) {
                         return;
                     }
                 }
+                console.log('[DEBUG] OpenCode request:', data.command || '[Continue/Resume]');
+                console.log('📁 Project:', opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || 'Unknown');
+                const coRequest = buildCoRequest({
+                    provider: 'opencode',
+                    requestId: startRequestId || data.clientRequestId || data.options?.clientRequestId || '',
+                    conversationId: ccflowSessionId || opencodeProviderOptions?.conversationId || opencodeProviderOptions?.sessionId || data.sessionId,
+                    projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
+                    text: data.command || '',
+                    activePolicy: data.activePolicy || data.active_policy || data.options?.activePolicy || 'queue',
+                    targetTurnId: data.targetTurnId || data.target_turn_id || data.options?.targetTurnId || '',
+                    providerSessionIdHint: opencodeProviderOptions?.sessionId || '',
+                    options: {
+                        model: opencodeProviderOptions?.model || '',
+                        reasoningEffort: opencodeProviderOptions?.reasoningEffort || '',
+                        permissionMode: opencodeProviderOptions?.permissionMode || '',
+                    },
+                    attachments: opencodeProviderOptions?.attachments || [],
+                    actor: {
+                        userId: request?.user?.id || 'local',
+                        deviceId: data.deviceId || data.options?.deviceId || '',
+                        windowId: data.windowId || data.options?.windowId || '',
+                    },
+                });
+                const previousActiveTurnId = (await readCoConversationState(coRequest.conversation_id).catch(() => null))?.active_turn_id || '';
+                await writeCoRequest(coRequest);
                 sendMessageAccepted(writer, {
                     sessionId: ccflowSessionId || opencodeProviderOptions?.sessionId || data.sessionId || data.options?.sessionId,
                     ccflowSessionId,
@@ -2277,63 +2534,71 @@ function handleChatConnection(ws, request) {
                     clientRequestId: startRequestId,
                     startRequestId,
                 });
-                console.log('[DEBUG] OpenCode message:', data.command || '[Continue/Resume]');
-                console.log('📁 Project:', opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || 'Unknown');
-                console.log('🔄 Session:', opencodeProviderOptions?.sessionId ? 'Resume' : 'New');
-                const turn = await startRunnerTurn({
-                    provider: 'opencode',
-                    projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
-                    prompt: data.command || '',
-                    ccflowSessionId,
-                    providerSessionId: opencodeProviderOptions?.sessionId || '',
-                    clientRequestId: startRequestId || data.clientRequestId || data.options?.clientRequestId || '',
-                    attachments: opencodeProviderOptions?.attachments || [],
+                const recovered = await recoverCoConversation(coRequest.conversation_id, request?.user?.id || null);
+                if (recovered?.active_turn_id) {
+                    writer.send({
+                        type: 'session-status',
+                        sessionId: coRequest.conversation_id,
+                        provider: 'opencode',
+                        isProcessing: true,
+                        turnId: recovered.active_turn_id,
+                    });
+                }
+                observeCoConversationTurns(coRequest.conversation_id, writer, 'opencode', request?.user?.id || null, {
+                    excludeTurnId: previousActiveTurnId,
                 });
-                attachRunnerTurnTail(turn.turnDir, turn.state, request?.user?.id || null);
             } else if (data.type === 'abort-session') {
                 console.log('[DEBUG] Abort session request:', data.sessionId);
                 const provider = data.provider === 'opencode' ? 'opencode' : 'codex';
                 const ccflowSessionId = isCcflowRouteSessionId(data.ccflowSessionId || data.sessionId)
                     ? (data.ccflowSessionId || data.sessionId)
                     : null;
-                let targetSessionId = data.sessionId;
-                let success;
+                let success = false;
 
                 if (ccflowSessionId) {
-                    const runtime = await getManualSessionDraftRuntime(
-                        data.projectName || '',
-                        data.projectPath || '',
-                        ccflowSessionId,
-                    );
                     await markManualSessionDraftCancelRequested(
                         data.projectName || '',
                         data.projectPath || '',
                         ccflowSessionId,
                         data.startRequestId || '',
                     );
-                    targetSessionId = runtime?.pendingProviderSessionId || null;
-                    if (!targetSessionId) {
-                        success = true;
-                    }
                 }
-
-                const turnDir = ccflowSessionId
-                    ? ccflowSessionTurnDirs.get(ccflowSessionId)
-                    : providerSessionTurnDirs.get(targetSessionId);
-                if (turnDir) {
-                    success = await abortRunnerTurn(turnDir);
-                } else if (targetSessionId) {
-                    if (provider === 'codex') {
-                        success = abortCodexSession(targetSessionId);
-                    } else if (provider === 'opencode') {
-                        success = abortOpencodeSession(targetSessionId);
-                    }
+                await ensureCoAvailable(provider);
+                const resolvedOptions = await resolveChatProjectOptions(data.options, extractProjectDirectory).catch(() => ({}));
+                const conversationId = ccflowSessionId || data.conversationId || data.conversation_id || data.sessionId;
+                const targetTurnId = data.targetTurnId || data.target_turn_id || data.options?.targetTurnId || '';
+                if (!targetTurnId) {
+                    writer.send({
+                        type: 'session-aborted',
+                        sessionId: data.sessionId,
+                        actualSessionId: conversationId,
+                        ccflowSessionId,
+                        provider,
+                        success: false,
+                        error: 'target_turn_id is required for abort',
+                    });
+                    return;
                 }
+                const coRequest = buildCoRequest({
+                    op: 'abort',
+                    provider,
+                    requestId: data.clientRequestId || data.options?.clientRequestId || '',
+                    conversationId,
+                    projectPath: data.projectPath || resolvedOptions?.projectPath || resolvedOptions?.cwd || '',
+                    targetTurnId,
+                    actor: {
+                        userId: request?.user?.id || 'local',
+                        deviceId: data.deviceId || data.options?.deviceId || '',
+                        windowId: data.windowId || data.options?.windowId || '',
+                    },
+                });
+                await writeCoRequest(coRequest);
+                success = true;
 
                 writer.send({
                     type: 'session-aborted',
                     sessionId: data.sessionId,
-                    actualSessionId: targetSessionId,
+                    actualSessionId: conversationId,
                     ccflowSessionId,
                     provider,
                     success
@@ -2343,29 +2608,24 @@ function handleChatConnection(ws, request) {
             } else if (data.type === 'check-session-status') {
                 // Check if a specific session is currently processing
                 const provider = data.provider === 'opencode' ? 'opencode' : 'codex';
-                const sessionId = data.sessionId;
-                let isActive = false;
-                const runnerTurnDir = providerSessionTurnDirs.get(sessionId) || ccflowSessionTurnDirs.get(sessionId);
-
-                if (runnerTurnDir) {
-                    isActive = [...runnerActiveTurns.values()].some((turn) => (
-                        turn.turnDir === runnerTurnDir && turn.status === 'running'
-                    ));
-                } else if (provider === 'codex') {
-                    isActive = isCodexSessionActive(sessionId);
-                } else if (provider === 'opencode') {
-                    isActive = isOpencodeSessionActive(sessionId);
+                const sessionId = data.ccflowSessionId || data.ccflow_session_id || data.sessionId;
+                const conversation = await recoverCoConversation(sessionId, request?.user?.id || null);
+                const isActive = conversation?.status === 'running' || Boolean(conversation?.active_turn_id);
+                if (conversation?.conversation_id && !isActive) {
+                    await replayCoConversationEvents(ws, conversation);
                 }
 
                 writer.send({
                     type: 'session-status',
                     sessionId,
                     provider,
-                    isProcessing: isActive
+                    isProcessing: isActive,
+                    turnId: conversation?.active_turn_id || '',
+                    turn_id: conversation?.active_turn_id || '',
                 });
             } else if (data.type === 'get-active-sessions') {
                 // Get all currently active sessions
-                const runnerSessions = [...runnerActiveTurns.values()]
+                const activeTurns = [...coActiveTurns.values()]
                     .filter((turn) => turn.status === 'running')
                     .map((turn) => ({
                         id: turn.providerSessionId || turn.ccflowSessionId || turn.turnId,
@@ -2376,14 +2636,8 @@ function handleChatConnection(ws, request) {
                         ccflowSessionId: turn.ccflowSessionId,
                     }));
                 const activeSessions = {
-                    codex: [
-                        ...getActiveCodexSessions(),
-                        ...runnerSessions.filter((turn) => turn.provider === 'codex'),
-                    ],
-                    opencode: [
-                        ...getActiveOpencodeSessions(),
-                        ...runnerSessions.filter((turn) => turn.provider === 'opencode'),
-                    ],
+                    codex: activeTurns.filter((turn) => turn.provider === 'codex'),
+                    opencode: activeTurns.filter((turn) => turn.provider === 'opencode'),
                 };
                 writer.send({
                     type: 'active-sessions',
@@ -3280,8 +3534,12 @@ async function startServer() {
         const distIndexPath = path.join(__dirname, '../dist/index.html');
         const isProduction = fs.existsSync(distIndexPath);
 
-        // Runner turns survive Web service restarts by keeping CLI execution out of this process.
-        console.log(`${c.info('[INFO]')} Using ccflow-runner for Codex/OpenCode turns`);
+        coDoctorStatus = await runCoDoctor();
+        if (coDoctorStatus.ok) {
+            console.log(`${c.info('[INFO]')} Using co for Codex/OpenCode turns at ${c.dim(coDoctorStatus.home || resolveCoHome())}`);
+        } else {
+            console.log(`${c.warn('[WARN]')} co unavailable; chat sending is disabled: ${coDoctorStatus.error || 'doctor failed'}`);
+        }
         console.log(`${c.info('[INFO]')} Running in ${c.bright(isProduction ? 'PRODUCTION' : 'DEVELOPMENT')} mode`);
 
         if (!isProduction) {
@@ -3322,9 +3580,6 @@ async function startServer() {
             console.info('[WorkflowAutoRunner] Disabled; wo is the workflow state machine.');
 
             try {
-                await recoverRunnerTurns((turnDir, state) => {
-                    attachRunnerTurnTail(turnDir, state, null);
-                });
                 // Start watching provider and Go runner output folders after the workflow runner is live.
                 await setupProjectsWatcher();
                 await setupGoRunnerWatchers();

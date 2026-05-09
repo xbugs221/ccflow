@@ -620,8 +620,12 @@ function ChatInterface({
 
     const activeViewSessionId =
       selectedSession?.id || currentSessionId || pendingViewSessionRef.current?.sessionId || null;
+    const activeRouteSessionId = Number.isInteger(Number(selectedSession?.routeIndex))
+      ? `c${Number(selectedSession?.routeIndex)}`
+      : null;
+    const statusSessionId = activeRouteSessionId || activeViewSessionId;
 
-    if (!activeViewSessionId || isTemporarySessionId(activeViewSessionId)) {
+    if (!statusSessionId || (isTemporarySessionId(statusSessionId) && !activeRouteSessionId)) {
       return;
     }
 
@@ -629,7 +633,9 @@ function ChatInterface({
     const reconcileSessionStatus = () => {
       sendMessage({
         type: 'check-session-status',
-        sessionId: activeViewSessionId,
+        sessionId: statusSessionId,
+        ccflowSessionId: activeRouteSessionId,
+        ccflow_session_id: activeRouteSessionId,
         provider: statusProvider,
       });
     };
@@ -652,6 +658,7 @@ function ChatInterface({
     isInputFocused,
     effectiveProvider,
     selectedSession?.id,
+    selectedSession?.routeIndex,
     sendMessage,
     shouldPauseStatusReconcile,
   ]);

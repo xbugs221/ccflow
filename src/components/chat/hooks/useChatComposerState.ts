@@ -659,7 +659,9 @@ export function useChatComposerState({
           : candidateSessionId;
       const selectedRouteSessionId = isCcflowRouteSessionId(selectedSession?.id)
         ? selectedSession?.id || null
-        : null;
+        : Number.isInteger(Number(selectedSession?.routeIndex))
+          ? `c${Number(selectedSession?.routeIndex)}`
+          : null;
       const ccflowSessionId = selectedRouteSessionId || (
         !effectiveSessionId && isCcflowRouteSessionId(candidateSessionId)
           ? candidateSessionId
@@ -1001,22 +1003,27 @@ export function useChatComposerState({
       pendingViewSessionRef.current?.sessionId || null,
       selectedSession?.id || null,
     ];
+    const selectedRouteSessionId = Number.isInteger(Number(selectedSession?.routeIndex))
+      ? `c${Number(selectedSession?.routeIndex)}`
+      : null;
 
     const concreteSessionId =
       candidateSessionIds.find((sessionId) => Boolean(sessionId) && !isTemporarySessionId(sessionId)) || null;
     const draftSessionId =
-      pendingViewSessionRef.current?.draftSessionId || selectedSession?.id || currentSessionId || null;
-    const targetSessionId = concreteSessionId || (isTemporarySessionId(draftSessionId) ? draftSessionId : null);
+      selectedRouteSessionId || pendingViewSessionRef.current?.draftSessionId || selectedSession?.id || currentSessionId || null;
+    const targetSessionId = selectedRouteSessionId || concreteSessionId || (isTemporarySessionId(draftSessionId) ? draftSessionId : null);
 
     if (!targetSessionId) {
       console.warn('Abort requested but no session ID is available yet.');
       return;
     }
+    const targetTurnId = sessionStorage.getItem(`ccflow-active-turn:${targetSessionId}`) || '';
 
     sendMessage({
       type: 'abort-session',
       sessionId: targetSessionId,
-      ccflowSessionId: isTemporarySessionId(draftSessionId) ? draftSessionId : null,
+      ccflowSessionId: selectedRouteSessionId || (isTemporarySessionId(draftSessionId) ? draftSessionId : null),
+      targetTurnId,
       startRequestId: pendingViewSessionRef.current?.clientRequestId || null,
       projectName: getActiveSessionProjectName(selectedProject, selectedSession),
       projectPath: getActiveSessionProjectPath(selectedProject, selectedSession),

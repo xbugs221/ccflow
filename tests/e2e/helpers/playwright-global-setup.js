@@ -83,7 +83,126 @@ function ensureWorkflowToolFixtures(cwd) {
     ].join('\n'),
     { mode: 0o755 },
   );
+  fs.writeFileSync(
+    path.join(binDir, 'co'),
+    [
+      '#!/bin/sh',
+      'if [ "$1" = "doctor" ] && [ "$2" = "--json" ]; then',
+      '  printf \'{"ok":true,"contract":"co-request-v1","version":"playwright","home":"%s","providers":{"codex":{"available":true},"opencode":{"available":true}}}\\n\' "${CCFLOW_CO_HOME:-$HOME/.local/state/ccflow/co}"',
+      '  exit 0',
+      'fi',
+      'echo "usage: co doctor --json" >&2',
+      'exit 1',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
   return binDir;
+}
+
+/**
+ * Start a tiny fake co daemon for browser specs. It owns only the external co
+ * contract boundary: pending request files in, conversation state/events out.
+ * @param {string} cwd
+ * @param {NodeJS.ProcessEnv} childEnv
+ * @returns {import('node:child_process').ChildProcess}
+ */
+function startFakeCoDaemon(cwd, childEnv) {
+  const scriptPath = path.join(cwd, '.tmp', 'playwright-fake-co-daemon.mjs');
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.writeFileSync(
+    scriptPath,
+    [
+      "import fs from 'node:fs';",
+      "import path from 'node:path';",
+      "const coHome = process.env.CCFLOW_CO_HOME;",
+      "const seen = new Set();",
+      "const seenRequestIds = new Set();",
+      "const queues = new Map();",
+      "const active = new Set();",
+      "const cancelledTurns = new Set();",
+      "const delayMs = Number.parseInt(process.env.CCFLOW_FAKE_CO_DELAY_MS || '5000', 10);",
+      "function writeJson(filePath, value) {",
+      "  fs.mkdirSync(path.dirname(filePath), { recursive: true });",
+      "  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\\n`, 'utf8');",
+      "}",
+      "function appendEvent(turnId, event) {",
+      "  const eventPath = path.join(coHome, 'turns', turnId, 'events.jsonl');",
+      "  fs.mkdirSync(path.dirname(eventPath), { recursive: true });",
+      "  fs.appendFileSync(eventPath, `${JSON.stringify(event)}\\n`, 'utf8');",
+      "}",
+      "function finishTurn(request, turnId) {",
+      "  if (cancelledTurns.has(turnId)) return;",
+      "  const conversationDir = path.join(coHome, 'conversations', request.conversation_id);",
+      "  const turnDir = path.join(coHome, 'turns', turnId);",
+      "  appendEvent(turnId, { type: `${request.provider}-response`, provider: request.provider, turn_id: turnId, conversation_id: request.conversation_id, session_id: `provider_${request.conversation_id}`, data: { type: 'item', itemType: 'agent_message', message: { content: `fake co response: ${request.text}` } } });",
+      "  appendEvent(turnId, { type: `${request.provider}-complete`, provider: request.provider, turn_id: turnId, conversation_id: request.conversation_id, session_id: `provider_${request.conversation_id}` });",
+      "  writeJson(path.join(turnDir, 'state.json'), { contract: 'co-turn-v1', turn_id: turnId, conversation_id: request.conversation_id, provider: request.provider, status: 'completed' });",
+      "  writeJson(path.join(conversationDir, 'state.json'), { contract: 'co-conversation-v1', conversation_id: request.conversation_id, project_path: request.project_path, provider: request.provider, provider_session_id: `provider_${request.conversation_id}`, active_turn_id: '', status: 'completed', updated_at: new Date().toISOString(), turns: [turnId] });",
+      "  active.delete(request.conversation_id);",
+      "  processNext(request.conversation_id);",
+      "}",
+      "function startTurn(request) {",
+      "  const turnId = `turn_${request.request_id}`;",
+      "  const conversationDir = path.join(coHome, 'conversations', request.conversation_id);",
+      "  const turnDir = path.join(coHome, 'turns', turnId);",
+      "  fs.mkdirSync(conversationDir, { recursive: true });",
+      "  fs.mkdirSync(turnDir, { recursive: true });",
+      "  if (request.op === 'abort') {",
+      "    writeJson(path.join(turnDir, 'request.json'), request);",
+      "    const statePath = path.join(conversationDir, 'state.json');",
+      "    const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : null;",
+      "    const activeTurnId = state?.active_turn_id || '';",
+      "    if (activeTurnId && activeTurnId === request.target_turn_id) {",
+      "      cancelledTurns.add(activeTurnId);",
+      "      appendEvent(activeTurnId, { type: 'session-aborted', provider: request.provider, turn_id: activeTurnId, conversation_id: request.conversation_id, session_id: `provider_${request.conversation_id}` });",
+      "      writeJson(path.join(coHome, 'turns', activeTurnId, 'state.json'), { contract: 'co-turn-v1', turn_id: activeTurnId, conversation_id: request.conversation_id, provider: request.provider, status: 'aborted' });",
+      "      writeJson(statePath, { ...(state || {}), active_turn_id: '', status: 'aborted', updated_at: new Date().toISOString() });",
+      "    }",
+      "    writeJson(path.join(turnDir, 'state.json'), { contract: 'co-turn-v1', turn_id: turnId, conversation_id: request.conversation_id, provider: request.provider, status: activeTurnId === request.target_turn_id ? 'completed' : 'ignored' });",
+      "    active.delete(request.conversation_id);",
+      "    processNext(request.conversation_id);",
+      "    return;",
+      "  }",
+      "  writeJson(path.join(turnDir, 'request.json'), request);",
+      "  writeJson(path.join(turnDir, 'state.json'), { contract: 'co-turn-v1', turn_id: turnId, conversation_id: request.conversation_id, provider: request.provider, status: 'running' });",
+      "  writeJson(path.join(conversationDir, 'state.json'), { contract: 'co-conversation-v1', conversation_id: request.conversation_id, project_path: request.project_path, provider: request.provider, provider_session_id: `provider_${request.conversation_id}`, active_turn_id: turnId, status: 'running', updated_at: new Date().toISOString(), turns: [turnId] });",
+      "  appendEvent(turnId, { type: 'session-created', provider: request.provider, turn_id: turnId, conversation_id: request.conversation_id, session_id: `provider_${request.conversation_id}` });",
+      "  setTimeout(() => finishTurn(request, turnId), delayMs);",
+      "}",
+      "function processNext(conversationId) {",
+      "  if (active.has(conversationId)) return;",
+      "  const queue = queues.get(conversationId) || [];",
+      "  const request = queue.shift();",
+      "  if (!request) return;",
+      "  active.add(conversationId);",
+      "  startTurn(request);",
+      "}",
+      "function handleRequest(request) {",
+      "  if (request.request_id && seenRequestIds.has(request.request_id)) return;",
+      "  if (request.request_id) seenRequestIds.add(request.request_id);",
+      "  const queue = queues.get(request.conversation_id) || [];",
+      "  queue.push(request);",
+      "  queues.set(request.conversation_id, queue);",
+      "  processNext(request.conversation_id);",
+      "}",
+      "setInterval(() => {",
+      "  const pendingDir = path.join(coHome, 'requests', 'pending');",
+      "  if (!fs.existsSync(pendingDir)) return;",
+      "  for (const fileName of fs.readdirSync(pendingDir)) {",
+      "    if (!fileName.endsWith('.json') || seen.has(fileName)) continue;",
+      "    seen.add(fileName);",
+      "    const request = JSON.parse(fs.readFileSync(path.join(pendingDir, fileName), 'utf8'));",
+      "    handleRequest(request);",
+      "  }",
+      "}, 100);",
+    ].join('\n'),
+    'utf8',
+  );
+  return spawn(process.execPath, [scriptPath], {
+    cwd,
+    env: childEnv,
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
 }
 
 /**
@@ -213,8 +332,10 @@ export default async function globalSetup() {
     ...process.env,
     PORT: serverPort,
     VITE_PORT: vitePort,
+    CCFLOW_CO_HOME: process.env.CCFLOW_CO_HOME || path.join(cwd, '.tmp', 'playwright-co-home'),
     CCFLOW_FAKE_RUNNER: process.env.CCFLOW_FAKE_RUNNER || '1',
     CCFLOW_FAKE_RUNNER_DELAY_MS: process.env.CCFLOW_FAKE_RUNNER_DELAY_MS || '8000',
+    CCFLOW_FAKE_CO_DELAY_MS: process.env.CCFLOW_FAKE_CO_DELAY_MS || '8000',
   };
   childEnv.PATH = `${ensureWorkflowToolFixtures(cwd)}:${childEnv.PATH || ''}`;
 
@@ -226,9 +347,12 @@ export default async function globalSetup() {
   let serverStderr = '';
   let viteStdout = '';
   let viteStderr = '';
+  let fakeCoProcess = null;
 
   stopPortListeners(serverPort);
   stopPortListeners(vitePort);
+  fs.rmSync(childEnv.CCFLOW_CO_HOME, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+  fakeCoProcess = startFakeCoDaemon(cwd, childEnv);
 
   if (!isUrlReady(serverUrl)) {
     serverProcess = spawn('pnpm', ['run', 'server'], {
@@ -269,5 +393,6 @@ export default async function globalSetup() {
   return async () => {
     await stopProcess(viteProcess);
     await stopProcess(serverProcess);
+    await stopProcess(fakeCoProcess);
   };
 }

@@ -120,6 +120,18 @@ function inferRole(stage) {
 }
 
 /**
+ * Parse both historical repair_N keys and the current wo fix_N keys.
+ */
+function parseFixStage(stage) {
+  const match = String(stage || '').trim().match(/^(?:repair|fix)_(\d+)$/);
+  if (!match) {
+    return null;
+  }
+  const iteration = Number(match[1]);
+  return Number.isInteger(iteration) && iteration > 0 ? iteration : null;
+}
+
+/**
  * Build a human-facing stage label.
  */
 function stageLabel(stage) {
@@ -128,9 +140,9 @@ function stageLabel(stage) {
   if (reviewMatch) {
     return Number(reviewMatch[1]) === 1 ? '初审' : `${Number(reviewMatch[1])}审`;
   }
-  const repairMatch = normalized.match(/^repair_(\d+)$/);
-  if (repairMatch) {
-    return Number(repairMatch[1]) === 1 ? '初修' : `${Number(repairMatch[1])}修`;
+  const fixIteration = parseFixStage(normalized);
+  if (fixIteration) {
+    return fixIteration === 1 ? '初修' : `${fixIteration}修`;
   }
   return STAGE_LABELS[normalized] || normalized;
 }
@@ -149,9 +161,9 @@ function stageDisplayText(stage) {
   if (normalized === 'archive') {
     return 'archive';
   }
-  const repairMatch = normalized.match(/^repair_(\d+)$/);
-  if (repairMatch) {
-    return `${repairMatch[1]} fix`;
+  const fixIteration = parseFixStage(normalized);
+  if (fixIteration) {
+    return `${fixIteration} fix`;
   }
   const reviewMatch = normalized.match(/^review_(\d+)$/);
   if (reviewMatch) {
@@ -184,12 +196,9 @@ function parseRunnerStage(stage) {
       return { known: true, displayable: true, order: iteration * 2 - 1 };
     }
   }
-  const repairMatch = normalized.match(/^repair_(\d+)$/);
-  if (repairMatch) {
-    const iteration = Number(repairMatch[1]);
-    if (Number.isInteger(iteration) && iteration > 0) {
-      return { known: true, displayable: true, order: iteration * 2 };
-    }
+  const fixIteration = parseFixStage(normalized);
+  if (fixIteration) {
+    return { known: true, displayable: true, order: fixIteration * 2 };
   }
   return { known: false, displayable: true, order: Number.MAX_SAFE_INTEGER };
 }
@@ -437,6 +446,9 @@ function sessionJsonlLabel(sessionId, logPath = '') {
  */
 function findSessionRefForStage(stageKey, childSessions, runnerProcesses, warnings, jsonlName) {
   const hasJsonlName = Boolean(String(jsonlName || '').trim());
+  if (!hasJsonlName && !parseRunnerStage(stageKey).known) {
+    return null;
+  }
   const stageProcess = runnerProcesses.find((entry) => entry.stage === stageKey && entry.sessionId);
   const stageSession = childSessions.find((session) => (
     session.stageKey === stageKey

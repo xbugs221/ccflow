@@ -393,10 +393,37 @@ function renderWorkflowDisplayLines(
     };
   };
 
+  const buildChildSessionForStage = (stageKey: string): WorkflowChildSession | null => (
+    (workflow.childSessions || []).find((session) => session.stageKey === stageKey) || null
+  );
+
+  const renderSessionButton = (
+    session: WorkflowChildSession,
+    label: string,
+    key: string,
+  ) => (
+    <button
+      key={key}
+      type="button"
+      className="truncate text-left text-sm font-medium text-primary underline decoration-current underline-offset-2"
+      onClick={() => onNavigateToSession(
+        session.id,
+        buildWorkflowSessionRouteOptions(project, workflow, session),
+      )}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <section className="space-y-2" data-testid={testId} aria-label="workflow display">
       {lines.map((line) => {
         const session = buildSession(line);
+        const fixReviewMatch = line.text.match(/^(\d+)\s+fix\s+review$/);
+        const fixOnlyMatch = line.text.match(/^(\d+)\s+fix$/);
+        const splitFixSession = fixReviewMatch
+          ? buildChildSessionForStage(`fix_${fixReviewMatch[1]}`) || buildChildSessionForStage(`repair_${fixReviewMatch[1]}`)
+          : null;
         return (
           <div
             key={line.id}
@@ -406,17 +433,23 @@ function renderWorkflowDisplayLines(
             <span className={line.marker === '✓' ? 'text-green-500' : line.marker === '→' ? 'text-blue-500' : 'text-muted-foreground'}>
               {line.marker || ' '}
             </span>
-            {session ? (
-              <button
-                type="button"
-                className="truncate text-left text-sm font-medium text-primary underline decoration-current underline-offset-2"
-                onClick={() => onNavigateToSession(
-                  session.id,
-                  buildWorkflowSessionRouteOptions(project, workflow, session),
-                )}
-              >
-                {line.text}
-              </button>
+            {fixReviewMatch && (splitFixSession || session) ? (
+              <span className="flex min-w-0 items-center gap-1 font-medium">
+                <span>{fixReviewMatch[1]}</span>
+                {splitFixSession
+                  ? renderSessionButton(splitFixSession, 'fix', `${line.id}:fix`)
+                  : <span>fix</span>}
+                {session
+                  ? renderSessionButton(session, 'review', `${line.id}:review`)
+                  : <span>review</span>}
+              </span>
+            ) : fixOnlyMatch && session ? (
+              <span className="flex min-w-0 items-center gap-1 font-medium">
+                <span>{fixOnlyMatch[1]}</span>
+                {renderSessionButton(session, 'fix', `${line.id}:fix`)}
+              </span>
+            ) : session ? (
+              renderSessionButton(session, line.text, `${line.id}:session`)
             ) : (
               <span className="font-medium text-foreground">{line.text}</span>
             )}

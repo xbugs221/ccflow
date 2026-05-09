@@ -192,6 +192,76 @@ test('wo read model keeps workflow display text from state lines', async () => {
   });
 });
 
+test('wo read model treats current fix stages as repair rounds', async () => {
+  await withFakePath(async ({ projectPath }) => {
+    const runRoot = path.join(projectPath, '.wo', 'runs', 'run-fix-rounds');
+    await fs.mkdir(runRoot, { recursive: true });
+    await fs.writeFile(path.join(runRoot, 'state.json'), JSON.stringify({
+      run_id: 'run-fix-rounds',
+      change_name: 'change-a',
+      status: 'done',
+      stage: 'done',
+      stages: {
+        execution: 'completed',
+        review_1: 'completed',
+        fix_1: 'completed',
+        review_2: 'completed',
+        fix_2: 'completed',
+        review_3: 'completed',
+      },
+      sessions: {
+        'codex:executor': 'executor-session',
+        'codex:reviewer': 'reviewer-session',
+      },
+    }));
+
+    const [workflow] = await listWoWorkflowReadModels(projectPath);
+    assert.deepEqual(workflow.workflowDisplay.lines.map((line) => line.text), [
+      'start',
+      'review',
+      '1 fix review',
+      '2 fix review',
+    ]);
+    assert.ok(!workflow.workflowDisplay.lines.some((line) => line.text === '1 fix'));
+    assert.ok(!workflow.workflowDisplay.lines.some((line) => line.text === 'fix_1'));
+    assert.equal(workflow.childSessions.find((session) => session.stageKey === 'fix_1')?.id, 'executor-session');
+    assert.ok(!workflow.diagnostics.warnings.some((warning) => warning.includes('Unknown runner stage: fix_1')));
+  });
+});
+
+test('wo read model leaves unknown terminal state rows non-clickable', async () => {
+  await withFakePath(async ({ projectPath }) => {
+    const runRoot = path.join(projectPath, '.wo', 'runs', 'run-blocked-after-fix');
+    await fs.mkdir(runRoot, { recursive: true });
+    await fs.writeFile(path.join(runRoot, 'state.json'), JSON.stringify({
+      run_id: 'run-blocked-after-fix',
+      change_name: 'change-a',
+      status: 'blocked',
+      stage: 'blocked_review_limit',
+      stages: {
+        execution: 'completed',
+        review_1: 'completed',
+        fix_1: 'completed',
+        blocked_review_limit: 'blocked',
+      },
+      sessions: {
+        'codex:executor': 'executor-session',
+        'codex:reviewer': 'reviewer-session',
+      },
+    }));
+
+    const [workflow] = await listWoWorkflowReadModels(projectPath);
+    assert.deepEqual(workflow.workflowDisplay.lines.map((line) => line.text), [
+      'start',
+      'review',
+      '1 fix',
+      'blocked_review_limit',
+    ]);
+    assert.equal(workflow.workflowDisplay.lines.find((line) => line.text === '1 fix')?.sessionRef?.sessionId, 'executor-session');
+    assert.equal(workflow.workflowDisplay.lines.find((line) => line.text === 'blocked_review_limit')?.sessionRef, undefined);
+  });
+});
+
 test('wo read model links role jsonl checklist rows to frontend sessions', async () => {
   await withFakePath(async ({ projectPath }) => {
     const runRoot = path.join(projectPath, '.wo', 'runs', 'run-role-sessions');

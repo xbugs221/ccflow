@@ -1,7 +1,7 @@
 {
   "name": "ccflow",
-  "version": "20260425",
-  "description": "A web-based UI for workflows by claude-code/codex-cli",
+  "version": "2026.05.09",
+  "description": "A web-based UI for agentic workflows",
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "main": "server/index.js",
