@@ -12,8 +12,9 @@
     "user": "U",
     "error": "エラー",
     "tool": "ツール",
-    "claude": "Claude",
-    "codex": "Codex"
+    "codex": "Codex",
+    "opencode": "OpenCode",
+    "assistant": "アシスタント"
   },
   "tools": {
     "settings": "ツール設定",
@@ -54,8 +55,8 @@
   "interactive": {
     "title": "インタラクティブプロンプト",
     "waiting": "CLIでの応答を待っています",
-    "instruction": "Claudeが実行されているターミナルでオプションを選択してください。",
-    "selectedOption": "✓ Claudeがオプション{{number}}を選択しました",
+    "instruction": "実行中のエージェントターミナルでオプションを選択してください。",
+    "selectedOption": "✓ オプション{{number}}を選択しました",
     "instructionDetail": "CLIでは、矢印キーまたは番号を入力してオプションを選択します。"
   },
   "thinking": {
@@ -82,7 +83,7 @@
     "title": "実装プラン"
   },
   "usageLimit": {
-    "resetAt": "Claudeの使用制限に達しました。制限は**{{time}} {{timezone}}** - {{date}}にリセットされます"
+    "resetAt": "使用制限に達しました。制限は**{{time}} {{timezone}}** - {{date}}にリセットされます"
   },
   "codex": {
     "permissionMode": "権限モード",
@@ -115,42 +116,6 @@
     "clickToChangeMode": "クリックで権限モードを変更（または入力欄でTab）",
     "showAllCommands": "すべてのコマンドを表示"
   },
-  "thinkingMode": {
-    "selector": {
-      "title": "思考モード",
-      "description": "拡張思考によりClaudeがより多くの選択肢を検討できます",
-      "active": "有効",
-      "tip": "高い思考モードは時間がかかりますが、より深い分析が得られます"
-    },
-    "modes": {
-      "none": {
-        "name": "標準",
-        "description": "通常のClaudeの応答",
-        "prefix": ""
-      },
-      "think": {
-        "name": "Think",
-        "description": "基本的な拡張思考",
-        "prefix": "think"
-      },
-      "thinkHard": {
-        "name": "Think Hard",
-        "description": "より深い検討",
-        "prefix": "think hard"
-      },
-      "thinkHarder": {
-        "name": "Think Harder",
-        "description": "代替案を含む深い分析",
-        "prefix": "think harder"
-      },
-      "ultrathink": {
-        "name": "Ultrathink",
-        "description": "最大限の思考予算",
-        "prefix": "ultrathink"
-      }
-    },
-    "buttonTitle": "思考モード: {{mode}}"
-  },
   "providerSelection": {
     "title": "AIアシスタントを選択",
     "description": "新しい会話を始めるプロバイダーを選択してください",
@@ -158,21 +123,20 @@
     "selectReasoning": "思考深度",
     "providerInfo": {
       "anthropic": "by Anthropic",
-      "openai": "by OpenAI"
+      "openai": "by OpenAI",
+      "opencode": "OpenCode CLI"
     },
     "readyPrompt": {
-      "claude": "{{model}}でClaudeを使用する準備ができました。下にメッセージを入力してください。",
       "codex": "{{model}} と {{effort}} の思考深度で Codex を使う準備ができました。下にメッセージを入力してください。",
-      "default": "上からプロバイダーを選択して開始してください"
+      "default": "上からプロバイダーを選択して開始してください",
+      "opencode": "OpenCode を使用できます。下にメッセージを入力してください。"
     }
   },
   "sessionControls": {
     "title": "セッション設定",
-    "claudeDescription": "これ以降のメッセージに新しい Claude モデルと思考モードを適用します。",
     "codexDescription": "これ以降のメッセージに新しい Codex モデルと思考深度を適用します。",
     "buttonTitle": "現在のモデル {{model}}、現在の深度 {{depth}}",
     "model": "モデル",
-    "thinkingMode": "思考モード",
     "reasoningEffort": "思考深度",
     "close": "閉じる"
   },
@@ -212,10 +176,10 @@
     },
     "loading": "ターミナルを読み込んでいます...",
     "connecting": "シェルに接続しています...",
-    "startSession": "新しいClaudeセッションを開始",
+    "startSession": "新しいエージェントセッションを開始",
     "resumeSession": "セッションを再開: {{displayName}}...",
     "runCommand": "{{projectName}}で{{command}}を実行",
-    "startCli": "{{projectName}}でClaude CLIを起動しています",
+    "startCli": "{{projectName}}でエージェント CLI を起動しています",
     "defaultCommand": "コマンド"
   }
 }

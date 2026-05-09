@@ -3,12 +3,12 @@ import StandaloneShell from '../standalone-shell/view/StandaloneShell';
 import { IS_PLATFORM } from '../../constants/config';
 
 /**
- * Reusable login modal component for Claude and Codex CLI authentication.
+ * Reusable login modal component for Codex CLI authentication.
  *
  * @param {Object} props
  * @param {boolean} props.isOpen - Whether the modal is visible
  * @param {Function} props.onClose - Callback when modal is closed
- * @param {'claude'|'codex'} props.provider - Which CLI provider to authenticate with
+ * @param {'codex'} props.provider - Which CLI provider to authenticate with
  * @param {Object} props.project - Project object containing name and path information
  * @param {Function} props.onComplete - Callback when login process completes (receives exitCode)
  * @param {string} props.customCommand - Optional custom command to override defaults
@@ -17,7 +17,7 @@ import { IS_PLATFORM } from '../../constants/config';
 function LoginModal({
   isOpen,
   onClose,
-  provider = 'claude',
+  provider = 'codex',
   project,
   onComplete,
   customCommand,
@@ -30,19 +30,15 @@ function LoginModal({
     if (customCommand) return customCommand;
 
     switch (provider) {
-      case 'claude':
-        return isAuthenticated ? 'claude setup-token --dangerously-skip-permissions' : isOnboarding ? 'claude /exit --dangerously-skip-permissions' : 'claude /login --dangerously-skip-permissions';
       case 'codex':
         return IS_PLATFORM ? 'codex login --device-auth' : 'codex login';
       default:
-        return isAuthenticated ? 'claude setup-token --dangerously-skip-permissions' : isOnboarding ? 'claude /exit --dangerously-skip-permissions' : 'claude /login --dangerously-skip-permissions';
+        return IS_PLATFORM ? 'codex login --device-auth' : 'codex login';
     }
   };
 
   const getTitle = () => {
     switch (provider) {
-      case 'claude':
-        return 'Claude CLI Login';
       case 'codex':
         return 'Codex CLI Login';
       default:

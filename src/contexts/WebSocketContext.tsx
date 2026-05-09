@@ -152,9 +152,13 @@ const useWebSocketProviderState = (): WebSocketContextType => {
   useEffect(() => {
     unmountedRef.current = false;
     connect();
+    (window as any).__ccflowTestCloseWebSocket = () => {
+      wsRef.current?.close();
+    };
     
     return () => {
       unmountedRef.current = true;
+      delete (window as any).__ccflowTestCloseWebSocket;
       clearHeartbeatTimers();
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);

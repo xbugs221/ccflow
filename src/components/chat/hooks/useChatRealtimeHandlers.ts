@@ -882,6 +882,23 @@ export function useChatRealtimeHandlers({
           console.log('[Codex] Unhandled item type:', codexData.itemType, codexData);
         }
 
+        if (
+          codexData.type === 'item' &&
+          codexData.itemType === 'agent_message' &&
+          typeof codexData.message?.content === 'string' &&
+          codexData.message.content.trim()
+        ) {
+          setChatMessages((previous) => [
+            ...markUserMessagesPersisted(previous),
+            {
+              type: 'assistant',
+              content: codexData.message.content,
+              timestamp: new Date(),
+              source: 'codex-realtime',
+            },
+          ]);
+        }
+
         if (codexData.type === 'turn_complete') {
           clearLoadingIndicators();
           setChatMessages((previous) => markUserMessagesPersisted(previous));
@@ -984,6 +1001,23 @@ export function useChatRealtimeHandlers({
 
         if (opencodeData.type === 'item' && !['agent_message', 'command_execution', 'error'].includes(opencodeData.itemType)) {
           console.log('[OpenCode] Unhandled item type:', opencodeData.itemType, opencodeData);
+        }
+
+        if (
+          opencodeData.type === 'item' &&
+          opencodeData.itemType === 'agent_message' &&
+          typeof opencodeData.message?.content === 'string' &&
+          opencodeData.message.content.trim()
+        ) {
+          setChatMessages((previous) => [
+            ...markUserMessagesPersisted(previous),
+            {
+              type: 'assistant',
+              content: opencodeData.message.content,
+              timestamp: new Date(),
+              source: 'opencode-realtime',
+            },
+          ]);
         }
 
         if (opencodeData.type === 'turn_complete') {

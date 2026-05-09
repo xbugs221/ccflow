@@ -1,14 +1,10 @@
 /**
- * PURPOSE: Render a compact in-session control for switching model and reasoning depth.
+ * PURPOSE: Render compact Codex model and reasoning-effort controls in the chat composer.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-
-import ClaudeLogo from '../../../llm-logo-provider/ClaudeLogo';
-import { thinkingModes } from '../../constants/thinkingModes';
-import type { Provider } from '../../types/types';
 
 type ModelOption = {
   value: string;
@@ -21,14 +17,10 @@ type ReasoningOption = {
   description?: string;
 };
 
-type ProviderLogoProps = {
-  className?: string;
-};
-
 /**
  * Render the OpenAI/ChatGPT mark for Codex-backed model controls.
  */
-function ChatGptLogo({ className = 'w-4 h-4' }: ProviderLogoProps) {
+function ChatGptLogo({ className = 'w-4 h-4' }: { className?: string }) {
   return (
     <svg
       fill="currentColor"
@@ -43,26 +35,7 @@ function ChatGptLogo({ className = 'w-4 h-4' }: ProviderLogoProps) {
 }
 
 /**
- * Render Kimi's provider mark for Kimi-backed Claude-compatible model controls.
- */
-function KimiLogo({ className = 'w-4 h-4' }: ProviderLogoProps) {
-  return (
-    <svg
-      fill="currentColor"
-      fillRule="evenodd"
-      viewBox="0 0 24 24"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M21.846 0a1.923 1.923 0 110 3.846H20.15a.226.226 0 01-.227-.226V1.923C19.923.861 20.784 0 21.846 0z" />
-      <path d="M11.065 11.199l7.257-7.2c.137-.136.06-.41-.116-.41H14.3a.164.164 0 00-.117.051l-7.82 7.756c-.122.12-.302.013-.302-.179V3.82c0-.127-.083-.23-.185-.23H3.186c-.103 0-.186.103-.186.23V19.77c0 .128.083.23.186.23h2.69c.103 0 .186-.102.186-.23v-3.25c0-.069.025-.135.069-.178l2.424-2.406a.158.158 0 01.205-.023l6.484 4.772a7.677 7.677 0 003.453 1.283c.108.012.2-.095.2-.23v-3.06c0-.117-.07-.212-.164-.227a5.028 5.028 0 01-2.027-.807l-5.613-4.064c-.117-.078-.132-.279-.028-.381z" />
-    </svg>
-  );
-}
-
-/**
  * Convert GPT model labels into the compact trigger digit.
- * GPT-5.5 -> 5, GPT-5.4-Mini -> 4, GPT-5 -> 5.
  */
 function toCompactCodexModelLabel(modelLabel: string): string {
   const normalizedLabel = modelLabel.trim();
@@ -76,17 +49,6 @@ function toCompactCodexModelLabel(modelLabel: string): string {
   if (gptMajorMatch) return gptMajorMatch[1].slice(-1);
 
   return normalizedLabel;
-}
-
-/**
- * Convert Claude/Kimi model labels into a compact trigger form (one digit).
- *   Kimi-k2.6 -> 6
- */
-function toCompactClaudeModelLabel(modelLabel: string): string {
-  const normalized = modelLabel.trim().toLowerCase();
-  const kimiMatch = normalized.match(/^kimi-k\d+\.(\d+)$/);
-  if (kimiMatch) return kimiMatch[1];
-  return normalized;
 }
 
 /**
@@ -106,12 +68,6 @@ function toCompactDepthLabel(depthLabel: string): string {
 }
 
 interface SessionModelControlsProps {
-  provider: Provider | string;
-  thinkingMode: string;
-  setThinkingMode: (mode: string) => void;
-  claudeModel: string;
-  setClaudeModel: (model: string) => void;
-  claudeModelOptions: ModelOption[];
   codexModel: string;
   setCodexModel: (model: string) => void;
   codexModelOptions: ModelOption[];
@@ -121,15 +77,9 @@ interface SessionModelControlsProps {
 }
 
 /**
- * Provide a single in-session dropdown that mirrors CLI-style model and effort switching.
+ * Provide Codex-only in-session controls for model and reasoning-effort switching.
  */
 export default function SessionModelControls({
-  provider,
-  thinkingMode,
-  setThinkingMode,
-  claudeModel,
-  setClaudeModel,
-  claudeModelOptions,
   codexModel,
   setCodexModel,
   codexModelOptions,
@@ -201,41 +151,14 @@ export default function SessionModelControls({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const thinkingModeLabel = useMemo(() => {
-    const mode = thinkingModes.find((m) => m.id === thinkingMode);
-    return mode?.name || thinkingMode;
-  }, [thinkingMode]);
-
   const currentModelLabel = useMemo(() => {
-    if (provider === 'codex') {
-      return codexModelOptions.find((option) => option.value === codexModel)?.label || codexModel;
-    }
+    return codexModelOptions.find((option) => option.value === codexModel)?.label || codexModel;
+  }, [codexModel, codexModelOptions]);
 
-    return claudeModelOptions.find((option) => option.value === claudeModel)?.label || claudeModel;
-  }, [claudeModel, claudeModelOptions, codexModel, codexModelOptions, provider]);
-
-  const currentDepthLabel = provider === 'codex'
-    ? codexReasoningOptions.find((option) => option.value === codexReasoningEffort)?.label || codexReasoningEffort
-    : thinkingModeLabel;
-
-  const depthOptions = provider === 'codex'
-    ? codexReasoningOptions
-    : thinkingModes.map((mode) => ({
-      value: mode.id,
-      label: mode.name,
-      description: mode.description,
-    }));
-  const currentDepthValue = provider === 'codex' ? codexReasoningEffort : thinkingMode;
-  const selectedDepthOption = depthOptions.find((option) => option.value === currentDepthValue);
-  const triggerLabel = provider === 'codex'
-    ? `${toCompactCodexModelLabel(currentModelLabel)}${toCompactDepthLabel(currentDepthLabel)}`
-    : `${toCompactClaudeModelLabel(currentModelLabel)}${toCompactDepthLabel(currentDepthLabel)}`;
-
-  const ProviderIcon = provider === 'codex'
-    ? ChatGptLogo
-    : currentModelLabel.toLowerCase().includes('kimi')
-      ? KimiLogo
-      : ClaudeLogo;
+  const currentDepthLabel = codexReasoningOptions.find((option) => option.value === codexReasoningEffort)?.label
+    || codexReasoningEffort;
+  const selectedDepthOption = codexReasoningOptions.find((option) => option.value === codexReasoningEffort);
+  const triggerLabel = `${toCompactCodexModelLabel(currentModelLabel)}${toCompactDepthLabel(currentDepthLabel)}`;
 
   return (
     <div className="relative">
@@ -250,7 +173,7 @@ export default function SessionModelControls({
           depth: currentDepthLabel,
         })}
       >
-        {ProviderIcon && <ProviderIcon className="w-3.5 h-3.5 text-muted-foreground" />}
+        <ChatGptLogo className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-xs sm:text-sm font-medium">{triggerLabel}</span>
         <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
       </button>
@@ -270,7 +193,7 @@ export default function SessionModelControls({
                 {t('sessionControls.title')}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {t(provider === 'codex' ? 'sessionControls.codexDescription' : 'sessionControls.claudeDescription')}
+                {t('sessionControls.codexDescription')}
               </p>
             </div>
             <button
@@ -290,17 +213,11 @@ export default function SessionModelControls({
                   {t('sessionControls.model')}
                 </span>
                 <select
-                  value={provider === 'codex' ? codexModel : claudeModel}
-                  onChange={(event) => {
-                    if (provider === 'codex') {
-                      setCodexModel(event.target.value);
-                      return;
-                    }
-                    setClaudeModel(event.target.value);
-                  }}
+                  value={codexModel}
+                  onChange={(event) => setCodexModel(event.target.value)}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                 >
-                  {(provider === 'codex' ? codexModelOptions : claudeModelOptions).map((option) => (
+                  {codexModelOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -310,23 +227,15 @@ export default function SessionModelControls({
 
               <label className="block min-w-0 space-y-1.5">
                 <span className="text-xs font-medium text-muted-foreground">
-                  {provider === 'codex'
-                    ? t('sessionControls.reasoningEffort')
-                    : t('sessionControls.thinkingMode')}
+                  {t('sessionControls.reasoningEffort')}
                 </span>
                 <select
                   data-testid="session-model-controls-depth"
-                  value={currentDepthValue}
-                  onChange={(event) => {
-                    if (provider === 'codex') {
-                      setCodexReasoningEffort(event.target.value);
-                      return;
-                    }
-                    setThinkingMode(event.target.value);
-                  }}
+                  value={codexReasoningEffort}
+                  onChange={(event) => setCodexReasoningEffort(event.target.value)}
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                 >
-                  {depthOptions.map((option) => (
+                  {codexReasoningOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>

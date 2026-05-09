@@ -16,10 +16,6 @@ type AgentConfig = {
 };
 
 const agentConfig: Record<AgentProvider, AgentConfig> = {
-  claude: {
-    name: 'Claude',
-    color: 'blue',
-  },
   codex: {
     name: 'Codex',
     color: 'gray',

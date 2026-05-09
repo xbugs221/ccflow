@@ -7,11 +7,6 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import {
-  __clearActiveClaudeSessionsForTest,
-  __registerActiveClaudeSessionForTest,
-} from '../../server/claude-sdk.js';
-
 /**
  * Build an isolated HOME directory for project discovery tests.
  * @returns {Promise<string>} Temporary HOME path.
@@ -20,7 +15,7 @@ async function createTempHome() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-active-sessions-'));
 }
 
-test('getProjects includes live Claude sessions before Claude history files exist', { concurrency: false }, async () => {
+test('getProjects ignores live Claude SDK sessions after provider removal', { concurrency: false }, async () => {
   const originalHome = process.env.HOME;
   const tempHome = await createTempHome();
   process.env.HOME = tempHome;
@@ -28,24 +23,12 @@ test('getProjects includes live Claude sessions before Claude history files exis
   const liveProjectPath = path.join(tempHome, 'workspace', 'live-claude-project');
   await fs.mkdir(liveProjectPath, { recursive: true });
 
-  __clearActiveClaudeSessionsForTest();
-  __registerActiveClaudeSessionForTest({
-    id: 'claude-live-session-1',
-    projectPath: liveProjectPath,
-    startedAt: '2026-03-15T08:00:00.000Z',
-  });
-
   try {
     const { getProjects } = await import(`../../server/projects.js?test=${Date.now()}`);
     const projects = await getProjects();
 
-    assert.equal(projects.length, 1, 'expected a synthetic project for the live Claude session');
-    assert.equal(projects[0].fullPath, liveProjectPath);
-    assert.equal(projects[0].sessions?.[0]?.id, 'claude-live-session-1');
-    assert.equal(projects[0].sessions?.[0]?.status, 'active');
-    assert.equal(projects[0].sessionMeta?.total, 1);
+    assert.equal(projects.length, 0, 'Claude live sessions should no longer create projects');
   } finally {
-    __clearActiveClaudeSessionsForTest();
     if (originalHome !== undefined) {
       process.env.HOME = originalHome;
     } else {

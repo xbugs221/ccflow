@@ -19,7 +19,7 @@ export default function ClaudeStatus({
   status,
   onAbort,
   isLoading,
-  provider: _provider = 'claude',
+  provider: _provider = 'codex',
 }: ClaudeStatusProps) {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [animationPhase, setAnimationPhase] = useState(0);

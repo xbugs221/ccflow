@@ -236,7 +236,7 @@ function buildOpencodeExecArgs({
   const args = ['run', '--format', 'json'];
 
   if (workingDirectory) {
-    args.push('--cd', workingDirectory);
+    args.push('--dir', workingDirectory);
   }
 
   if (sessionId) {
@@ -526,6 +526,7 @@ export async function queryOpencode(command, options = {}, ws) {
   let sessionCreatedSent = false;
   const abortController = new AbortController();
   const runTimeoutMs = Number(process.env.OPENCODE_RUN_TIMEOUT_MS || 600000);
+  let failed = false;
 
   try {
     currentSessionId = providerSessionId || `opencode-${Date.now()}`;
@@ -653,6 +654,7 @@ export async function queryOpencode(command, options = {}, ws) {
       String(error?.message || '').toLowerCase().includes('aborted');
 
     if (!wasAborted) {
+      failed = true;
       console.error('[OpenCode] Error:', error);
       sendMessage(ws, {
         type: 'opencode-error',
@@ -660,12 +662,13 @@ export async function queryOpencode(command, options = {}, ws) {
         sessionId: currentSessionId,
       });
     }
+    throw error;
   } finally {
     // Update session status
     if (currentSessionId) {
       const session = activeOpencodeSessions.get(currentSessionId);
       if (session) {
-        session.status = session.status === 'aborted' ? 'aborted' : 'completed';
+        session.status = session.status === 'aborted' ? 'aborted' : failed ? 'failed' : 'completed';
       }
     }
   }

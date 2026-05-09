@@ -42,7 +42,6 @@ interface UseChatComposerStateArgs {
   selectedSession: ProjectSession | null;
   currentSessionId: string | null;
   provider: SessionProvider;
-  claudeModel: string;
   codexModel: string;
   codexModelSwitchSessionId: string | null;
   codexReasoningEffort: string;
@@ -184,7 +183,6 @@ export function useChatComposerState({
   selectedSession,
   currentSessionId,
   provider,
-  claudeModel,
   codexModel,
   codexModelSwitchSessionId,
   codexReasoningEffort,
@@ -220,14 +218,6 @@ export function useChatComposerState({
   const [uploadingAttachments, setUploadingAttachments] = useState<Map<string, number>>(new Map());
   const [attachmentErrors, setAttachmentErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
-  const [thinkingMode, setThinkingMode] = useState(() => {
-    try {
-      const cached = localStorage.getItem('ccflow-thinking-mode');
-      return cached || 'disabled';
-    } catch {
-      return 'disabled';
-    }
-  });
   const [composerSubmitPhase, setComposerSubmitPhase] = useState<ComposerSubmitPhase>('idle');
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -341,7 +331,7 @@ export function useChatComposerState({
           projectName: resolvedProjectName,
           sessionId: currentSessionId,
           provider,
-          model: provider === 'codex' ? codexModel : claudeModel,
+          model: provider === 'codex' ? codexModel : undefined,
           reasoningEffort: provider === 'codex' ? codexReasoningEffort : undefined,
           tokenUsage: tokenBudget,
         };
@@ -388,7 +378,6 @@ export function useChatComposerState({
       }
     },
     [
-      claudeModel,
       codexModel,
       codexReasoningEffort,
       currentSessionId,
@@ -696,18 +685,10 @@ export function useChatComposerState({
           const settingsKey =
             provider === 'codex'
                 ? 'codex-settings'
-                : 'claude-settings';
+                : 'opencode-settings';
           const savedSettings = safeLocalStorage.getItem(settingsKey);
           if (savedSettings) {
             const parsed = JSON.parse(savedSettings);
-            if (provider === 'claude') {
-              return {
-                ...parsed,
-                allowedTools: [],
-                disallowedTools: [],
-                skipPermissions: true,
-              };
-            }
             return parsed;
           }
         } catch (error) {
@@ -717,7 +698,7 @@ export function useChatComposerState({
         return {
           allowedTools: [],
           disallowedTools: [],
-          skipPermissions: provider === 'claude',
+          skipPermissions: false,
         };
       };
 
@@ -785,37 +766,6 @@ export function useChatComposerState({
             attachments: uploadedAttachments,
           },
         });
-      } else {
-        sendMessage({
-          type: 'claude-command',
-          clientRequestId,
-          command: messageContent,
-          ccflowSessionId,
-          ccflow_session_id: ccflowSessionId,
-          startRequestId: clientRequestId,
-          start_request_id: clientRequestId,
-          clientRef: messageContent,
-          client_ref: messageContent,
-          options: {
-            projectPath: resolvedProjectPath,
-            cwd: resolvedProjectPath,
-            projectName: resolvedProjectName,
-            sessionId: effectiveSessionId,
-            ccflowSessionId,
-            ccflow_session_id: ccflowSessionId,
-            clientRequestId,
-            startRequestId: clientRequestId,
-            start_request_id: clientRequestId,
-            clientRef: messageContent,
-            client_ref: messageContent,
-            resume: Boolean(effectiveSessionId),
-            toolsSettings,
-            permissionMode,
-            model: claudeModel,
-            thinkingMode,
-            attachments: uploadedAttachments,
-          },
-        });
       }
       // Re-enable abort only after the command has been dispatched.
       setCanAbortSession(true);
@@ -838,7 +788,6 @@ export function useChatComposerState({
     },
     [
       attachedUploads,
-      claudeModel,
       codexModel,
       codexModelSwitchSessionId,
       codexReasoningEffort,
@@ -861,7 +810,6 @@ export function useChatComposerState({
       setIsLoading,
       setIsUserScrolledUp,
       slashCommands,
-      thinkingMode,
       onRequestDispatched,
       armUserMessageDeliveryTimeout,
       armSubmitCooldown,
@@ -902,14 +850,6 @@ export function useChatComposerState({
   useEffect(() => {
     inputValueRef.current = input;
   }, [input]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('ccflow-thinking-mode', thinkingMode);
-    } catch {
-      // Ignore localStorage errors.
-    }
-  }, [thinkingMode]);
 
   useEffect(() => {
     if (!selectedProject) {
@@ -1124,8 +1064,6 @@ export function useChatComposerState({
     textareaRef,
     inputHighlightRef,
     isTextareaExpanded,
-    thinkingMode,
-    setThinkingMode,
     slashCommandsCount,
     filteredCommands,
     frequentCommands,

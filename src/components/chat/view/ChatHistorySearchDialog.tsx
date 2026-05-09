@@ -45,6 +45,15 @@ type ChatHistorySearchDialogProps = {
 };
 
 /**
+ * Return the display label for supported chat-history providers.
+ */
+function getProviderDisplayLabel(provider: SessionProvider): string {
+  if (provider === 'codex') return 'Codex';
+  if (provider === 'opencode') return 'OpenCode';
+  return '';
+}
+
+/**
  * Validate the chat-search API contract so malformed server responses surface
  * as actionable errors instead of empty search results.
  */
@@ -276,7 +285,7 @@ export default function ChatHistorySearchDialog({
               }}
             >
               <div className="text-xs text-muted-foreground">
-                {result.projectDisplayName} · {result.provider === 'codex' ? 'Codex' : 'Claude'}
+                {result.projectDisplayName} · {getProviderDisplayLabel(result.provider)}
               </div>
               <div className="text-sm font-medium">{result.sessionSummary}</div>
               {result.resultType === 'session' && result.thread && (

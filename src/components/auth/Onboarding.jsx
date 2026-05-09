@@ -15,13 +15,6 @@ const Onboarding = ({ onComplete }) => {
   const [activeLoginProvider, setActiveLoginProvider] = useState(null);
   const [selectedProject] = useState({ name: 'default', fullPath: IS_PLATFORM ? '/workspace' : '' });
 
-  const [claudeAuthStatus, setClaudeAuthStatus] = useState({
-    authenticated: false,
-    email: null,
-    loading: true,
-    error: null
-  });
-
   const [codexAuthStatus, setCodexAuthStatus] = useState({
     authenticated: false,
     email: null,
@@ -56,7 +49,6 @@ const Onboarding = ({ onComplete }) => {
     const isModalClosing = prevProvider !== null && activeLoginProvider === null;
 
     if (isInitialMount || isModalClosing) {
-      checkClaudeAuthStatus();
       checkCodexAuthStatus();
     }
   }, [activeLoginProvider]);
@@ -91,17 +83,13 @@ const Onboarding = ({ onComplete }) => {
     }
   };
 
-  const checkClaudeAuthStatus = () => checkProviderAuthStatus('claude', setClaudeAuthStatus);
   const checkCodexAuthStatus = () => checkProviderAuthStatus('codex', setCodexAuthStatus);
 
-  const handleClaudeLogin = () => setActiveLoginProvider('claude');
   const handleCodexLogin = () => setActiveLoginProvider('codex');
 
   const handleLoginComplete = (exitCode) => {
     if (exitCode === 0) {
-      if (activeLoginProvider === 'claude') {
-        checkClaudeAuthStatus();
-      } else if (activeLoginProvider === 'codex') {
+      if (activeLoginProvider === 'codex') {
         checkCodexAuthStatus();
       }
     }
@@ -265,38 +253,6 @@ const Onboarding = ({ onComplete }) => {
 
             {/* Agent Cards Grid */}
             <div className="space-y-3">
-              {/* Claude */}
-              <div className={`border rounded-lg p-4 transition-colors ${claudeAuthStatus.authenticated
-                ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
-                : 'border-border bg-card'
-                }`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                      <SessionProviderLogo provider="claude" className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="font-medium text-foreground flex items-center gap-2">
-                        Claude Code
-                        {claudeAuthStatus.authenticated && <Check className="w-4 h-4 text-green-500" />}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {claudeAuthStatus.loading ? 'Checking...' :
-                          claudeAuthStatus.authenticated ? claudeAuthStatus.email || 'Connected' : 'Not connected'}
-                      </div>
-                    </div>
-                  </div>
-                  {!claudeAuthStatus.authenticated && !claudeAuthStatus.loading && (
-                    <button
-                      onClick={handleClaudeLogin}
-                      className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
-                    >
-                      Login
-                    </button>
-                  )}
-                </div>
-              </div>
-
               {/* Codex */}
               <div className={`border rounded-lg p-4 transition-colors ${codexAuthStatus.authenticated
                 ? 'bg-gray-100 dark:bg-gray-800/50 border-gray-300 dark:border-gray-600'

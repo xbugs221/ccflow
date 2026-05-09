@@ -2,7 +2,7 @@
  * PURPOSE: Define shared application read-model types used by project,
  * workflow, and session UI components.
  */
-export type SessionProvider = 'claude' | 'codex' | 'opencode';
+export type SessionProvider = 'codex' | 'opencode';
 
 export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'preview';
 

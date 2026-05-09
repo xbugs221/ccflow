@@ -69,13 +69,17 @@ import {
     clearProjectDirectoryCache,
     refreshMissingProjectPathCache
 } from './projects.js';
-import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions, resolveToolApproval } from './claude-sdk.js';
 import { queryCodex, abortCodexSession, isCodexSessionActive, getActiveCodexSessions } from './openai-codex.js';
 import { queryOpencode, abortOpencodeSession, isOpencodeSessionActive, getActiveOpencodeSessions } from './opencode-sdk.js';
+import {
+    abortRunnerTurn,
+    recoverRunnerTurns,
+    startRunnerTurn,
+    tailTurnEvents,
+} from './runner-turns.js';
 import { resolveChatProjectOptions } from './chat-project-path.js';
 import { getUsageRemaining } from './usage-remaining.js';
 import {
-    getClaudeSessionTokenUsage,
     getCodexSessionTokenUsage,
 } from './session-token-usage.js';
 import gitRoutes from './routes/git.js';
@@ -90,7 +94,6 @@ import projectsRoutes, { WORKSPACES_ROOT, validateWorkspacePath } from './routes
 import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
 import codexRoutes from './routes/codex.js';
-import claudeRoutes from './routes/claude.js';
 import opencodeRoutes from './routes/opencode.js';
 import { initializeDatabase } from './database/db.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
@@ -132,6 +135,10 @@ const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true });
 const TEXT_SAMPLE_BYTES = 8192;
 const CC_ROUTE_SESSION_PATTERN = /^c\d+$/;
+const runnerTurnTails = new Map();
+const ccflowSessionTurnDirs = new Map();
+const providerSessionTurnDirs = new Map();
+const runnerActiveTurns = new Map();
 
 /**
  * Return the first non-empty string from mixed websocket protocol fields.
@@ -145,6 +152,16 @@ function pickString(...values) {
  */
 function isCcflowRouteSessionId(sessionId) {
     return typeof sessionId === 'string' && CC_ROUTE_SESSION_PATTERN.test(sessionId.trim());
+}
+
+/**
+ * Accept only providers supported by manual chat turns.
+ */
+function normalizeManualProvider(provider) {
+    if (provider === 'codex' || provider === 'opencode') {
+        return provider;
+    }
+    throw new Error('provider must be "codex" or "opencode"');
 }
 
 /**
@@ -308,7 +325,6 @@ function classifyProjectFile(absolutePath, sampleBuffer) {
 
 // File system watchers for provider project/session folders
 const PROVIDER_WATCH_PATHS = [
-    { provider: 'claude', rootPath: path.join(os.homedir(), '.claude', 'projects') },
     { provider: 'codex', rootPath: path.join(os.homedir(), '.codex', 'sessions') },
 ];
 const WATCHER_IGNORED_PATTERNS = [
@@ -388,6 +404,118 @@ function broadcastChatEvent(payload, sourceUserId = null) {
 
         client.send(message);
     });
+}
+
+/**
+ * Attach a durable runner event stream to WebSocket clients and ccflow draft finalization.
+ */
+function attachRunnerTurnTail(turnDir, state, sourceUserId = null) {
+    const turnKey = state.turnId || turnDir;
+    runnerTurnTails.get(turnKey)?.close?.();
+    runnerActiveTurns.set(turnKey, {
+        turnDir,
+        id: state.providerSessionId || state.ccflowSessionId || state.turnId,
+        turnId: state.turnId,
+        provider: state.provider,
+        status: state.status || 'running',
+        startedAt: state.startedAt || new Date().toISOString(),
+        projectPath: state.projectPath || '',
+        ccflowSessionId: state.ccflowSessionId || null,
+        providerSessionId: state.providerSessionId || null,
+        sourceUserId,
+    });
+    if (state.ccflowSessionId) {
+        ccflowSessionTurnDirs.set(state.ccflowSessionId, turnDir);
+    }
+    if (state.providerSessionId) {
+        providerSessionTurnDirs.set(state.providerSessionId, turnDir);
+    }
+
+    const tail = tailTurnEvents(turnDir, (payload) => {
+        const activeTurn = runnerActiveTurns.get(turnKey);
+        let isTerminalPayload = false;
+        if (activeTurn) {
+            if (payload?.sessionId) {
+                activeTurn.id = payload.sessionId;
+                activeTurn.providerSessionId = payload.sessionId;
+                providerSessionTurnDirs.set(payload.sessionId, turnDir);
+            }
+            if (payload?.type === `${activeTurn.provider}-complete` || payload?.type === 'session-aborted' || String(payload?.type || '').endsWith('-error')) {
+                isTerminalPayload = true;
+                activeTurn.status = payload.type === 'session-aborted'
+                    ? 'aborted'
+                    : String(payload?.type || '').endsWith('-error')
+                        ? 'failed'
+                        : 'completed';
+            }
+        }
+        const indexedPayload = state.ccflowSessionId
+            ? {
+                ...payload,
+                ccflowSessionId: state.ccflowSessionId,
+                ccflow_session_id: state.ccflowSessionId,
+            }
+            : payload;
+        if (state.ccflowSessionId && payload?.type === 'session-created' && payload?.sessionId) {
+            void finalizeCcflowRouteSession({
+                projectName: '',
+                projectPath: state.projectPath || '',
+                provider: payload.provider || state.provider,
+                ccflowSessionId: state.ccflowSessionId,
+                startRequestId: state.clientRequestId || '',
+                providerSessionId: payload.sessionId,
+            }).catch((error) => {
+                console.warn('[RunnerTurn] Failed to finalize manual session draft:', error.message);
+            });
+        }
+        broadcastChatEvent(indexedPayload, sourceUserId);
+        if (isTerminalPayload) {
+            runnerTurnTails.get(turnKey)?.close?.();
+            runnerTurnTails.delete(turnKey);
+            runnerActiveTurns.delete(turnKey);
+        }
+    });
+    runnerTurnTails.set(turnKey, tail);
+    return tail;
+}
+
+/**
+ * Replay durable runner events to a reconnecting chat client.
+ */
+async function replayRunnerTurnEvents(ws, sourceUserId = null) {
+    for (const turn of runnerActiveTurns.values()) {
+        if (turn.status !== 'running') {
+            continue;
+        }
+        if (sourceUserId !== null && turn.sourceUserId !== null && turn.sourceUserId !== sourceUserId) {
+            continue;
+        }
+
+        const eventsPath = path.join(turn.turnDir, 'events.jsonl');
+        let content = '';
+        try {
+            content = await fsPromises.readFile(eventsPath, 'utf8');
+        } catch (error) {
+            if (error?.code !== 'ENOENT') {
+                console.warn('[RunnerTurn] Failed to replay events:', error.message);
+            }
+            continue;
+        }
+
+        for (const line of content.split('\n')) {
+            if (ws.readyState !== WebSocket.OPEN) {
+                return;
+            }
+            if (!line.trim()) {
+                continue;
+            }
+            try {
+                ws.send(JSON.stringify(JSON.parse(line)));
+            } catch (error) {
+                console.warn('[RunnerTurn] Failed to replay event:', error.message);
+            }
+        }
+    }
 }
 
 /**
@@ -810,9 +938,6 @@ app.use('/api/user', authenticateToken, userRoutes);
 // Codex API Routes (protected)
 app.use('/api/codex', authenticateToken, codexRoutes);
 
-// Claude API Routes (protected)
-app.use('/api/claude', authenticateToken, claudeRoutes);
-
 // OpenCode API Routes (protected)
 app.use('/api/cli/opencode', authenticateToken, opencodeRoutes);
 
@@ -1029,13 +1154,7 @@ app.post('/api/projects/:projectName/workflows/:workflowId/abort-run', authentic
 });
 
 app.get('/api/projects/:projectName/sessions', authenticateToken, async (req, res) => {
-    try {
-        const { limit = 5, offset = 0 } = req.query;
-        const result = await getSessions(req.params.projectName, parseInt(limit), parseInt(offset));
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+    res.status(410).json({ error: 'Claude sessions are no longer supported' });
 });
 
 // Get messages for a specific session
@@ -1049,7 +1168,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
         const parsedOffset = offset ? parseInt(offset, 10) : 0;
         const parsedAfterLine = afterLine != null ? parseInt(afterLine, 10) : null;
 
-        let resolvedProvider = provider === 'codex' ? 'codex' : provider === 'claude' ? 'claude' : null;
+        let resolvedProvider = provider === 'opencode' ? 'opencode' : provider === 'codex' ? 'codex' : null;
         let projectPath = null;
 
         if (isCcflowRouteSessionId(sessionId)) {
@@ -1065,10 +1184,10 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
                 }
 
                 const providerSessionId = runtimeContext.pendingProviderSessionId;
-                const indexedProvider = runtimeContext.provider === 'codex' ? 'codex' : 'claude';
+                const indexedProvider = runtimeContext.provider === 'opencode' ? 'opencode' : 'codex';
                 const nativeResult = (resolvedProvider || indexedProvider) === 'codex'
                     ? await getCodexSessionMessages(providerSessionId, parsedLimit, parsedOffset, parsedAfterLine)
-                    : await getSessionMessages(projectName, providerSessionId, parsedLimit, parsedOffset, parsedAfterLine);
+                    : { messages: [] };
                 return res.json(nativeResult);
             }
         }
@@ -1077,19 +1196,19 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
             try {
                 projectPath = projectPath || await extractProjectDirectory(projectName);
                 const codexSessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true });
-                resolvedProvider = codexSessions.some((session) => session.id === sessionId) ? 'codex' : 'claude';
+                resolvedProvider = codexSessions.some((session) => session.id === sessionId) ? 'codex' : 'opencode';
             } catch (providerDetectionError) {
                 console.warn(
                     `Unable to detect provider for session ${sessionId} in project ${projectName}:`,
                     providerDetectionError.message,
                 );
-                resolvedProvider = 'claude';
+                resolvedProvider = 'codex';
             }
         }
 
         const result = resolvedProvider === 'codex'
             ? await getCodexSessionMessages(sessionId, parsedLimit, parsedOffset, parsedAfterLine)
-            : await getSessionMessages(projectName, sessionId, parsedLimit, parsedOffset, parsedAfterLine);
+            : { messages: [] };
 
         // Handle both old and new response formats
         if (Array.isArray(result)) {
@@ -1104,7 +1223,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
     }
 });
 
-// Search across visible chat history messages for Claude and Codex sessions.
+// Search across visible chat history messages for supported provider sessions.
 app.get('/api/chat/search', authenticateToken, async (req, res) => {
     try {
         const query = typeof req.query.q === 'string' ? req.query.q : '';
@@ -1128,7 +1247,7 @@ app.put('/api/projects/:projectName/rename', authenticateToken, async (req, res)
     }
 });
 
-// Rename Claude session endpoint
+// Rename chat session endpoint
 app.put('/api/projects/:projectName/sessions/:sessionId/rename', authenticateToken, async (req, res) => {
     try {
         const { summary, projectPath } = req.body;
@@ -1145,7 +1264,7 @@ app.put('/api/projects/:projectName/sessions/:sessionId/rename', authenticateTok
 
 app.put('/api/projects/:projectName/sessions/:sessionId/ui-state', authenticateToken, async (req, res) => {
     try {
-        const provider = req.body?.provider === 'codex' ? 'codex' : 'claude';
+        const provider = req.body?.provider === 'opencode' ? 'opencode' : 'codex';
         const state = await updateSessionUiState(req.params.projectName, req.params.sessionId, provider, {
             favorite: req.body?.favorite === true,
             pending: req.body?.pending === true,
@@ -1196,7 +1315,7 @@ app.put('/api/projects/:projectName/sessions/:sessionId/model-state', authentica
             projectName: req.params.projectName,
             projectPath,
             sessionId: req.params.sessionId,
-            provider: req.body?.provider === 'claude' ? 'claude' : 'codex',
+            provider: req.body?.provider === 'opencode' ? 'opencode' : 'codex',
             state,
         });
         res.json({ success: true, state });
@@ -1207,7 +1326,7 @@ app.put('/api/projects/:projectName/sessions/:sessionId/model-state', authentica
 
 app.post('/api/projects/:projectName/manual-sessions', authenticateToken, async (req, res) => {
     try {
-        const provider = req.body?.provider === 'codex' ? 'codex' : 'claude';
+        const provider = normalizeManualProvider(req.body?.provider);
         const label = typeof req.body?.label === 'string' ? req.body.label : '';
         const projectPath = typeof req.body?.projectPath === 'string' ? req.body.projectPath : '';
         const workflowId = typeof req.body?.workflowId === 'string' ? req.body.workflowId : '';
@@ -1223,13 +1342,14 @@ app.post('/api/projects/:projectName/manual-sessions', authenticateToken, async 
         });
         res.json({ success: true, session });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        const status = /provider must/.test(error.message) ? 400 : 500;
+        res.status(status).json({ error: error.message });
     }
 });
 
 app.post('/api/projects/:projectName/manual-sessions/:sessionId/finalize', authenticateToken, async (req, res) => {
     try {
-        const provider = req.body?.provider === 'codex' ? 'codex' : 'claude';
+        const provider = normalizeManualProvider(req.body?.provider);
         const actualSessionId = typeof req.body?.actualSessionId === 'string' ? req.body.actualSessionId : '';
 
         if (!actualSessionId.trim()) {
@@ -1245,14 +1365,15 @@ app.post('/api/projects/:projectName/manual-sessions/:sessionId/finalize', authe
         );
         res.json({ success: true, finalized });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        const status = /provider must/.test(error.message) ? 400 : 500;
+        res.status(status).json({ error: error.message });
     }
 });
 
 // Get provider-level usage remaining metrics for UI status display.
 app.get('/api/usage/remaining', authenticateToken, async (req, res) => {
     try {
-        const provider = req.query.provider === 'codex' ? 'codex' : 'claude';
+        const provider = normalizeManualProvider(req.query.provider || 'codex');
         const usageRemaining = await getUsageRemaining(provider);
         res.json(usageRemaining);
     } catch (error) {
@@ -1996,8 +2117,6 @@ function handleChatConnection(ws, request) {
                         abortCodexSession(payload.sessionId);
                     } else if (runtimeProvider === 'opencode') {
                         abortOpencodeSession(payload.sessionId);
-                    } else {
-                        await abortClaudeSDKSession(payload.sessionId);
                     }
                     return;
                 }
@@ -2018,6 +2137,7 @@ function handleChatConnection(ws, request) {
 
     // Wrap WebSocket with writer for consistent interface with SSEStreamWriter
     const writer = new WebSocketWriter(ws, sendToChatClients);
+    void replayRunnerTurnEvents(ws, request?.user?.id || null);
 
     ws.on('message', async (message) => {
         let data = null;
@@ -2025,104 +2145,7 @@ function handleChatConnection(ws, request) {
             data = JSON.parse(message);
 
             if (data.type === 'claude-command') {
-                if (!acceptChatRequestId(data.clientRequestId || data.options?.clientRequestId)) {
-                    console.warn('[DEBUG] Ignoring duplicate Claude request:', data.clientRequestId || data.options?.clientRequestId);
-                    return;
-                }
-                const resolvedOptions = await resolveChatProjectOptions(data.options, extractProjectDirectory);
-                const {
-                    ccflowSessionId,
-                    startRequestId,
-                    clientRef,
-                } = resolveCcflowSessionStartContext(data, resolvedOptions);
-                const shouldStartCcflowDraft = ccflowSessionId && (
-                    !resolvedOptions?.sessionId || isCcflowRouteSessionId(resolvedOptions.sessionId)
-                );
-                const claudeProviderOptions = shouldStartCcflowDraft
-                    ? { ...resolvedOptions, sessionId: undefined, resume: false }
-                    : resolvedOptions;
-                writer.setSessionIndexContext(ccflowSessionId ? {
-                    projectName: claudeProviderOptions?.projectName || data.options?.projectName || '',
-                    projectPath: claudeProviderOptions?.projectPath || claudeProviderOptions?.cwd || '',
-                    provider: 'claude',
-                    ccflowSessionId,
-                    startRequestId,
-                } : null);
-                if (shouldStartCcflowDraft) {
-                    const startResult = await startManualSessionDraft(
-                        claudeProviderOptions?.projectName || data.options?.projectName || '',
-                        claudeProviderOptions?.projectPath || claudeProviderOptions?.cwd || '',
-                        ccflowSessionId,
-                        'claude',
-                        startRequestId,
-                    );
-                    if (!startResult.started) {
-                        writer.send({
-                            type: 'session-start-rejected',
-                            sessionId: ccflowSessionId,
-                            ccflowSessionId,
-                            provider: 'claude',
-                            reason: startResult.reason,
-                            startRequestId: startResult.startRequestId,
-                        });
-                        return;
-                    }
-                }
-                sendMessageAccepted(writer, {
-                    sessionId: ccflowSessionId || claudeProviderOptions?.sessionId || data.sessionId || data.options?.sessionId,
-                    ccflowSessionId,
-                    provider: 'claude',
-                    clientRequestId: startRequestId,
-                    startRequestId,
-                });
-                console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
-                console.log('📁 Project:', claudeProviderOptions?.projectPath || claudeProviderOptions?.cwd || 'Unknown');
-                console.log('🔄 Session:', claudeProviderOptions?.sessionId ? 'Resume' : 'New');
-
-                // Use Claude Agents SDK
-                const sessionModelState = claudeProviderOptions?.sessionId
-                    ? await getSessionModelState(
-                        claudeProviderOptions?.projectPath || claudeProviderOptions?.cwd || '',
-                        claudeProviderOptions.sessionId,
-                    ).catch(() => ({}))
-                    : {};
-                const claudeOptions = {
-                    ...claudeProviderOptions,
-                    thinkingMode: sessionModelState.thinkingMode || claudeProviderOptions?.thinkingMode,
-                };
-                const resolvedSessionId = await queryClaudeSDK(data.command, claudeOptions, writer);
-                if (ccflowSessionId && resolvedSessionId) {
-                    await finalizeCcflowRouteSession({
-                        projectName: claudeOptions?.projectName || data.options?.projectName || '',
-                        projectPath: claudeOptions?.projectPath || claudeOptions?.cwd || '',
-                        provider: 'claude',
-                        ccflowSessionId,
-                        startRequestId,
-                        providerSessionId: resolvedSessionId,
-                    });
-                }
-                if (resolvedSessionId && (claudeProviderOptions?.model || claudeOptions.thinkingMode)) {
-                    try {
-                        const state = await updateSessionModelState(
-                            claudeProviderOptions?.projectPath || claudeProviderOptions?.cwd || '',
-                            resolvedSessionId,
-                            {
-                                model: claudeProviderOptions?.model,
-                                thinkingMode: claudeOptions.thinkingMode,
-                            },
-                        );
-                        broadcastSessionModelStateUpdated({
-                            sourceUserId: request?.user?.id || null,
-                            projectName: claudeProviderOptions?.projectName || '',
-                            projectPath: claudeProviderOptions?.projectPath || claudeProviderOptions?.cwd || '',
-                            sessionId: resolvedSessionId,
-                            provider: 'claude',
-                            state,
-                        });
-                    } catch (modelStateError) {
-                        console.warn('[Claude] Failed to persist session model state:', modelStateError.message);
-                    }
-                }
+                writer.send({ type: 'claude-error', error: 'Provider "claude" is no longer supported' });
             } else if (data.type === 'codex-command') {
                 if (!acceptChatRequestId(data.clientRequestId || data.options?.clientRequestId)) {
                     console.warn('[DEBUG] Ignoring duplicate Codex request:', data.clientRequestId || data.options?.clientRequestId);
@@ -2189,38 +2212,19 @@ function handleChatConnection(ws, request) {
                     ...codexProviderOptions,
                     reasoningEffort: sessionModelState.reasoningEffort || codexProviderOptions?.reasoningEffort,
                 };
-                const resolvedSessionId = await queryCodex(data.command, codexOptions, writer);
-                if (ccflowSessionId && resolvedSessionId) {
-                    await finalizeCcflowRouteSession({
-                        projectName: codexOptions?.projectName || data.options?.projectName || '',
-                        projectPath: codexOptions?.projectPath || codexOptions?.cwd || '',
-                        provider: 'codex',
-                        ccflowSessionId,
-                        startRequestId,
-                        providerSessionId: resolvedSessionId,
-                    });
-                }
-                if (resolvedSessionId && (codexProviderOptions?.model || codexProviderOptions?.reasoningEffort)) {
-                    try {
-                        const state = await updateSessionModelState(
-                            codexProviderOptions?.projectPath || codexProviderOptions?.cwd || '',
-                            resolvedSessionId,
-                            {
-                                model: codexProviderOptions?.model,
-                                reasoningEffort: codexOptions.reasoningEffort,
-                            },
-                        );
-                        broadcastSessionModelStateUpdated({
-                            sourceUserId: request?.user?.id || null,
-                            projectName: codexProviderOptions?.projectName || '',
-                            projectPath: codexProviderOptions?.projectPath || codexProviderOptions?.cwd || '',
-                            sessionId: resolvedSessionId,
-                            state,
-                        });
-                    } catch (modelStateError) {
-                        console.warn('[Codex] Failed to persist session model state:', modelStateError.message);
-                    }
-                }
+                const turn = await startRunnerTurn({
+                    provider: 'codex',
+                    projectPath: codexOptions?.projectPath || codexOptions?.cwd || '',
+                    prompt: data.command || '',
+                    ccflowSessionId,
+                    providerSessionId: codexOptions?.sessionId || '',
+                    clientRequestId: startRequestId || data.clientRequestId || data.options?.clientRequestId || '',
+                    model: codexOptions?.model || '',
+                    reasoningEffort: codexOptions?.reasoningEffort || '',
+                    permissionMode: codexOptions?.permissionMode || '',
+                    attachments: codexOptions?.attachments || [],
+                });
+                attachRunnerTurnTail(turn.turnDir, turn.state, request?.user?.id || null);
             } else if (data.type === 'opencode-command') {
                 if (!acceptChatRequestId(data.clientRequestId || data.options?.clientRequestId)) {
                     console.warn('[DEBUG] Ignoring duplicate OpenCode request:', data.clientRequestId || data.options?.clientRequestId);
@@ -2276,20 +2280,19 @@ function handleChatConnection(ws, request) {
                 console.log('[DEBUG] OpenCode message:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || 'Unknown');
                 console.log('🔄 Session:', opencodeProviderOptions?.sessionId ? 'Resume' : 'New');
-                const resolvedSessionId = await queryOpencode(data.command, opencodeProviderOptions, writer);
-                if (ccflowSessionId && resolvedSessionId) {
-                    await finalizeCcflowRouteSession({
-                        projectName: opencodeProviderOptions?.projectName || data.options?.projectName || '',
-                        projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
-                        provider: 'opencode',
-                        ccflowSessionId,
-                        startRequestId,
-                        providerSessionId: resolvedSessionId,
-                    });
-                }
+                const turn = await startRunnerTurn({
+                    provider: 'opencode',
+                    projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
+                    prompt: data.command || '',
+                    ccflowSessionId,
+                    providerSessionId: opencodeProviderOptions?.sessionId || '',
+                    clientRequestId: startRequestId || data.clientRequestId || data.options?.clientRequestId || '',
+                    attachments: opencodeProviderOptions?.attachments || [],
+                });
+                attachRunnerTurnTail(turn.turnDir, turn.state, request?.user?.id || null);
             } else if (data.type === 'abort-session') {
                 console.log('[DEBUG] Abort session request:', data.sessionId);
-                const provider = data.provider || 'claude';
+                const provider = data.provider === 'opencode' ? 'opencode' : 'codex';
                 const ccflowSessionId = isCcflowRouteSessionId(data.ccflowSessionId || data.sessionId)
                     ? (data.ccflowSessionId || data.sessionId)
                     : null;
@@ -2314,14 +2317,16 @@ function handleChatConnection(ws, request) {
                     }
                 }
 
-                if (targetSessionId) {
+                const turnDir = ccflowSessionId
+                    ? ccflowSessionTurnDirs.get(ccflowSessionId)
+                    : providerSessionTurnDirs.get(targetSessionId);
+                if (turnDir) {
+                    success = await abortRunnerTurn(turnDir);
+                } else if (targetSessionId) {
                     if (provider === 'codex') {
                         success = abortCodexSession(targetSessionId);
                     } else if (provider === 'opencode') {
                         success = abortOpencodeSession(targetSessionId);
-                    } else {
-                        // Use Claude Agents SDK
-                        success = await abortClaudeSDKSession(targetSessionId);
                     }
                 }
 
@@ -2334,30 +2339,22 @@ function handleChatConnection(ws, request) {
                     success
                 });
             } else if (data.type === 'claude-permission-response') {
-                // Relay UI approval decisions back into the SDK control flow.
-                // This does not persist permissions; it only resolves the in-flight request,
-                // introduced so the SDK can resume once the user clicks Allow/Deny.
-                if (data.requestId) {
-                    resolveToolApproval(data.requestId, {
-                        allow: Boolean(data.allow),
-                        updatedInput: data.updatedInput,
-                        message: data.message,
-                        rememberEntry: data.rememberEntry
-                    });
-                }
+                writer.send({ type: 'claude-error', error: 'Provider "claude" is no longer supported' });
             } else if (data.type === 'check-session-status') {
                 // Check if a specific session is currently processing
-                const provider = data.provider || 'claude';
+                const provider = data.provider === 'opencode' ? 'opencode' : 'codex';
                 const sessionId = data.sessionId;
-                let isActive;
+                let isActive = false;
+                const runnerTurnDir = providerSessionTurnDirs.get(sessionId) || ccflowSessionTurnDirs.get(sessionId);
 
-                if (provider === 'codex') {
+                if (runnerTurnDir) {
+                    isActive = [...runnerActiveTurns.values()].some((turn) => (
+                        turn.turnDir === runnerTurnDir && turn.status === 'running'
+                    ));
+                } else if (provider === 'codex') {
                     isActive = isCodexSessionActive(sessionId);
                 } else if (provider === 'opencode') {
                     isActive = isOpencodeSessionActive(sessionId);
-                } else {
-                    // Use Claude Agents SDK
-                    isActive = isClaudeSDKSessionActive(sessionId);
                 }
 
                 writer.send({
@@ -2368,10 +2365,25 @@ function handleChatConnection(ws, request) {
                 });
             } else if (data.type === 'get-active-sessions') {
                 // Get all currently active sessions
+                const runnerSessions = [...runnerActiveTurns.values()]
+                    .filter((turn) => turn.status === 'running')
+                    .map((turn) => ({
+                        id: turn.providerSessionId || turn.ccflowSessionId || turn.turnId,
+                        turnId: turn.turnId,
+                        status: turn.status,
+                        startedAt: turn.startedAt,
+                        projectPath: turn.projectPath,
+                        ccflowSessionId: turn.ccflowSessionId,
+                    }));
                 const activeSessions = {
-                    claude: getActiveClaudeSDKSessions(),
-                    codex: getActiveCodexSessions(),
-                    opencode: getActiveOpencodeSessions(),
+                    codex: [
+                        ...getActiveCodexSessions(),
+                        ...runnerSessions.filter((turn) => turn.provider === 'codex'),
+                    ],
+                    opencode: [
+                        ...getActiveOpencodeSessions(),
+                        ...runnerSessions.filter((turn) => turn.provider === 'opencode'),
+                    ],
                 };
                 writer.send({
                     type: 'active-sessions',
@@ -2426,7 +2438,7 @@ function handleShellConnection(ws) {
                 const projectPath = data.projectPath || process.cwd();
                 const sessionId = data.sessionId;
                 const hasSession = data.hasSession;
-                const provider = data.provider || 'claude';
+                const provider = data.provider === 'opencode' ? 'opencode' : data.provider === 'plain-shell' ? 'plain-shell' : 'codex';
                 const initialCommand = data.initialCommand;
                 const isPlainShell = data.isPlainShell || (!!initialCommand && !hasSession) || provider === 'plain-shell';
                 keepSessionAliveOnDisconnect = !isPlainShell;
@@ -2496,7 +2508,7 @@ function handleShellConnection(ws) {
                 if (isPlainShell) {
                     welcomeMsg = `\x1b[36mStarting terminal in: ${projectPath}\x1b[0m\r\n`;
                 } else {
-                    const providerName = provider === 'codex' ? 'Codex' : 'Claude';
+                    const providerName = provider === 'opencode' ? 'OpenCode' : 'Codex';
                     welcomeMsg = hasSession ?
                         `\x1b[36mResuming ${providerName} session ${sessionId} in: ${projectPath}\x1b[0m\r\n` :
                         `\x1b[36mStarting new ${providerName} session in: ${projectPath}\x1b[0m\r\n`;
@@ -2538,23 +2550,23 @@ function handleShellConnection(ws) {
                                 shellCommand = `cd "${projectPath}" && codex`;
                             }
                         }
-                    } else {
-                        // Use claude command (default) or initialCommand if provided
-                        const command = initialCommand || 'claude';
+                    } else if (provider === 'opencode') {
+                        const command = initialCommand || 'opencode';
                         if (os.platform() === 'win32') {
                             if (hasSession && sessionId) {
-                                // Try to resume session, but with fallback to new session if it fails
-                                shellCommand = `Set-Location -Path "${projectPath}"; claude --resume ${sessionId}; if ($LASTEXITCODE -ne 0) { claude }`;
+                                shellCommand = `Set-Location -Path "${projectPath}"; opencode --session ${sessionId}; if ($LASTEXITCODE -ne 0) { opencode }`;
                             } else {
                                 shellCommand = `Set-Location -Path "${projectPath}"; ${command}`;
                             }
                         } else {
                             if (hasSession && sessionId) {
-                                shellCommand = `cd "${projectPath}" && claude --resume ${sessionId} || claude`;
+                                shellCommand = `cd "${projectPath}" && opencode --session "${sessionId}" || opencode`;
                             } else {
                                 shellCommand = `cd "${projectPath}" && ${command}`;
                             }
                         }
+                    } else {
+                        throw new Error(`Unsupported shell provider: ${provider}`);
                     }
 
                     console.log('🔧 Executing shell command:', shellCommand);
@@ -2979,7 +2991,7 @@ app.post('/api/projects/:projectName/upload-attachments', authenticateToken, asy
 app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authenticateToken, async (req, res) => {
     try {
         const { projectName, sessionId } = req.params;
-        const { provider = 'claude' } = req.query;
+        const { provider = 'codex' } = req.query;
         const homeDir = os.homedir();
 
         // Allow only safe characters in sessionId
@@ -2991,7 +3003,6 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
         const parsedContextWindow = parseInt(process.env.CONTEXT_WINDOW, 10);
         const contextWindow = Number.isFinite(parsedContextWindow) ? parsedContextWindow : 160000;
 
-        // Handle Codex sessions
         if (provider === 'codex') {
             const tokenUsage = await getCodexSessionTokenUsage(safeSessionId, { homeDir });
             if (!tokenUsage) {
@@ -3000,45 +3011,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/token-usage', authentica
             return res.json(tokenUsage);
         }
 
-        // Handle Claude sessions (default)
-        // Extract actual project path
-        let projectPath;
-        try {
-            projectPath = await extractProjectDirectory(projectName);
-        } catch (error) {
-            console.error('Error extracting project directory:', error);
-            return res.status(500).json({ error: 'Failed to determine project path' });
-        }
-
-        // Construct the JSONL file path
-        // Claude stores session files in ~/.claude/projects/[encoded-project-path]/[session-id].jsonl
-        // The encoding replaces any non-alphanumeric character (except -) with -
-        const encodedPath = projectPath.replace(/[^a-zA-Z0-9-]/g, '-');
-        const projectDir = path.join(homeDir, '.claude', 'projects', encodedPath);
-
-        const jsonlPath = path.join(projectDir, `${safeSessionId}.jsonl`);
-
-        // Constrain to projectDir
-        const rel = path.relative(path.resolve(projectDir), path.resolve(jsonlPath));
-        if (rel.startsWith('..') || path.isAbsolute(rel)) {
-            return res.status(400).json({ error: 'Invalid path' });
-        }
-
-        // Ensure the session file exists before parsing normalized token usage.
-        try {
-            await fsPromises.access(jsonlPath);
-        } catch (error) {
-            if (error.code === 'ENOENT') {
-                return res.status(204).send();
-            }
-            throw error;
-        }
-        const tokenUsage = await getClaudeSessionTokenUsage(jsonlPath, { contextWindow });
-        if (!tokenUsage) {
-            return res.status(204).send();
-        }
-
-        res.json(tokenUsage);
+        res.status(410).json({ error: 'Claude sessions are no longer supported' });
     } catch (error) {
         console.error('Error reading session token usage:', error);
         res.status(500).json({ error: 'Failed to read session token usage' });
@@ -3307,8 +3280,8 @@ async function startServer() {
         const distIndexPath = path.join(__dirname, '../dist/index.html');
         const isProduction = fs.existsSync(distIndexPath);
 
-        // Log Claude implementation mode
-        console.log(`${c.info('[INFO]')} Using Claude Agents SDK for Claude integration`);
+        // Runner turns survive Web service restarts by keeping CLI execution out of this process.
+        console.log(`${c.info('[INFO]')} Using ccflow-runner for Codex/OpenCode turns`);
         console.log(`${c.info('[INFO]')} Running in ${c.bright(isProduction ? 'PRODUCTION' : 'DEVELOPMENT')} mode`);
 
         if (!isProduction) {
@@ -3349,6 +3322,9 @@ async function startServer() {
             console.info('[WorkflowAutoRunner] Disabled; wo is the workflow state machine.');
 
             try {
+                await recoverRunnerTurns((turnDir, state) => {
+                    attachRunnerTurnTail(turnDir, state, null);
+                });
                 // Start watching provider and Go runner output folders after the workflow runner is live.
                 await setupProjectsWatcher();
                 await setupGoRunnerWatchers();

@@ -14,7 +14,6 @@
 
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -112,15 +111,7 @@ function showStatus() {
     console.log(`\n${c.info('[INFO]')} Configuration:`);
     console.log(`       PORT: ${c.bright(process.env.PORT || '3001')} ${c.dim(process.env.PORT ? '' : '(default)')}`);
     console.log(`       DATABASE_PATH: ${c.dim(process.env.DATABASE_PATH || '(using default location)')}`);
-    console.log(`       CLAUDE_CLI_PATH: ${c.dim(process.env.CLAUDE_CLI_PATH || 'claude (default)')}`);
     console.log(`       CONTEXT_WINDOW: ${c.dim(process.env.CONTEXT_WINDOW || '160000 (default)')}`);
-
-    // Claude projects folder
-    const claudeProjectsPath = path.join(os.homedir(), '.claude', 'projects');
-    const projectsExists = fs.existsSync(claudeProjectsPath);
-    console.log(`\n${c.info('[INFO]')} Claude Projects Folder:`);
-    console.log(`       ${c.dim(claudeProjectsPath)}`);
-    console.log(`       Status: ${projectsExists ? c.ok('[OK] Exists') : c.warn('[WARN] Not found')}`);
 
     // Config file location
     const envFilePath = path.join(__dirname, '../.env');
@@ -170,7 +161,6 @@ Examples:
 Environment Variables:
   PORT                Set server port (default: 3001)
   DATABASE_PATH       Set custom database location
-  CLAUDE_CLI_PATH     Set custom Claude CLI path
   CONTEXT_WINDOW      Set context window size (default: 160000)
 
 Documentation:

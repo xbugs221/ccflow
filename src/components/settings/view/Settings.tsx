@@ -3,7 +3,6 @@ import { Settings as SettingsIcon, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import LoginModal from '../../auth/LoginModal';
 import { Button } from '../../ui/button';
-import ClaudeMcpFormModal from '../view/modals/ClaudeMcpFormModal';
 import CodexMcpFormModal from '../view/modals/CodexMcpFormModal';
 import SettingsMainTabs from '../view/SettingsMainTabs';
 import AgentsSettingsTab from '../view/tabs/agents-settings/AgentsSettingsTab';
@@ -40,30 +39,15 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
     setProjectSortOrder,
     codeEditorSettings,
     updateCodeEditorSetting,
-    claudePermissions,
-    setClaudePermissions,
     codexPermissionMode,
     setCodexPermissionMode,
-    mcpServers,
     codexMcpServers,
-    mcpTestResults,
-    mcpServerTools,
-    mcpToolsLoading,
-    showMcpForm,
-    editingMcpServer,
-    openMcpForm,
-    closeMcpForm,
-    submitMcpForm,
-    handleMcpDelete,
-    handleMcpTest,
-    handleMcpToolsDiscovery,
     showCodexMcpForm,
     editingCodexMcpServer,
     openCodexMcpForm,
     closeCodexMcpForm,
     submitCodexMcpForm,
     handleCodexMcpDelete,
-    claudeAuthStatus,
     codexAuthStatus,
     openLoginForProvider,
     showLoginModal,
@@ -83,11 +67,9 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
     return null;
   }
 
-  const isAuthenticated = loginProvider === 'claude'
-    ? claudeAuthStatus.authenticated
-    : loginProvider === 'codex'
-        ? codexAuthStatus.authenticated
-        : false;
+  const isAuthenticated = loginProvider === 'codex'
+    ? codexAuthStatus.authenticated
+    : false;
 
   return (
     <div className="modal-backdrop fixed inset-0 flex items-center justify-center z-[9999] md:p-4 bg-background/95">
@@ -131,7 +113,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
             {activeTab === 'agents' && (
               <AgentsSettingsTab
                 usageEnabled={activeTab === 'agents'}
-                claudeAuthStatus={claudeAuthStatus}
                 codexAuthStatus={codexAuthStatus}
                 opencodeAuthStatus={{
                   authenticated: false,
@@ -139,18 +120,9 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
                   loading: false,
                   error: null,
                 }}
-                onClaudeLogin={() => openLoginForProvider('claude')}
                 onCodexLogin={() => openLoginForProvider('codex')}
                 onOpencodeLogin={() => openLoginForProvider('opencode')}
-                mcpServers={mcpServers}
                 codexMcpServers={codexMcpServers}
-                mcpTestResults={mcpTestResults}
-                mcpServerTools={mcpServerTools}
-                mcpToolsLoading={mcpToolsLoading}
-                onOpenMcpForm={openMcpForm}
-                onDeleteMcpServer={handleMcpDelete}
-                onTestMcpServer={handleMcpTest}
-                onDiscoverMcpTools={handleMcpToolsDiscovery}
                 onOpenCodexMcpForm={openCodexMcpForm}
                 onDeleteCodexMcpServer={handleCodexMcpDelete}
                 deleteError={deleteError}
@@ -219,14 +191,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
         project={selectedProject}
         onComplete={handleLoginComplete}
         isAuthenticated={isAuthenticated}
-      />
-
-      <ClaudeMcpFormModal
-        isOpen={showMcpForm}
-        editingServer={editingMcpServer}
-        projects={projects}
-        onClose={closeMcpForm}
-        onSubmit={submitMcpForm}
       />
 
       <CodexMcpFormModal

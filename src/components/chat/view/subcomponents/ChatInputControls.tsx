@@ -1,3 +1,6 @@
+/**
+ * PURPOSE: Render compact chat input action controls below the message composer.
+ */
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import SessionModelControls from './SessionModelControls';
@@ -5,11 +8,6 @@ import type { Provider } from '../../types/types';
 
 interface ChatInputControlsProps {
   provider: Provider | string;
-  thinkingMode: string;
-  setThinkingMode: (mode: string) => void;
-  claudeModel: string;
-  setClaudeModel: (model: string) => void;
-  claudeModelOptions: { value: string; label: string }[];
   codexModel: string;
   setCodexModel: (model: string) => void;
   codexModelOptions: { value: string; label: string }[];
@@ -27,11 +25,6 @@ interface ChatInputControlsProps {
 
 export default function ChatInputControls({
   provider,
-  thinkingMode,
-  setThinkingMode,
-  claudeModel,
-  setClaudeModel,
-  claudeModelOptions,
   codexModel,
   setCodexModel,
   codexModelOptions,
@@ -50,20 +43,16 @@ export default function ChatInputControls({
 
   return (
     <div className="flex items-center justify-center gap-2 sm:gap-3 flex-wrap">
-      <SessionModelControls
-        provider={provider}
-        thinkingMode={thinkingMode}
-        setThinkingMode={setThinkingMode}
-        claudeModel={claudeModel}
-        setClaudeModel={setClaudeModel}
-        claudeModelOptions={claudeModelOptions}
-        codexModel={codexModel}
-        setCodexModel={setCodexModel}
-        codexModelOptions={codexModelOptions}
-        codexReasoningEffort={codexReasoningEffort}
-        setCodexReasoningEffort={setCodexReasoningEffort}
-        codexReasoningOptions={codexReasoningOptions}
-      />
+      {provider === 'codex' && (
+        <SessionModelControls
+          codexModel={codexModel}
+          setCodexModel={setCodexModel}
+          codexModelOptions={codexModelOptions}
+          codexReasoningEffort={codexReasoningEffort}
+          setCodexReasoningEffort={setCodexReasoningEffort}
+          codexReasoningOptions={codexReasoningOptions}
+        />
+      )}
 
       <button
         type="button"

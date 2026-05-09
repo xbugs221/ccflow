@@ -244,7 +244,7 @@ async function createClaudeSessionFixture(projectName, sessionId, userPrompts) {
   return sessionPath;
 }
 
-test('Claude session rename persists via appended summary records', { concurrency: false }, async () => {
+test('Claude session rename is rejected after provider removal', { concurrency: false }, async () => {
   await withTemporaryHome(async (tempHome) => {
     const projectPath = path.join(tempHome, 'workspace', 'claude-demo');
     await fs.mkdir(projectPath, { recursive: true });
@@ -252,15 +252,17 @@ test('Claude session rename persists via appended summary records', { concurrenc
     const project = await addProjectManually(projectPath, 'Claude Demo');
     const sessionPath = await createClaudeSessionFile(project.name, 'session-1');
 
-    await renameSession(project.name, 'session-1', 'Renamed Session');
+    await assert.rejects(
+      () => renameSession(project.name, 'session-1', 'Renamed Session'),
+      /Claude sessions are no longer supported/,
+    );
 
     const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
-    assert.equal(sessionsResult.sessions.length, 1);
-    assert.equal(sessionsResult.sessions[0].summary, 'Renamed Session');
+    assert.equal(sessionsResult.sessions.length, 0);
 
     const persistedContent = await fs.readFile(sessionPath, 'utf8');
-    assert.match(persistedContent, /"type":"summary"/);
-    assert.match(persistedContent, /"summary":"Renamed Session"/);
+    assert.doesNotMatch(persistedContent, /"type":"summary"/);
+    assert.doesNotMatch(persistedContent, /"summary":"Renamed Session"/);
   });
 });
 
@@ -303,7 +305,7 @@ test('Claude session rename rejects blank summaries', { concurrency: false }, as
   });
 });
 
-test('Claude session summary ignores bootstrap ping and uses the first real prompt', { concurrency: false }, async () => {
+test('Claude session summaries are not exposed after provider removal', { concurrency: false }, async () => {
   await withTemporaryHome(async (tempHome) => {
     const projectPath = path.join(tempHome, 'workspace', 'claude-demo-bootstrap');
     await fs.mkdir(projectPath, { recursive: true });
@@ -312,12 +314,11 @@ test('Claude session summary ignores bootstrap ping and uses the first real prom
     await createClaudeSessionFixture(project.name, 'session-bootstrap', ['ping', '真正的业务问题']);
 
     const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
-    assert.equal(sessionsResult.sessions.length, 1);
-    assert.equal(sessionsResult.sessions[0].summary, '真正的业务问题');
+    assert.equal(sessionsResult.sessions.length, 0);
   });
 });
 
-test('Claude session rename updates display summary without changing filename', { concurrency: false }, async () => {
+test('Rejected Claude rename leaves history filename and summary unchanged', { concurrency: false }, async () => {
   await withTemporaryHome(async (tempHome) => {
     const projectPath = path.join(tempHome, 'workspace', 'claude-demo-rename-file');
     await fs.mkdir(projectPath, { recursive: true });
@@ -325,28 +326,28 @@ test('Claude session rename updates display summary without changing filename', 
     const project = await addProjectManually(projectPath, 'Claude Demo Rename File');
     const sessionPath = await createClaudeSessionFile(project.name, 'session-stable-file');
 
-    await renameSession(project.name, 'session-stable-file', '新的会话名称');
+    await assert.rejects(
+      () => renameSession(project.name, 'session-stable-file', '新的会话名称'),
+      /Claude sessions are no longer supported/,
+    );
 
     const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
-    assert.equal(sessionsResult.sessions[0].summary, '新的会话名称');
+    assert.equal(sessionsResult.sessions.length, 0);
     await assert.doesNotReject(fs.access(sessionPath));
     assert.equal(path.basename(sessionPath), 'session-stable-file.jsonl');
   });
 });
 
-test('manual Claude draft sessions are visible before the first provider message', { concurrency: false }, async () => {
+test('manual Claude draft sessions are rejected by the provider contract', { concurrency: false }, async () => {
   await withTemporaryHome(async (tempHome) => {
-    const projectPath = path.join(tempHome, 'workspace', 'claude-manual-draft');
+    const projectPath = path.join(tempHome, 'workspace', 'claude-manual-rejected');
     await fs.mkdir(projectPath, { recursive: true });
 
-    const project = await addProjectManually(projectPath, 'Claude Draft Demo');
-    const draftSession = await createManualSessionDraft(project.name, projectPath, 'claude', '会话1');
-
-    const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
-    assert.equal(sessionsResult.sessions.length, 1);
-    assert.equal(sessionsResult.sessions[0].id, draftSession.id);
-    assert.equal(sessionsResult.sessions[0].summary, '会话1');
-    assert.equal(sessionsResult.sessions[0].status, 'draft');
+    const project = await addProjectManually(projectPath, 'Claude Draft Rejected Demo');
+    await assert.rejects(
+      () => createManualSessionDraft(project.name, projectPath, 'claude', '会话1'),
+      /provider must be "codex" or "opencode"/,
+    );
   });
 });
 
@@ -448,22 +449,23 @@ test('manual draft start request cannot be overwritten by another tab', { concur
   });
 });
 
-test('manual draft route indices stay unique across Claude and Codex providers in one project', { concurrency: false }, async () => {
+test('manual draft route indices stay unique across OpenCode and Codex providers in one project', { concurrency: false }, async () => {
   await withTemporaryHome(async (tempHome) => {
     const projectPath = path.join(tempHome, 'workspace', 'mixed-provider-drafts');
     await fs.mkdir(projectPath, { recursive: true });
 
     const project = await addProjectManually(projectPath, 'Mixed Provider Draft Demo');
-    const claudeDraft = await createManualSessionDraft(project.name, projectPath, 'claude', '会话1');
+    const opencodeDraft = await createManualSessionDraft(project.name, projectPath, 'opencode', '会话1');
     const codexDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '会话2');
 
-    assert.equal(claudeDraft.id, 'c1');
-    assert.equal(claudeDraft.routeIndex, 1);
+    assert.equal(opencodeDraft.id, 'c1');
+    assert.equal(opencodeDraft.routeIndex, 1);
     assert.equal(codexDraft.id, 'c2');
     assert.equal(codexDraft.routeIndex, 2);
 
     const config = await loadProjectConfig(projectPath);
-    assert.equal(config.chat['1'].sessionId, claudeDraft.id);
+    assert.equal(config.chat['1'].sessionId, opencodeDraft.id);
+    assert.equal(config.chat['1'].provider, 'opencode');
     assert.equal(config.chat['2'].sessionId, codexDraft.id);
   });
 });
@@ -566,7 +568,7 @@ test('manual Codex draft numbering does not recycle after a manual draft is remo
   });
 });
 
-test('deleting a Claude session removes its JSONL file', { concurrency: false }, async () => {
+test('generic delete no longer removes Claude JSONL history', { concurrency: false }, async () => {
   await withTemporaryHome(async (tempHome) => {
     const projectPath = path.join(tempHome, 'workspace', 'claude-delete-real-file');
     await fs.mkdir(projectPath, { recursive: true });
@@ -574,9 +576,12 @@ test('deleting a Claude session removes its JSONL file', { concurrency: false },
     const project = await addProjectManually(projectPath, 'Claude Delete Real File Demo');
     const sessionPath = await createClaudeSessionFile(project.name, 'claude-delete-real');
 
-    await deleteSession(project.name, 'claude-delete-real');
+    await assert.rejects(
+      () => deleteSession(project.name, 'claude-delete-real'),
+      /Codex session file not found/,
+    );
 
-    await assert.rejects(fs.access(sessionPath));
+    await assert.doesNotReject(fs.access(sessionPath));
   });
 });
 
@@ -618,31 +623,28 @@ test('deleting a stale Codex chat record removes the local route entry', { concu
   });
 });
 
-test('finalizing a manual Claude draft binds the label to the real backend session', { concurrency: false }, async () => {
+test('finalizing a manual OpenCode draft binds the label to the real backend session', { concurrency: false }, async () => {
   await withTemporaryHome(async (tempHome) => {
-    const projectPath = path.join(tempHome, 'workspace', 'claude-manual-finalize');
+    const projectPath = path.join(tempHome, 'workspace', 'opencode-manual-finalize');
     await fs.mkdir(projectPath, { recursive: true });
 
-    const project = await addProjectManually(projectPath, 'Claude Finalize Demo');
-    const draftSession = await createManualSessionDraft(project.name, projectPath, 'claude', '会话3');
-    await createClaudeSessionFile(project.name, 'claude-session-real');
+    const project = await addProjectManually(projectPath, 'OpenCode Finalize Demo');
+    const draftSession = await createManualSessionDraft(project.name, projectPath, 'opencode', '会话3');
 
     const finalized = await finalizeManualSessionDraft(
       project.name,
       draftSession.id,
-      'claude-session-real',
-      'claude',
+      'opencode-session-real',
+      'opencode',
+      projectPath,
     );
 
     assert.equal(finalized, true);
 
-    const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
-    const finalizedSession = sessionsResult.sessions.find((session) => session.id === 'claude-session-real');
-    assert.equal(finalizedSession?.summary, '会话3');
-
     const config = await loadProjectConfig(projectPath);
-    const finalizedChat = Object.values(config.chat || {}).find((record) => record.sessionId === 'claude-session-real');
+    const finalizedChat = Object.values(config.chat || {}).find((record) => record.sessionId === 'opencode-session-real');
     assert.equal(finalizedChat?.title, '会话3');
+    assert.equal(finalizedChat?.provider, 'opencode');
   });
 });
 
@@ -678,7 +680,7 @@ test('finalizing a manual Codex draft keeps the original route slot', { concurre
   });
 });
 
-test('Claude session rename with projectPath writes conf to project-local config', { concurrency: false }, async () => {
+test('Rejected Claude rename with projectPath does not write project-local config', { concurrency: false }, async () => {
   await withTemporaryHome(async (tempHome) => {
     const externalProjectPath = path.join(tempHome, 'workspace', 'claude-demo-path');
     await fs.mkdir(externalProjectPath, { recursive: true });
@@ -686,17 +688,19 @@ test('Claude session rename with projectPath writes conf to project-local config
     const project = await addProjectManually(externalProjectPath, 'Claude Demo Path');
     const sessionPath = await createClaudeSessionFile(project.name, 'session-with-path');
 
-    await renameSession(project.name, 'session-with-path', '带路径的改名', externalProjectPath);
+    await assert.rejects(
+      () => renameSession(project.name, 'session-with-path', '带路径的改名', externalProjectPath),
+      /Claude sessions are no longer supported/,
+    );
 
     const sessionsResult = await getSessions(project.name, 5, 0, { includeHidden: true });
-    assert.equal(sessionsResult.sessions.length, 1);
-    assert.equal(sessionsResult.sessions[0].summary, '带路径的改名');
+    assert.equal(sessionsResult.sessions.length, 0);
 
     const persistedContent = await fs.readFile(sessionPath, 'utf8');
-    assert.match(persistedContent, /"type":"summary"/);
-    assert.match(persistedContent, /"summary":"带路径的改名"/);
+    assert.doesNotMatch(persistedContent, /"type":"summary"/);
+    assert.doesNotMatch(persistedContent, /"summary":"带路径的改名"/);
 
     const projectLocalConfig = await loadProjectConfig(externalProjectPath);
-    assert.equal(projectLocalConfig.chat?.['1']?.title, '带路径的改名');
+    assert.equal(projectLocalConfig.chat?.['1']?.title, undefined);
   });
 });

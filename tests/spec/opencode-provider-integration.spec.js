@@ -1,11 +1,5 @@
 /**
- * PURPOSE: Acceptance tests for change 28 — OpenCode provider scaffolding.
- *
- * Scope: this change is intentionally narrowed to type/constant/UI scaffolding
- * (proposal.md §"What Changes"). Backend SDK, REST routes, session discovery,
- * WebSocket, and workflow integration are explicit non-goals and live in
- * subsequent changes. These tests therefore validate that the scaffolding is
- * present in source so future backend work can land without front-end churn.
+ * PURPOSE: Acceptance tests for the supported Codex/OpenCode provider surface.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,7 +22,7 @@ async function readRepoFile(relPath) {
 function providerToSessionsKey(provider) {
   if (provider === 'codex') return 'codexSessions';
   if (provider === 'opencode') return 'opencodeSessions';
-  return 'sessions';
+  throw new Error(`Unsupported session provider: ${String(provider)}`);
 }
 
 function getProjectSessions(project) {
@@ -65,7 +59,7 @@ function insertSessionIntoProject(project, session, provider) {
 
 function resolveSessionProvider(selectedProject, selectedSession) {
   const explicitProvider = selectedSession?.__provider || selectedSession?.provider;
-  if (explicitProvider === 'claude' || explicitProvider === 'codex' || explicitProvider === 'opencode') {
+  if (explicitProvider === 'codex' || explicitProvider === 'opencode') {
     return explicitProvider;
   }
   const sessionId = selectedSession?.id;
@@ -78,9 +72,6 @@ function resolveSessionProvider(selectedProject, selectedSession) {
   if ((selectedProject.opencodeSessions || []).some((session) => session.id === sessionId)) {
     return 'opencode';
   }
-  if ((selectedProject.sessions || []).some((session) => session.id === sessionId)) {
-    return 'claude';
-  }
   return null;
 }
 
@@ -92,8 +83,8 @@ test('SessionProvider type literal includes opencode and Project carries opencod
   const source = await readRepoFile('src/types/app.ts');
   assert.match(
     source,
-    /export\s+type\s+SessionProvider\s*=\s*'claude'\s*\|\s*'codex'\s*\|\s*'opencode'\s*;/,
-    'SessionProvider must list claude | codex | opencode',
+    /export\s+type\s+SessionProvider\s*=\s*'codex'\s*\|\s*'opencode'\s*;/,
+    'SessionProvider must list only codex | opencode',
   );
   assert.match(
     source,
@@ -106,8 +97,8 @@ test('AgentProvider settings type includes opencode', async () => {
   const source = await readRepoFile('src/components/settings/types/types.ts');
   assert.match(
     source,
-    /export\s+type\s+AgentProvider\s*=\s*'claude'\s*\|\s*'codex'\s*\|\s*'opencode'\s*;/,
-    'AgentProvider must list claude | codex | opencode',
+    /export\s+type\s+AgentProvider\s*=\s*'codex'\s*\|\s*'opencode'\s*;/,
+    'AgentProvider must list only codex | opencode',
   );
 });
 
@@ -115,8 +106,8 @@ test('AGENT_PROVIDERS constant lists opencode and AUTH_STATUS_ENDPOINTS register
   const source = await readRepoFile('src/components/settings/constants/constants.ts');
   assert.match(
     source,
-    /AGENT_PROVIDERS:\s*AgentProvider\[\]\s*=\s*\[\s*'claude'\s*,\s*'codex'\s*,\s*'opencode'\s*\]/,
-    'AGENT_PROVIDERS must include opencode',
+    /AGENT_PROVIDERS:\s*AgentProvider\[\]\s*=\s*\[\s*'codex'\s*,\s*'opencode'\s*\]/,
+    'AGENT_PROVIDERS must include only supported manual providers',
   );
   assert.match(
     source,
@@ -192,7 +183,7 @@ test('ProviderSelectionEmptyState ready prompt map contains opencode key', async
   );
   assert.match(
     source,
-    /opencode:\s*t\(\s*'providerSelection\.readyPrompt\.opencode'/,
+    /t\(\s*'providerSelection\.readyPrompt\.opencode'/,
     'ready prompt map must include an opencode entry',
   );
 });
@@ -217,10 +208,14 @@ test('AgentSelectorSection reuses shared AGENT_PROVIDERS instead of local consta
 // Behavior tests: verify provider mapping, session insertion, and resolution
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('providerToSessionsKey maps all three providers to distinct session keys', () => {
-  assert.equal(providerToSessionsKey('claude'), 'sessions');
+test('providerToSessionsKey maps supported providers and rejects legacy Claude', () => {
   assert.equal(providerToSessionsKey('codex'), 'codexSessions');
   assert.equal(providerToSessionsKey('opencode'), 'opencodeSessions');
+  assert.throws(
+    () => providerToSessionsKey('claude'),
+    /Unsupported session provider: claude/,
+    'legacy Claude must not fall back to the sessions bucket',
+  );
 });
 
 test('getProjectSessions aggregates sessions from all three provider buckets', () => {
@@ -286,7 +281,7 @@ test('resolveSessionProvider infers opencode from project.opencodeSessions membe
 
   assert.equal(resolveSessionProvider(project, { id: 'o1' }), 'opencode');
   assert.equal(resolveSessionProvider(project, { id: 'c1' }), 'codex');
-  assert.equal(resolveSessionProvider(project, { id: 's1' }), 'claude');
+  assert.equal(resolveSessionProvider(project, { id: 's1' }), null);
   assert.equal(resolveSessionProvider(project, { id: 'unknown' }), null);
 });
 
@@ -300,6 +295,11 @@ test('useProjectsState source contains providerToSessionsKey with opencode branc
     source,
     /if\s*\(\s*provider\s*===\s*'opencode'\s*\)\s*return\s*'opencodeSessions'/,
     'providerToSessionsKey must have an opencode branch',
+  );
+  assert.doesNotMatch(
+    source,
+    /return\s+['"]sessions['"]/,
+    'providerToSessionsKey must not fall back to the legacy sessions bucket',
   );
 });
 
@@ -334,7 +334,7 @@ test('useChatSessionState resolveSessionProvider accepts opencode explicitly', a
   const source = await readRepoFile('src/components/chat/hooks/useChatSessionState.ts');
   assert.match(
     source,
-    /explicitProvider\s*===\s*'claude'\s*\|\|\s*explicitProvider\s*===\s*'codex'\s*\|\|\s*explicitProvider\s*===\s*'opencode'/,
+    /explicitProvider\s*===\s*'codex'\s*\|\|\s*explicitProvider\s*===\s*'opencode'/,
     'resolveSessionProvider must accept opencode in the explicit-provider branch',
   );
   assert.match(
@@ -344,9 +344,7 @@ test('useChatSessionState resolveSessionProvider accepts opencode explicitly', a
   );
 });
 
-test('No OpenCode backend module is introduced by this change (scoping invariant)', async () => {
-  // Asserting absence keeps the change scope honest. Backend modules are out
-  // of scope and must land in a separate change.
+test('OpenCode backend modules are present in the supported provider surface', async () => {
   for (const rel of ['server/opencode-sdk.js', 'server/routes/opencode.js']) {
     let exists = true;
     try {
@@ -354,7 +352,7 @@ test('No OpenCode backend module is introduced by this change (scoping invariant
     } catch {
       exists = false;
     }
-    assert.equal(exists, false, `${rel} must NOT exist in change 28 (out of scope)`);
+    assert.equal(exists, true, `${rel} must exist for OpenCode runtime support`);
   }
 });
 
@@ -380,12 +378,12 @@ test('useSettingsController.setAuthStatusByProvider does not pollute Codex when 
   // unguarded fallback, otherwise opencode would land in the Codex slot.
   assert.match(
     source,
-    /const\s+setAuthStatusByProvider\s*=\s*useCallback\s*\([\s\S]*?if\s*\(\s*provider\s*===\s*'claude'\s*\)\s*\{[\s\S]*?\}\s*if\s*\(\s*provider\s*===\s*'codex'\s*\)\s*\{[\s\S]*?setCodexAuthStatus\(/,
+    /const\s+setAuthStatusByProvider\s*=\s*useCallback\s*\([\s\S]*?if\s*\(\s*provider\s*===\s*'codex'\s*\)\s*\{[\s\S]*?setCodexAuthStatus\(/,
     'setAuthStatusByProvider must guard the codex branch with an explicit provider check',
   );
   assert.doesNotMatch(
     source,
-    /const\s+setAuthStatusByProvider\s*=\s*useCallback\s*\([\s\S]*?if\s*\(\s*provider\s*===\s*'claude'\s*\)\s*\{[\s\S]*?return;\s*\}\s*setCodexAuthStatus\(/,
+    /const\s+setAuthStatusByProvider\s*=\s*useCallback\s*\([\s\S]*?setCodexAuthStatus\([\s\S]*?else\s*\{[\s\S]*?setCodexAuthStatus\(/,
     'setAuthStatusByProvider must NOT use setCodexAuthStatus as the unconditional fallback',
   );
 });
@@ -420,28 +418,22 @@ test('AccountContent hides the login button for opencode and skips UsageProvider
 // in the opencode-safe contract.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('setAuthStatusByProvider routing (replicated) keeps opencode out of codex/claude slots', () => {
+test('setAuthStatusByProvider routing (replicated) keeps opencode out of codex slot', () => {
   // Mirrors the production reducer in useSettingsController.ts.
   function routeAuthStatus(provider, slots) {
     const next = { ...slots };
-    if (provider === 'claude') {
-      next.claude = { authenticated: false, error: 'whatever' };
-      return next;
-    }
     if (provider === 'codex') {
       next.codex = { authenticated: false, error: 'whatever' };
       return next;
     }
-    // opencode and anything else: no slot mutation in placeholder mode.
+    // opencode and anything else: no Codex slot mutation in local CLI mode.
     return next;
   }
 
-  const initial = { claude: null, codex: null };
+  const initial = { codex: null };
   const afterOpencode = routeAuthStatus('opencode', initial);
-  assert.equal(afterOpencode.claude, null, 'opencode must not write into claude slot');
   assert.equal(afterOpencode.codex, null, 'opencode must not write into codex slot');
 
   const afterCodex = routeAuthStatus('codex', initial);
-  assert.equal(afterCodex.claude, null, 'codex update must not touch claude slot');
   assert.ok(afterCodex.codex && afterCodex.codex.error === 'whatever', 'codex update must land in codex slot');
 });

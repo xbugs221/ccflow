@@ -63,7 +63,6 @@ export default function UsageOverviewSection() {
       </div>
 
       <div className="space-y-3">
-        <UsageProviderQuota provider="claude" />
         <UsageProviderQuota provider="codex" />
       </div>
     </section>

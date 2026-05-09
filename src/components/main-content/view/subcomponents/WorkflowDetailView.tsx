@@ -4,8 +4,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, FileText, Play } from 'lucide-react';
-import ClaudeLogo from '../../../llm-logo-provider/ClaudeLogo';
-import CodexLogo from '../../../llm-logo-provider/CodexLogo';
+import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import type {
   Project,
   ProjectWorkflow,
@@ -73,9 +72,10 @@ function buildWorkflowSessionRouteOptions(
   workflowId: string;
   workflowStageKey?: string;
 } {
-  const normalizedProvider: SessionProvider = (project.codexSessions || []).some((candidate) => candidate.id === session.id)
-    ? 'codex'
-    : (session.provider === 'codex' ? 'codex' : 'claude');
+  const normalizedProvider: SessionProvider = session.provider === 'opencode'
+    || (project.opencodeSessions || []).some((candidate) => candidate.id === session.id)
+    ? 'opencode'
+    : 'codex';
   return {
     provider: normalizedProvider,
     projectName: project.name,
@@ -146,14 +146,14 @@ function getWorkflowStageProvider(
   /**
    * PURPOSE: Read the stage provider from normalized status data or persisted map.
    */
-  if (stageSession?.provider === 'claude') {
-    return 'claude';
-  }
   if (stageSession?.provider === 'codex') {
     return 'codex';
   }
+  if (stageSession?.provider === 'opencode') {
+    return 'opencode';
+  }
   const stageProvider = workflow.stageStatuses.find((stage) => stage.key === stageKey)?.provider;
-  return stageProvider === 'claude' ? 'claude' : 'codex';
+  return stageProvider === 'opencode' ? 'opencode' : 'codex';
 }
 
 function renderTodoMarker(status: string) {
@@ -1084,11 +1084,7 @@ export default function WorkflowDetailView({
                   data-testid="workflow-stage-provider-badge"
                   className="inline-flex h-6 items-center rounded-md border border-border/60 px-2"
                 >
-                  {stageProvider === 'claude' ? (
-                    <ClaudeLogo className="h-4 w-4" />
-                  ) : (
-                    <CodexLogo className="h-4 w-4" />
-                  )}
+                  <SessionProviderLogo provider={stageProvider} className="h-4 w-4" />
                 </span>
               </div>
             </div>

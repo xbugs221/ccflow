@@ -83,7 +83,7 @@ test('sidebar text shows both fixture labels', async ({ page }) => {
   await expect(page.locator('body')).toContainText('.fixture-project');
 });
 
-test('worktree session route loads Claude history instead of empty state', async ({ page }) => {
+test('worktree session route loads Codex history instead of empty state', async ({ page }) => {
   await page.goto(`/session/${PLAYWRIGHT_FIXTURE_SESSION_IDS[3]}`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('matx worktree fixture session');
   await expect(page.locator('body')).not.toContainText('继续您的对话');
@@ -117,25 +117,25 @@ test('manual session order stays pinned to creation time after an older session 
   await expect(manualSessions.nth(0)).toContainText('fixture-project session');
   await expect(manualSessions.nth(1)).toContainText('fixture-project execution fixture session');
 
-  const projectPath = PLAYWRIGHT_FIXTURE_PROJECT_PATHS[0];
-  const projectDir = path.join(
+  const executionSessionPath = path.join(
     PLAYWRIGHT_FIXTURE_HOME,
-    '.claude',
-    'projects',
-    projectPath.replace(/\//g, '-'),
+    '.codex',
+    'sessions',
+    '2026',
+    '04',
+    '19',
+    'fixture-project-execution-session.jsonl',
   );
-  const executionSessionPath = path.join(projectDir, 'fixture-project-execution-session.jsonl');
 
   fs.appendFileSync(
     executionSessionPath,
     `${JSON.stringify({
-      sessionId: 'fixture-project-execution-session',
-      cwd: projectPath,
+      type: 'response_item',
       timestamp: '2026-04-20T18:30:00.000Z',
-      type: 'assistant',
-      message: {
+      payload: {
+        type: 'message',
         role: 'assistant',
-        content: 'execution session new follow-up reply',
+        content: [{ type: 'output_text', text: 'execution session new follow-up reply' }],
       },
     })}\n`,
     'utf8',

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { SessionProvider } from '../../../types/app';
 
 function normalizeProvider(value: string | null): SessionProvider {
-  return value === 'codex' ? 'codex' : 'claude';
+  return value === 'opencode' ? 'opencode' : 'codex';
 }
 
 export function useSelectedProvider() {

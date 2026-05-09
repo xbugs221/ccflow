@@ -273,7 +273,7 @@ function resolveSessionProvider(
   selectedSession: ProjectSession | null,
 ): SessionProvider | null {
   const explicitProvider = selectedSession?.__provider || selectedSession?.provider;
-  if (explicitProvider === 'claude' || explicitProvider === 'codex' || explicitProvider === 'opencode') {
+  if (explicitProvider === 'codex' || explicitProvider === 'opencode') {
     return explicitProvider;
   }
 
@@ -288,10 +288,6 @@ function resolveSessionProvider(
 
   if ((selectedProject.opencodeSessions || []).some((session) => session.id === sessionId)) {
     return 'opencode';
-  }
-
-  if ((selectedProject.sessions || []).some((session) => session.id === sessionId)) {
-    return 'claude';
   }
 
   return null;
@@ -405,7 +401,7 @@ export function useChatSessionState({
       sessionId: string,
       limit: number | null,
       offset = 0,
-      provider: string = 'claude',
+      provider: string = 'codex',
       afterLine: number | null = null,
     ) => {
       if (!projectName || !sessionId) {
@@ -455,7 +451,7 @@ export function useChatSessionState({
   );
 
   const loadSessionMessages = useCallback(
-    async (projectName: string, sessionId: string, loadMore = false, provider: string = 'claude') => {
+    async (projectName: string, sessionId: string, loadMore = false, provider: string = 'codex') => {
       const isInitialLoad = !loadMore;
       if (isInitialLoad) {
         setIsLoadingSessionMessages(true);
@@ -616,7 +612,7 @@ export function useChatSessionState({
         return false;
       }
 
-      const sessionProvider = resolveSessionProvider(selectedProject, selectedSession) || 'claude';
+      const sessionProvider = resolveSessionProvider(selectedProject, selectedSession) || 'codex';
       const sessionProjectName = getSessionProjectName(selectedProject, selectedSession);
 
       isLoadingMoreRef.current = true;
@@ -826,7 +822,7 @@ export function useChatSessionState({
           return;
         }
 
-        const sessionProvider = resolveSessionProvider(curProject, curSession) || 'claude';
+        const sessionProvider = resolveSessionProvider(curProject, curSession) || 'codex';
         const sessionProjectName = getSessionProjectName(curProject, curSession);
         isLoadingSessionRef.current = true;
 
@@ -974,7 +970,7 @@ export function useChatSessionState({
         curSession.id,
         null,
         0,
-        resolveSessionProvider(curProject, curSession) || 'claude',
+        resolveSessionProvider(curProject, curSession) || 'codex',
         knownTotal,  // afterLine: 只返回第 knownTotal 行之后的新内容
       );
       // Discard if user navigated away from this session while loading.
@@ -1069,7 +1065,7 @@ export function useChatSessionState({
     const activeSessionKey = activeSessionId
       ? [
         getSessionProjectName(selectedProject, selectedSession),
-        resolveSessionProvider(selectedProject, selectedSession) || 'claude',
+        resolveSessionProvider(selectedProject, selectedSession) || 'codex',
         activeSessionId,
       ].join(':')
       : null;
@@ -1221,7 +1217,7 @@ export function useChatSessionState({
     if (!selectedSession || !selectedProject) return;
     if (isLoadingAllMessagesRef.current) return;
     const { reveal = true, silent = false } = options;
-    const sessionProvider = resolveSessionProvider(selectedProject, selectedSession) || 'claude';
+    const sessionProvider = resolveSessionProvider(selectedProject, selectedSession) || 'codex';
     const sessionProjectName = getSessionProjectName(selectedProject, selectedSession);
 
     const requestSessionId = selectedSession.id;

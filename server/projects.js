@@ -2,21 +2,19 @@
  * PROJECT DISCOVERY AND MANAGEMENT SYSTEM
  * ========================================
  * 
- * This module manages project discovery for Claude Code and Codex CLI sessions.
+ * This module manages project discovery for manually added Codex/OpenCode projects.
  * 
  * ## Architecture Overview
  * 
- * 1. **Claude Projects** (stored in ~/.claude/projects/)
- *    - Each project is a directory named with the project path encoded (/ replaced with -)
- *    - Contains .jsonl files with conversation history including 'cwd' field
+ * 1. **Manual Projects**
  *    - Project metadata stored in ~/.ccflow/conf.json
+ *    - Provider sessions are discovered through Codex/OpenCode-specific readers
  * 
  * ## Project Discovery Strategy
  * 
- * 1. **Claude Projects Discovery**:
- *    - Scan ~/.claude/projects/ directory for Claude project folders
- *    - Extract actual project path from .jsonl files (cwd field)
- *    - Fall back to decoded directory name if no sessions exist
+ * 1. **Configured Project Discovery**:
+ *    - Read user-managed projects from ~/.ccflow/conf.json
+ *    - Attach Codex/OpenCode session collections for each project path
  * 
  * 2. **Manual Project Addition**:
  *    - Users can manually add project paths via UI
@@ -24,7 +22,6 @@
  * 
  * ## Error Handling
  * 
- * - Missing ~/.claude directory is handled gracefully with automatic creation
  * - ENOENT errors are caught and handled without crashing
  * - Empty arrays returned when no projects/sessions exist
  * 
@@ -41,7 +38,6 @@ import path from 'path';
 import readline from 'readline';
 import crypto from 'crypto';
 import os from 'os';
-import { getActiveClaudeSDKSessions } from './claude-sdk.js';
 import { getActiveCodexSessions } from './openai-codex.js';
 import { getCodexSessionTokenUsageFromFile } from './session-token-usage.js';
 import { listProjectWorkflows } from './workflows.js';
@@ -206,6 +202,8 @@ const sessionPathExistenceCache = new Map();
 const codexSessionFileCache = new Map();
 let codexSessionsIndexCache = null;
 let codexSessionsIndexPromise = null;
+let opencodeSessionsIndexCache = null;
+let opencodeSessionsIndexPromise = null;
 let projectsSnapshotCache = null;
 let projectsSnapshotPromise = null;
 const SESSION_PATH_CACHE_TTL_MS = (() => {
@@ -214,6 +212,10 @@ const SESSION_PATH_CACHE_TTL_MS = (() => {
 })();
 const CODEX_INDEX_CACHE_TTL_MS = (() => {
   const parsed = Number.parseInt(process.env.CODEX_INDEX_CACHE_TTL_MS || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30 * 1000;
+})();
+const OPENCODE_INDEX_CACHE_TTL_MS = (() => {
+  const parsed = Number.parseInt(process.env.OPENCODE_INDEX_CACHE_TTL_MS || '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 30 * 1000;
 })();
 const PROJECTS_CACHE_TTL_MS = (() => {
@@ -229,6 +231,8 @@ function clearProjectDirectoryCache() {
   projectsSnapshotPromise = null;
   codexSessionsIndexCache = null;
   codexSessionsIndexPromise = null;
+  opencodeSessionsIndexCache = null;
+  opencodeSessionsIndexPromise = null;
   codexSessionFileCache.clear();
 }
 
@@ -343,18 +347,6 @@ async function readJsonlAfterLine(filePath, afterLine) {
   } finally {
     await fileHandle.close();
   }
-}
-
-/**
- * Build a stable Claude message key from session line coordinates.
- * @param {string} sessionId
- * @param {number} lineNumber
- * @param {number} [subIndex]
- * @returns {string}
- */
-function buildClaudeMessageKey(sessionId, lineNumber, subIndex = 0) {
-  const baseKey = `claude:${sessionId}:line:${lineNumber}`;
-  return subIndex > 0 ? `${baseKey}:msg:${subIndex}` : baseKey;
 }
 
 /**
@@ -647,12 +639,12 @@ function createLiveProjectName(projectPath, usedProjectNames, provider) {
 /**
  * Build a synthetic sidebar session from an active provider process.
  * @param {Object} session - Active session descriptor.
- * @param {'claude'|'codex'} provider - Session provider.
+ * @param {'codex'|'opencode'} provider - Session provider.
  * @returns {Object} Sidebar-compatible session object.
  */
 function createSyntheticActiveSession(session, provider) {
   const startedAt = session.startedAt || new Date().toISOString();
-  const summary = provider === 'codex' ? 'Active Codex session' : 'Active Claude Code session';
+  const summary = provider === 'opencode' ? 'Active OpenCode session' : 'Active Codex session';
 
   return {
     id: session.id,
@@ -682,7 +674,6 @@ async function mergeActiveProviderSessionsIntoProjects({
   knownProjectPaths,
 }) {
   const activeProviderSessions = [
-    ...getActiveClaudeSDKSessions().map((session) => ({ ...session, provider: 'claude' })),
     ...getActiveCodexSessions().map((session) => ({ ...session, provider: 'codex' })),
   ];
 
@@ -2386,7 +2377,7 @@ async function generateDisplayName(projectName, actualProjectDir = null) {
   return projectPath;
 }
 
-// Extract the actual project directory from JSONL sessions (with caching)
+// Extract the actual project directory from project config or encoded names.
 async function extractProjectDirectory(projectName) {
   // Check cache first
   if (projectDirectoryCache.has(projectName)) {
@@ -2402,107 +2393,9 @@ async function extractProjectDirectory(projectName) {
     return originalPath;
   }
 
-  const projectDir = path.join(os.homedir(), '.claude', 'projects', projectName);
-  const cwdCounts = new Map();
-  let latestTimestamp = 0;
-  let latestCwd = null;
-  let extractedPath;
-
-  try {
-    // Check if the project directory exists
-    await fs.access(projectDir);
-
-    const files = await fs.readdir(projectDir);
-    const jsonlFiles = files.filter(file => file.endsWith('.jsonl'));
-
-    if (jsonlFiles.length === 0) {
-      // Fall back to decoded project name if no sessions
-      extractedPath = projectName.replace(/-/g, '/');
-    } else {
-      // Process all JSONL files to collect cwd values
-      for (const file of jsonlFiles) {
-        const jsonlFile = path.join(projectDir, file);
-        const fileStream = fsSync.createReadStream(jsonlFile);
-        const rl = readline.createInterface({
-          input: fileStream,
-          crlfDelay: Infinity
-        });
-
-        for await (const line of rl) {
-          if (line.trim()) {
-            try {
-              const entry = JSON.parse(line);
-
-              if (entry.cwd) {
-                // Count occurrences of each cwd
-                cwdCounts.set(entry.cwd, (cwdCounts.get(entry.cwd) || 0) + 1);
-
-                // Track the most recent cwd
-                const timestamp = new Date(entry.timestamp || 0).getTime();
-                if (timestamp > latestTimestamp) {
-                  latestTimestamp = timestamp;
-                  latestCwd = entry.cwd;
-                }
-              }
-            } catch (parseError) {
-              // Skip malformed lines
-            }
-          }
-        }
-      }
-
-      // Determine the best cwd to use
-      if (cwdCounts.size === 0) {
-        // No cwd found, fall back to decoded project name
-        extractedPath = projectName.replace(/-/g, '/');
-      } else if (cwdCounts.size === 1) {
-        // Only one cwd, use it
-        extractedPath = Array.from(cwdCounts.keys())[0];
-      } else {
-        // Multiple cwd values - prefer the most recent one if it has reasonable usage
-        const mostRecentCount = cwdCounts.get(latestCwd) || 0;
-        const maxCount = Math.max(...cwdCounts.values());
-
-        // Use most recent if it has at least 25% of the max count
-        if (mostRecentCount >= maxCount * 0.25) {
-          extractedPath = latestCwd;
-        } else {
-          // Otherwise use the most frequently used cwd
-          for (const [cwd, count] of cwdCounts.entries()) {
-            if (count === maxCount) {
-              extractedPath = cwd;
-              break;
-            }
-          }
-        }
-
-        // Fallback (shouldn't reach here)
-        if (!extractedPath) {
-          extractedPath = latestCwd || projectName.replace(/-/g, '/');
-        }
-      }
-    }
-
-    // Cache the result
-    projectDirectoryCache.set(projectName, extractedPath);
-
-    return extractedPath;
-
-  } catch (error) {
-    // If the directory doesn't exist, just use the decoded project name
-    if (error.code === 'ENOENT') {
-      extractedPath = projectName.replace(/-/g, '/');
-    } else {
-      console.error(`Error extracting project directory for ${projectName}:`, error);
-      // Fall back to decoded project name for other errors
-      extractedPath = projectName.replace(/-/g, '/');
-    }
-
-    // Cache the fallback result too
-    projectDirectoryCache.set(projectName, extractedPath);
-
-    return extractedPath;
-  }
+  const extractedPath = projectName.replace(/-/g, '/');
+  projectDirectoryCache.set(projectName, extractedPath);
+  return extractedPath;
 }
 
 /**
@@ -2661,7 +2554,6 @@ export const __projectDiscoveryForTest = {
 };
 
 async function getProjects(progressCallback = null) {
-  const claudeDir = path.join(os.homedir(), '.claude', 'projects');
   const config = await loadProjectConfig();
   const projectArchiveIndex = await loadProjectArchiveIndex();
   const projects = [];
@@ -2669,10 +2561,10 @@ async function getProjects(progressCallback = null) {
   const knownProjectPaths = new Set();
   const usedProjectNames = new Set();
   const codexSessionsIndexRef = { sessionsByProject: null };
+  const opencodeSessionsIndexRef = { sessionsByProject: null };
   let archiveIndexChanged = false;
   let totalProjects = 0;
   let processedProjects = 0;
-  let directories = [];
 
   /**
    * Apply missing-path archival policy and tell caller whether to skip this project.
@@ -2691,138 +2583,9 @@ async function getProjects(progressCallback = null) {
     return archiveDecision.excludeFromList;
   };
 
-  try {
-    // Check if the .claude/projects directory exists
-    await fs.access(claudeDir);
-
-    // First, get existing Claude projects from the file system
-    const entries = await fs.readdir(claudeDir, { withFileTypes: true });
-    directories = entries.filter(e => e.isDirectory());
-
-    // Build set of existing project names for later
-    directories.forEach(e => existingProjects.add(e.name));
-
-    // Count manual projects not already in directories
-    const manualProjectsCount = Object.entries(config)
-      .filter(([name, cfg]) => cfg.manuallyAdded && !existingProjects.has(name))
-      .length;
-
-    totalProjects = directories.length + manualProjectsCount;
-
-    for (const entry of directories) {
-      processedProjects++;
-
-      // Emit progress
-      if (progressCallback) {
-        progressCallback({
-          phase: 'loading',
-          current: processedProjects,
-          total: totalProjects,
-          currentProject: entry.name
-        });
-      }
-
-      // Extract actual project directory from JSONL sessions
-      const actualProjectDir = await extractProjectDirectory(entry.name);
-      if (await shouldSkipProject(actualProjectDir, 'claude')) {
-        continue;
-      }
-
-      // Get display name from config or generate one
-      const autoDisplayName = await generateDisplayName(entry.name, actualProjectDir);
-      const resolvedDisplayName = resolveProjectDisplayName(
-        config,
-        entry.name,
-        actualProjectDir,
-        autoDisplayName
-      );
-      const fullPath = actualProjectDir;
-
-      const project = {
-        name: entry.name,
-        path: actualProjectDir,
-        routePath: buildProjectRoutePath(actualProjectDir),
-        displayName: resolvedDisplayName.displayName,
-        fullPath: fullPath,
-        isCustomName: resolvedDisplayName.isCustomName,
-        sessions: [],
-        sessionMeta: {
-          hasMore: false,
-          total: 0
-        },
-        opencodeSessions: []
-      };
-
-      // Project overview must surface every already-loaded manual session card.
-      try {
-        const sessionResult = await getSessions(entry.name, PROJECT_OVERVIEW_SESSION_LIMIT, 0, {
-          includeHidden: true,
-          excludeWorkflowChildSessions: true,
-        });
-        project.sessions = sessionResult.sessions || [];
-        project.sessionMeta = {
-          hasMore: sessionResult.hasMore,
-          total: sessionResult.total
-        };
-      } catch (e) {
-        console.warn(`Could not load sessions for project ${entry.name}:`, e.message);
-        project.sessionMeta = {
-          hasMore: false,
-          total: 0
-        };
-      }
-
-      // Also fetch Codex sessions for this project
-      try {
-        project.codexSessions = await getCodexSessions(actualProjectDir, {
-          limit: PROJECT_OVERVIEW_SESSION_LIMIT,
-          indexRef: codexSessionsIndexRef,
-          includeHidden: true,
-          excludeWorkflowChildSessions: true,
-        });
-      } catch (e) {
-        console.warn(`Could not load Codex sessions for project ${entry.name}:`, e.message);
-        project.codexSessions = [];
-      }
-      await attachManualSessionNextRouteIndex(project, actualProjectDir);
-
-      // Add TaskMaster detection
-      try {
-        const taskMasterResult = await detectTaskMasterFolder(actualProjectDir);
-        project.taskmaster = {
-          hasTaskmaster: taskMasterResult.hasTaskmaster,
-          hasEssentialFiles: taskMasterResult.hasEssentialFiles,
-          metadata: taskMasterResult.metadata,
-          status: taskMasterResult.hasTaskmaster && taskMasterResult.hasEssentialFiles ? 'configured' : 'not-configured'
-        };
-      } catch (e) {
-        console.warn(`Could not detect TaskMaster for project ${entry.name}:`, e.message);
-        project.taskmaster = {
-          hasTaskmaster: false,
-          hasEssentialFiles: false,
-          metadata: null,
-          status: 'error'
-        };
-      }
-
-      usedProjectNames.add(project.name);
-      const normalizedProjectPath = normalizeComparablePath(actualProjectDir);
-      if (normalizedProjectPath) {
-        knownProjectPaths.add(normalizedProjectPath);
-      }
-
-      projects.push(project);
-    }
-  } catch (error) {
-    // If the directory doesn't exist (ENOENT), that's okay - just continue with empty projects
-    if (error.code !== 'ENOENT') {
-      console.error('Error reading projects directory:', error);
-    }
-    // Calculate total for manual projects only (no directories exist)
-    totalProjects = Object.entries(config)
-      .filter(([name, cfg]) => cfg.manuallyAdded)
-      .length;
-  }
+  totalProjects = Object.entries(config)
+    .filter(([name, cfg]) => cfg.manuallyAdded && !existingProjects.has(name))
+    .length;
 
   // Add manually configured projects that don't exist as folders yet
   for (const [projectName, projectConfig] of Object.entries(config)) {
@@ -2889,6 +2652,13 @@ async function getProjects(progressCallback = null) {
         });
       } catch (e) {
         console.warn(`Could not load Codex sessions for manual project ${projectName}:`, e.message);
+      }
+      try {
+        project.opencodeSessions = await getOpencodeSessions(actualProjectDir, {
+          indexRef: opencodeSessionsIndexRef,
+        });
+      } catch (e) {
+        console.warn(`Could not load OpenCode sessions for manual project ${projectName}:`, e.message);
       }
       await attachManualSessionNextRouteIndex(project, actualProjectDir);
 
@@ -3024,227 +2794,15 @@ async function getProjects(progressCallback = null) {
 }
 
 async function getSessions(projectName, limit = 5, offset = 0, options = {}) {
-  const { includeHidden = false, excludeWorkflowChildSessions = false } = options;
-  const projectDir = path.join(os.homedir(), '.claude', 'projects', projectName);
-
-  try {
-    let config = await loadProjectConfig();
-    let summaryOverrideById = getSessionSummaryOverrideMap(config);
-    let workflowMetadataById = getSessionWorkflowMetadataMap(config);
-    let files = [];
-    try {
-      files = await fs.readdir(projectDir);
-    } catch (error) {
-      if (error?.code !== 'ENOENT') {
-        throw error;
-      }
-    }
-    // agent-*.jsonl files contain session start data at this point. This needs to be revisited
-    // periodically to make sure only accurate data is there and no new functionality is added there
-    const jsonlFiles = files.filter(file => file.endsWith('.jsonl') && !file.startsWith('agent-'));
-    const fallbackProjectPath = await extractProjectDirectory(projectName);
-    config = await loadProjectConfig(fallbackProjectPath);
-    summaryOverrideById = getSessionSummaryOverrideMap(config);
-    workflowMetadataById = getSessionWorkflowMetadataMap(config);
-    const manualDraftSessions = getManualDraftSessionsForProject(config, {
-      projectName,
-      projectPath: fallbackProjectPath,
-      provider: 'claude',
-    });
-
-    if (jsonlFiles.length === 0) {
-      const annotatedDraftSessions = await annotateSessionCollectionVisibility(manualDraftSessions, fallbackProjectPath);
-      const draftSessionsWithUiState = annotatedDraftSessions.map((session) => applySessionUiState(
-        session,
-        fallbackProjectPath,
-        'claude',
-        config,
-      ));
-      const indexedDraftSessions = attachSessionRouteIndices(
-        config,
-        fallbackProjectPath,
-        'claude',
-        draftSessionsWithUiState,
-      );
-      if (indexedDraftSessions.changed) {
-        await saveProjectConfig(config, fallbackProjectPath);
-      }
-      const sessionsForResponse = includeHidden
-        ? indexedDraftSessions.sessions
-        : filterHiddenArchivedSessions(indexedDraftSessions.sessions);
-      const hasMore = limit > 0 ? offset + limit < sessionsForResponse.length : false;
-      return {
-        sessions: limit > 0 ? sessionsForResponse.slice(offset, offset + limit) : sessionsForResponse,
-        hasMore,
-        total: sessionsForResponse.length,
-        offset,
-        limit,
-      };
-    }
-
-    // Sort files by modification time (newest first)
-    const filesWithStats = await Promise.all(
-      jsonlFiles.map(async (file) => {
-        const filePath = path.join(projectDir, file);
-        const stats = await fs.stat(filePath);
-        return { file, mtime: stats.mtime };
-      })
-    );
-    filesWithStats.sort((a, b) => b.mtime - a.mtime);
-
-    const allSessions = new Map();
-    const allEntries = [];
-    const uuidToSessionMap = new Map();
-
-    // Collect all sessions and entries from all files
-    for (const { file } of filesWithStats) {
-      const jsonlFile = path.join(projectDir, file);
-      const result = await parseJsonlSessions(jsonlFile);
-
-      result.sessions.forEach(session => {
-        if (!allSessions.has(session.id)) {
-          allSessions.set(session.id, session);
-        }
-      });
-
-      allEntries.push(...result.entries);
-
-      // Early exit optimization for large projects
-      if (allSessions.size >= (limit + offset) * 2 && allEntries.length >= Math.min(3, filesWithStats.length)) {
-        break;
-      }
-    }
-
-    // Build UUID-to-session mapping for timeline detection
-    allEntries.forEach(entry => {
-      if (entry.uuid && entry.sessionId) {
-        uuidToSessionMap.set(entry.uuid, entry.sessionId);
-      }
-    });
-
-    // Group sessions by first user message ID
-    const sessionGroups = new Map(); // firstUserMsgId -> { latestSession, allSessions[] }
-    const sessionToFirstUserMsgId = new Map(); // sessionId -> firstUserMsgId
-
-    // Find the first user message for each session
-    allEntries.forEach(entry => {
-      if (entry.sessionId && entry.type === 'user' && entry.parentUuid === null && entry.uuid) {
-        // This is a first user message in a session (parentUuid is null)
-        const firstUserMsgId = entry.uuid;
-
-        if (!sessionToFirstUserMsgId.has(entry.sessionId)) {
-          sessionToFirstUserMsgId.set(entry.sessionId, firstUserMsgId);
-
-          const session = allSessions.get(entry.sessionId);
-          if (session) {
-            if (!sessionGroups.has(firstUserMsgId)) {
-              sessionGroups.set(firstUserMsgId, {
-                latestSession: session,
-                allSessions: [session]
-              });
-            } else {
-              const group = sessionGroups.get(firstUserMsgId);
-              group.allSessions.push(session);
-
-              // Update latest session if this one is more recent
-              if (new Date(session.lastActivity) > new Date(group.latestSession.lastActivity)) {
-                group.latestSession = session;
-              }
-            }
-          }
-        }
-      }
-    });
-
-    // Collect all sessions that don't belong to any group (standalone sessions)
-    const groupedSessionIds = new Set();
-    sessionGroups.forEach(group => {
-      group.allSessions.forEach(session => groupedSessionIds.add(session.id));
-    });
-
-    const standaloneSessionsArray = Array.from(allSessions.values())
-      .filter(session => !groupedSessionIds.has(session.id));
-
-    // Combine grouped sessions (only show latest from each group) + standalone sessions
-    const latestFromGroups = Array.from(sessionGroups.values()).map(group => {
-      const session = { ...group.latestSession };
-      // Add metadata about grouping
-      if (group.allSessions.length > 1) {
-        session.isGrouped = true;
-        session.groupSize = group.allSessions.length;
-        session.groupSessions = group.allSessions.map(s => s.id);
-      }
-      return session;
-    });
-    let candidateSessions = [...latestFromGroups, ...standaloneSessionsArray]
-      .map((session) => applySessionMetadataOverrides(session, summaryOverrideById, workflowMetadataById, 'claude'))
-      .concat(manualDraftSessions)
-      .filter(session => !session.summary.startsWith('{ "'))
-      .sort((a, b) => new Date(b.createdAt || b.lastActivity || 0) - new Date(a.createdAt || a.lastActivity || 0));
-    if (excludeWorkflowChildSessions) {
-      /**
-       * PURPOSE: Keep workflow child sessions inside workflow detail only.
-       * The project homepage manual-session collection must stay focused on
-       * sessions users can enter directly outside workflow orchestration.
-       */
-      const workflows = await listProjectWorkflows(fallbackProjectPath);
-      const workflowClaudeSessionIds = new Set(
-        workflows.flatMap((workflow) => (workflow.childSessions || []))
-          .filter((session) => (!session?.provider || session.provider === 'claude') && session?.id)
-          .map((session) => session.id),
-      );
-      candidateSessions = candidateSessions.filter((session) => (
-        !workflowClaudeSessionIds.has(session.id)
-        && !isLikelyWorkflowAutoSession(session, workflows, 'claude')
-      ));
-    }
-    const annotatedSessions = await annotateSessionCollectionVisibility(candidateSessions, fallbackProjectPath);
-    const sessionsWithUiState = annotatedSessions.map((session) => applySessionUiState(
-      session,
-      fallbackProjectPath,
-      'claude',
-      config,
-    ));
-    const visibleOrAllSessions = includeHidden
-      ? sessionsWithUiState
-      : filterHiddenArchivedSessions(sessionsWithUiState);
-    const indexedSessions = attachSessionRouteIndices(
-      config,
-      fallbackProjectPath,
-      'claude',
-      visibleOrAllSessions,
-    );
-    if (indexedSessions.changed) {
-      await saveProjectConfig(config, fallbackProjectPath);
-    }
-    const sessionsForResponse = indexedSessions.sessions;
-
-    const hiddenCount = sessionsWithUiState.length - sessionsForResponse.length;
-    if (hiddenCount > 0) {
-      console.info(
-        `[SessionVisibility] Project ${projectName}: hidden ${hiddenCount} session(s) with missing project paths`,
-      );
-    }
-
-    const total = sessionsForResponse.length;
-    const paginatedSessions = sessionsForResponse.slice(offset, offset + limit);
-    const hasMore = limit > 0 ? offset + limit < total : false;
-
-    return {
-      sessions: paginatedSessions,
-      hasMore,
-      total,
-      offset,
-      limit
-    };
-  } catch (error) {
-    if (isMissingProjectPathError(error)) {
-      return { sessions: [], hasMore: false, total: 0 };
-    }
-
-    console.error(`Error reading sessions for project ${projectName}:`, error);
-    return { sessions: [], hasMore: false, total: 0 };
-  }
+  void projectName;
+  void options;
+  return {
+    sessions: [],
+    hasMore: false,
+    total: 0,
+    offset,
+    limit,
+  };
 }
 
 async function parseJsonlSessions(filePath) {
@@ -3483,276 +3041,21 @@ async function parseAgentTools(filePath) {
 // When afterLine is provided (>= 0), returns only lines after that count
 // for incremental append, bypassing the tail-window pagination entirely.
 async function getSessionMessages(projectName, sessionId, limit = null, offset = 0, afterLine = null) {
-  // 直接读取 {sessionId}.jsonl，避免全目录扫描
-  const projectDir = path.join(os.homedir(), '.claude', 'projects', projectName);
-
-  try {
-    const messages = [];
-    let fallbackTotal = null;
-
-    // 优先直接读 sessionId 对应的文件，跳过全量 readdir + 遍历
-    const directFile = path.join(projectDir, `${sessionId}.jsonl`);
-    let foundDirect = false;
-    try {
-      await fs.access(directFile);
-      foundDirect = true;
-    } catch { /* file doesn't exist, fall through to scan */ }
-
-    if (foundDirect) {
-      let total = null;
-
-      // afterLine 模式：只返回第 N 行之后的增量内容
-      if (afterLine !== null && afterLine >= 0) {
-        const result = await readJsonlAfterLine(directFile, afterLine);
-        total = result.total;
-
-        for (const entry of result.lines) {
-          try {
-            const parsed = JSON.parse(entry.line);
-            parsed.messageKey = buildClaudeMessageKey(sessionId, entry.lineNumber);
-            parsed.__lineNumber = entry.lineNumber;
-            messages.push(parsed);
-          } catch (parseError) {
-            console.warn('Error parsing line:', parseError.message);
-          }
-        }
-      } else if (limit !== null) {
-        const tailWindow = await readJsonlTailWindow(directFile, limit, offset);
-        total = tailWindow.total;
-
-        for (const entry of tailWindow.lines) {
-          try {
-            const parsed = JSON.parse(entry.line);
-            parsed.messageKey = buildClaudeMessageKey(sessionId, entry.lineNumber);
-            parsed.__lineNumber = entry.lineNumber;
-            messages.push(parsed);
-          } catch (parseError) {
-            console.warn('Error parsing line:', parseError.message);
-          }
-        }
-      } else {
-        const fileStream = fsSync.createReadStream(directFile);
-        const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
-        let lineNumber = 0;
-        for await (const line of rl) {
-          if (line.trim()) {
-            lineNumber += 1;
-            try {
-              const parsed = JSON.parse(line);
-              parsed.messageKey = buildClaudeMessageKey(sessionId, lineNumber);
-              parsed.__lineNumber = lineNumber;
-              messages.push(parsed);
-            } catch (parseError) {
-              console.warn('Error parsing line:', parseError.message);
-            }
-          }
-        }
-      }
-
-      if (messages.length === 0) {
-        return (limit === null && afterLine === null) ? [] : { messages: [], total: total || 0, hasMore: false };
-      }
-
-      // 加载 subagent 工具信息（并行读取）
-      const agentIds = new Set();
-      for (const message of messages) {
-        if (message.toolUseResult?.agentId) {
-          agentIds.add(message.toolUseResult.agentId);
-        }
-      }
-
-      if (agentIds.size > 0) {
-        const agentToolsCache = new Map();
-        await Promise.all([...agentIds].map(async (agentId) => {
-          const agentFilePath = path.join(projectDir, `agent-${agentId}.jsonl`);
-          try {
-            await fs.access(agentFilePath);
-            const tools = await parseAgentTools(agentFilePath);
-            agentToolsCache.set(agentId, tools);
-          } catch { /* agent file not found, skip */ }
-        }));
-
-        for (const message of messages) {
-          if (message.toolUseResult?.agentId) {
-            const agentTools = agentToolsCache.get(message.toolUseResult.agentId);
-            if (agentTools && agentTools.length > 0) {
-              message.subagentTools = agentTools;
-            }
-          }
-        }
-      }
-
-      const sortedMessages = messages.sort((a, b) =>
-        new Date(a.timestamp || 0) - new Date(b.timestamp || 0)
-      );
-
-      if (limit === null && afterLine === null) {
-        return sortedMessages;
-      }
-
-      const resolvedTotal = total ?? sortedMessages.length;
-      return {
-        messages: sortedMessages,
-        total: resolvedTotal,
-        hasMore: afterLine !== null ? false : resolvedTotal > (offset + sortedMessages.length),
-      };
-    } else {
-      // Fallback: 扫描所有 JSONL 文件（兼容文件名不等于 sessionId 的情况）
-      let files = [];
-      try {
-        files = await fs.readdir(projectDir);
-      } catch (error) {
-        if (error?.code !== 'ENOENT') throw error;
-      }
-      const jsonlFiles = files.filter(file => file.endsWith('.jsonl') && !file.startsWith('agent-'));
-      fallbackTotal = 0;
-
-      for (const file of jsonlFiles) {
-        const jsonlFile = path.join(projectDir, file);
-        const fileStream = fsSync.createReadStream(jsonlFile);
-        const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
-        let lineNumber = 0;
-        for await (const line of rl) {
-          if (line.trim()) {
-            lineNumber += 1;
-            try {
-              const entry = JSON.parse(line);
-              if (entry.sessionId === sessionId) {
-                fallbackTotal += 1;
-                if (afterLine !== null && afterLine >= 0 && lineNumber <= afterLine) {
-                  continue;
-                }
-                entry.messageKey = entry.messageKey || buildClaudeMessageKey(sessionId, lineNumber);
-                entry.__lineNumber = Number.isFinite(Number(entry.__lineNumber))
-                  ? Number(entry.__lineNumber)
-                  : lineNumber;
-                messages.push(entry);
-              }
-            } catch (parseError) {
-              console.warn('Error parsing line:', parseError.message);
-            }
-          }
-        }
-      }
-    }
-
-    if (messages.length === 0) {
-      const total = fallbackTotal ?? 0;
-      return (limit === null && afterLine === null)
-        ? []
-        : { messages: [], total, hasMore: false, offset, limit };
-    }
-
-    // 加载 subagent 工具信息（并行读取）
-    const agentIds = new Set();
-    for (const message of messages) {
-      if (message.toolUseResult?.agentId) {
-        agentIds.add(message.toolUseResult.agentId);
-      }
-    }
-
-    if (agentIds.size > 0) {
-      const agentToolsCache = new Map();
-      await Promise.all([...agentIds].map(async (agentId) => {
-        const agentFilePath = path.join(projectDir, `agent-${agentId}.jsonl`);
-        try {
-          await fs.access(agentFilePath);
-          const tools = await parseAgentTools(agentFilePath);
-          agentToolsCache.set(agentId, tools);
-        } catch { /* agent file not found, skip */ }
-      }));
-
-      for (const message of messages) {
-        if (message.toolUseResult?.agentId) {
-          const agentTools = agentToolsCache.get(message.toolUseResult.agentId);
-          if (agentTools && agentTools.length > 0) {
-            message.subagentTools = agentTools;
-          }
-        }
-      }
-    }
-
-    // Sort by JSONL line when available so pagination cursors stay stable.
-    const sortedMessages = messages.sort((a, b) => {
-      const lineA = Number(a.__lineNumber);
-      const lineB = Number(b.__lineNumber);
-      if (Number.isFinite(lineA) && Number.isFinite(lineB)) {
-        return lineA - lineB;
-      }
-      return new Date(a.timestamp || 0) - new Date(b.timestamp || 0);
-    });
-
-    const total = fallbackTotal ?? sortedMessages.length;
-
-    if (limit === null && afterLine === null) {
-      return sortedMessages;
-    }
-
-    if (afterLine !== null && afterLine >= 0) {
-      return { messages: sortedMessages, total, hasMore: false, offset, limit };
-    }
-
-    const startIndex = Math.max(0, total - offset - limit);
-    const endIndex = total - offset;
-    const paginatedMessages = sortedMessages.slice(startIndex, endIndex);
-    const hasMore = startIndex > 0;
-
-    return { messages: paginatedMessages, total, hasMore, offset, limit };
-  } catch (error) {
-    console.error(`Error reading messages for session ${sessionId}:`, error);
-    return limit === null ? [] : { messages: [], total: 0, hasMore: false };
-  }
+  void projectName;
+  void sessionId;
+  void limit;
+  void offset;
+  void afterLine;
+  throw new Error('Claude session history is no longer supported');
 }
 
 /**
- * PURPOSE: Locate the Claude JSONL file that stores a given session.
- * This supports session mutation endpoints without changing the on-disk session format.
+ * PURPOSE: Reject legacy Claude JSONL mutation lookups after provider removal.
  */
 async function findClaudeSessionFile(projectName, sessionId) {
-  /**
-   * Prefer the direct `{sessionId}.jsonl` lookup because that is the common case.
-   */
-  const projectDir = path.join(os.homedir(), '.claude', 'projects', projectName);
-  const directFile = path.join(projectDir, `${sessionId}.jsonl`);
-
-  try {
-    await fs.access(directFile);
-    return directFile;
-  } catch {
-    // Fall through to directory scan for legacy/non-standard filenames.
-  }
-
-  let files = [];
-  try {
-    files = await fs.readdir(projectDir);
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error;
-  }
-  const jsonlFiles = files.filter((file) => file.endsWith('.jsonl') && !file.startsWith('agent-'));
-
-  for (const file of jsonlFiles) {
-    const jsonlFile = path.join(projectDir, file);
-    const content = await fs.readFile(jsonlFile, 'utf8');
-    const lines = content.split('\n').filter((line) => line.trim());
-
-    /**
-     * Scan the file content to find the session owner when the filename is not the session id.
-     */
-    const hasSession = lines.some((line) => {
-      try {
-        const data = JSON.parse(line);
-        return data.sessionId === sessionId;
-      } catch {
-        return false;
-      }
-    });
-
-    if (hasSession) {
-      return jsonlFile;
-    }
-  }
-
-  throw new Error(`Session ${sessionId} not found in any files`);
+  void projectName;
+  void sessionId;
+  throw new Error('Claude session history is no longer supported');
 }
 
 // Rename a project's display name
@@ -3807,8 +3110,8 @@ async function renameProject(projectName, newDisplayName, projectPath = null) {
 /**
  * PURPOSE: Persist cross-device UI flags for one Claude or Codex session.
  */
-async function updateSessionUiState(projectName, sessionId, provider = 'claude', uiState = {}) {
-  const normalizedProvider = provider === 'codex' ? 'codex' : 'claude';
+async function updateSessionUiState(projectName, sessionId, provider = 'codex', uiState = {}) {
+  const normalizedProvider = provider === 'opencode' ? 'opencode' : 'codex';
   const projectPath = await extractProjectDirectory(projectName);
   const stateKey = buildSessionUiStateKey(projectPath, normalizedProvider, sessionId);
 
@@ -3857,32 +3160,15 @@ async function updateSessionUiState(projectName, sessionId, provider = 'claude',
   return nextEntry;
 }
 
-/**
- * PURPOSE: Persist a manual Claude session title by appending a summary entry to the session JSONL.
- * Appending preserves the existing storage model while letting the parser pick up the latest summary.
- */
 async function renameSession(projectName, sessionId, newSummary, projectPath = '') {
+  void projectName;
+  void sessionId;
+  void projectPath;
   const trimmedSummary = typeof newSummary === 'string' ? newSummary.trim() : '';
   if (!trimmedSummary) {
     throw new Error('Session summary is required');
   }
-
-  const sessionFile = await findClaudeSessionFile(projectName, sessionId);
-  const summaryEntry = {
-    type: 'summary',
-    sessionId,
-    summary: trimmedSummary,
-    timestamp: new Date().toISOString(),
-  };
-
-  /**
-   * Append a single JSONL record so existing parsers naturally treat this as the latest rename.
-   */
-  await fs.appendFile(sessionFile, `${JSON.stringify(summaryEntry)}\n`, 'utf8');
-  const config = await loadProjectConfig(projectPath);
-  writeSessionSummaryOverride(config, sessionId, trimmedSummary);
-  await saveProjectConfig(config, projectPath);
-  return true;
+  throw new Error('Claude sessions are no longer supported');
 }
 
 /**
@@ -3911,7 +3197,7 @@ async function renameCodexSession(sessionId, newSummary, projectPath = '') {
  * session id. Workflow-owned drafts carry metadata so project discovery can
  * keep them out of standalone manual-session collections.
  */
-async function createManualSessionDraft(projectName, projectPath, provider = 'claude', label, options = {}) {
+async function createManualSessionDraft(projectName, projectPath, provider = 'codex', label, options = {}) {
   /**
    * Store the route draft in both project config and the durable ccflow index.
    */
@@ -3929,9 +3215,10 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'cl
     let providerSessions = [];
     if (provider === 'codex') {
       providerSessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true, excludeWorkflowChildSessions: true });
-    } else if (provider === 'claude') {
-      const claudeResult = await getSessions(projectName, 0, 0, { includeHidden: true, excludeWorkflowChildSessions: true });
-      providerSessions = claudeResult.sessions || [];
+    } else if (provider === 'opencode') {
+      providerSessions = await getOpencodeSessions(projectPath, { limit: 0, includeHidden: true, excludeWorkflowChildSessions: true });
+    } else {
+      throw new Error('provider must be "codex" or "opencode"');
     }
     config = await loadProjectConfig(projectPath);
     const otherProviderDraftCount = Object.values(getManualSessionDraftMap(config)).filter((draft) => (
@@ -3976,7 +3263,10 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'cl
 /**
  * PURPOSE: Claim a manual cN chat route for one first-message request.
  */
-async function startManualSessionDraft(projectName, projectPath, draftSessionId, provider = 'claude', startRequestId = '') {
+async function startManualSessionDraft(projectName, projectPath, draftSessionId, provider = 'codex', startRequestId = '') {
+  if (provider !== 'codex' && provider !== 'opencode') {
+    throw new Error('provider must be "codex" or "opencode"');
+  }
   if (typeof draftSessionId !== 'string' || !draftSessionId.trim()) {
     throw new Error('Draft session ID is required');
   }
@@ -4107,7 +3397,10 @@ async function getManualSessionDraftRuntime(projectName, projectPath, draftSessi
 /**
  * PURPOSE: Bind a stored manual draft label to the first real provider session id.
  */
-async function finalizeManualSessionDraft(projectName, draftSessionId, actualSessionId, provider = 'claude', projectPath = '') {
+async function finalizeManualSessionDraft(projectName, draftSessionId, actualSessionId, provider = 'codex', projectPath = '') {
+  if (provider !== 'codex' && provider !== 'opencode') {
+    throw new Error('provider must be "codex" or "opencode"');
+  }
   /**
    * Bind a ccflow route id to the provider session once the first message starts.
    */
@@ -4151,10 +3444,6 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
   if (expectedProvider && expectedProvider !== provider) {
     throw new Error(`Draft session provider mismatch: expected ${expectedProvider}, received ${provider}`);
   }
-  if (provider === 'claude' && draft?.projectName && draft.projectName !== projectName) {
-    throw new Error(`Draft session project mismatch: expected ${draft.projectName}, received ${projectName}`);
-  }
-
   const trimmedLabel = typeof draft?.label === 'string' && draft.label.trim()
     ? draft.label.trim()
     : typeof draftRecord?.record?.title === 'string'
@@ -4226,22 +3515,6 @@ async function deleteManualSessionDraft(sessionId, provider = null, projectPath 
 async function deleteSession(projectName, sessionId) {
   try {
     const projectPath = await extractProjectDirectory(projectName);
-    if (await deleteManualSessionDraft(sessionId, 'claude', projectPath)) {
-      return true;
-    }
-
-    try {
-      const sessionFile = await findClaudeSessionFile(projectName, sessionId);
-      await fs.unlink(sessionFile);
-      await cleanupDeletedSessionConfig(sessionId, projectPath, 'claude');
-      clearProjectDirectoryCache();
-      return true;
-    } catch (error) {
-      if (!/not found/i.test(error?.message || '') && error?.code !== 'ENOENT') {
-        throw error;
-      }
-    }
-
     await deleteCodexSession(sessionId, projectPath);
     return true;
   } catch (error) {
@@ -4250,11 +3523,62 @@ async function deleteSession(projectName, sessionId) {
   }
 }
 
+/**
+ * Check whether any standalone manual draft belongs to the project.
+ */
+function hasManualDraftsForProject(config, { projectName, projectPath, localProjectConfig = false } = {}) {
+  const normalizedProjectPath = normalizeComparablePath(projectPath);
+
+  return Object.values(getManualSessionDraftMap(config)).some((draft) => {
+    if (!draft || typeof draft !== 'object' || isWorkflowOwnedDraft(draft)) {
+      return false;
+    }
+
+    if (draft.provider !== 'codex' && draft.provider !== 'opencode') {
+      return false;
+    }
+
+    if (localProjectConfig && !draft.projectName && !draft.projectPath) {
+      return true;
+    }
+
+    return draft.projectName === projectName
+      || normalizeComparablePath(draft.projectPath) === normalizedProjectPath;
+  });
+}
+
 // Check if a project is empty (has no sessions)
 async function isProjectEmpty(projectName) {
   try {
-    const sessionsResult = await getSessions(projectName, 1, 0, { includeHidden: true });
-    return sessionsResult.total === 0;
+    const config = await loadProjectConfig();
+    const projectPath = config[projectName]?.path
+      || config[projectName]?.originalPath
+      || await extractProjectDirectory(projectName);
+
+    if (hasManualDraftsForProject(config, { projectName, projectPath })) {
+      return false;
+    }
+
+    if (!projectPath) {
+      return true;
+    }
+
+    const projectLocalConfig = await loadProjectConfig(projectPath);
+    if (hasManualDraftsForProject(projectLocalConfig, {
+      projectName,
+      projectPath,
+      localProjectConfig: true,
+    })) {
+      return false;
+    }
+
+    const codexSessions = await getCodexSessions(projectPath, { limit: 1, includeHidden: true });
+    if (codexSessions.length > 0) {
+      return false;
+    }
+
+    const opencodeSessions = await getOpencodeSessions(projectPath);
+    return opencodeSessions.length === 0;
   } catch (error) {
     console.error(`Error checking if project ${projectName} is empty:`, error);
     return false;
@@ -4263,12 +3587,12 @@ async function isProjectEmpty(projectName) {
 
 // Delete a project (force=true to delete even with sessions)
 async function deleteProject(projectName, force = false) {
-  const projectDir = path.join(os.homedir(), '.claude', 'projects', projectName);
-
   try {
-    const isEmpty = await isProjectEmpty(projectName);
-    if (!isEmpty && !force) {
-      throw new Error('Cannot delete project with existing sessions');
+    if (!force) {
+      const isEmpty = await isProjectEmpty(projectName);
+      if (!isEmpty) {
+        throw new Error('Cannot delete project with existing sessions');
+      }
     }
 
     const config = await loadProjectConfig();
@@ -4278,9 +3602,6 @@ async function deleteProject(projectName, force = false) {
     if (!projectPath) {
       projectPath = await extractProjectDirectory(projectName);
     }
-
-    // Remove the project directory (includes all Claude sessions)
-    await fs.rm(projectDir, { recursive: true, force: true });
 
     // Delete all Codex sessions associated with this project
     if (projectPath) {
@@ -4352,7 +3673,6 @@ async function addProjectManually(projectPath, displayName = null) {
 
   // Check if project already exists in config
   const config = await loadProjectConfig();
-  const projectDir = path.join(os.homedir(), '.claude', 'projects', projectName);
 
   if (config[projectName]) {
     throw new Error(`Project already configured for path: ${absolutePath}`);
@@ -4614,16 +3934,17 @@ async function getCodexSessions(projectPath, options = {}) {
 }
 
 /**
- * Get OpenCode sessions for a project by calling opencode CLI.
+ * Build an OpenCode session index with one CLI call per refresh.
  */
-async function getOpencodeSessions(projectPath) {
+async function buildOpencodeSessionsIndex() {
+  const sessionsByProject = new Map();
   try {
     const { spawn } = await import('child_process');
     const { resolveOpencodeCliPath } = await import('./opencode-sdk.js');
     const cliPath = resolveOpencodeCliPath();
 
-    return await new Promise((resolve, reject) => {
-      const proc = spawn(cliPath, ['session', 'list', '--json'], {
+    const allSessions = await new Promise((resolve, reject) => {
+      const proc = spawn(cliPath, ['session', 'list', '--format', 'json'], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
@@ -4645,31 +3966,8 @@ async function getOpencodeSessions(projectPath) {
         }
 
         try {
-          const allSessions = JSON.parse(stdout);
-          if (!Array.isArray(allSessions)) {
-            resolve([]);
-            return;
-          }
-
-          const normalizedProjectPath = path.resolve(projectPath);
-          const sessions = allSessions
-            .filter((session) => {
-              if (!session.directory) return false;
-              return path.resolve(session.directory) === normalizedProjectPath;
-            })
-            .map((session) => ({
-              id: session.id,
-              name: session.title || session.id,
-              lastActivity: session.updated || session.created || new Date().toISOString(),
-              createdAt: session.created || new Date().toISOString(),
-              messageCount: 0,
-              provider: 'opencode',
-              __provider: 'opencode',
-              projectPath: session.directory || projectPath,
-              cwd: session.directory || projectPath,
-            }));
-
-          resolve(sessions);
+          const trimmedStdout = stdout.trim();
+          resolve(trimmedStdout ? JSON.parse(trimmedStdout) : []);
         } catch (error) {
           reject(new Error(`Failed to parse opencode session list: ${error.message}`));
         }
@@ -4683,10 +3981,94 @@ async function getOpencodeSessions(projectPath) {
         }
       });
     });
+
+    if (!Array.isArray(allSessions)) {
+      return sessionsByProject;
+    }
+
+    for (const session of allSessions) {
+      if (!session?.directory) {
+        continue;
+      }
+
+      const normalizedProjectPath = normalizeComparablePath(session.directory);
+      if (!normalizedProjectPath) {
+        continue;
+      }
+
+      if (!sessionsByProject.has(normalizedProjectPath)) {
+        sessionsByProject.set(normalizedProjectPath, []);
+      }
+
+      sessionsByProject.get(normalizedProjectPath).push({
+        id: session.id,
+        name: session.title || session.id,
+        lastActivity: session.updated || session.created || new Date().toISOString(),
+        createdAt: session.created || new Date().toISOString(),
+        messageCount: 0,
+        provider: 'opencode',
+        __provider: 'opencode',
+        projectPath: session.directory,
+        cwd: session.directory,
+      });
+    }
   } catch (error) {
-    console.warn(`[OpenCode] Could not list sessions for ${projectPath}:`, error.message);
+    console.warn('[OpenCode] Could not list sessions:', error.message);
+  }
+
+  for (const sessions of sessionsByProject.values()) {
+    sessions.sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
+  }
+
+  return sessionsByProject;
+}
+
+/**
+ * Return the cached OpenCode session index so project refresh does not spawn
+ * `opencode session list` once per visible project.
+ */
+async function getCachedOpencodeSessionsIndex() {
+  const now = Date.now();
+  if (opencodeSessionsIndexCache && opencodeSessionsIndexCache.expiresAt > now) {
+    return opencodeSessionsIndexCache.value;
+  }
+
+  if (opencodeSessionsIndexPromise) {
+    return opencodeSessionsIndexPromise;
+  }
+
+  opencodeSessionsIndexPromise = (async () => {
+    const value = await buildOpencodeSessionsIndex();
+    opencodeSessionsIndexCache = {
+      value,
+      expiresAt: Date.now() + OPENCODE_INDEX_CACHE_TTL_MS,
+    };
+    opencodeSessionsIndexPromise = null;
+    return value;
+  })().catch((error) => {
+    opencodeSessionsIndexPromise = null;
+    throw error;
+  });
+
+  return opencodeSessionsIndexPromise;
+}
+
+/**
+ * Get OpenCode sessions for a project from the shared CLI-backed index.
+ */
+async function getOpencodeSessions(projectPath, options = {}) {
+  const { indexRef = null } = options;
+  const normalizedProjectPath = normalizeComparablePath(projectPath);
+  if (!normalizedProjectPath) {
     return [];
   }
+
+  if (indexRef && !indexRef.sessionsByProject) {
+    indexRef.sessionsByProject = await getCachedOpencodeSessionsIndex();
+  }
+
+  const sessionsByProject = indexRef?.sessionsByProject || await getCachedOpencodeSessionsIndex();
+  return [...(sessionsByProject.get(normalizedProjectPath) || [])];
 }
 
 /**
@@ -4712,10 +4094,10 @@ async function attachManualSessionNextRouteIndex(project, projectPath) {
  * @param {string} projectName - Encoded Claude project name.
  * @param {string} actualProjectDir - Absolute project path.
  * @param {object} codexSessionsIndexRef - Shared Codex index holder.
- * @param {boolean} includeClaudeSessions - Whether Claude sessions should be loaded.
+ * @param {boolean} includeClaudeSessions - Legacy flag; Claude sessions are no longer loaded.
  * @returns {Promise<void>}
  */
-async function populateProjectCollections(project, projectName, actualProjectDir, codexSessionsIndexRef, includeClaudeSessions = true) {
+async function populateProjectCollections(project, projectName, actualProjectDir, codexSessionsIndexRef, includeClaudeSessions = false, opencodeSessionsIndexRef = null) {
   const results = await Promise.allSettled([
     includeClaudeSessions
       ? getSessions(projectName, PROJECT_OVERVIEW_SESSION_LIMIT, 0, {
@@ -4729,7 +4111,7 @@ async function populateProjectCollections(project, projectName, actualProjectDir
       includeHidden: true,
       excludeWorkflowChildSessions: true,
     }),
-    getOpencodeSessions(actualProjectDir),
+    getOpencodeSessions(actualProjectDir, { indexRef: opencodeSessionsIndexRef }),
     detectTaskMasterFolder(actualProjectDir),
   ]);
 
@@ -5321,117 +4703,6 @@ async function getCodexSessionMessages(sessionId, limit = null, offset = 0, afte
 }
 
 /**
- * Extract message-level searchable records from one Claude session payload.
- * @param {Array<Record<string, unknown>>} rawMessages
- * @param {string} sessionId
- * @returns {Array<{ messageKey: string, text: string, timestamp: string | number | Date | undefined }>}
- */
-function extractClaudeSearchableMessages(rawMessages, sessionId) {
-  const searchableMessages = [];
-  const toolMessageKeyById = new Map();
-
-  for (const rawMessage of rawMessages) {
-    const lineNumber = Number.isFinite(Number(rawMessage.__lineNumber))
-      ? Number(rawMessage.__lineNumber)
-      : 0;
-    let subIndex = 0;
-    const nextMessageKey = () => buildClaudeMessageKey(sessionId, lineNumber, subIndex++);
-    const baseMessageKey = typeof rawMessage.messageKey === 'string' ? rawMessage.messageKey : nextMessageKey();
-    const timestamp = rawMessage.timestamp;
-
-    if (rawMessage.type === 'thinking' && rawMessage.message?.content) {
-      const text = normalizeSearchableText(rawMessage.message.content);
-      if (text.trim()) {
-        searchableMessages.push({ messageKey: baseMessageKey, text, timestamp });
-      }
-      continue;
-    }
-
-    if (!rawMessage.message?.role || rawMessage.message?.content == null) {
-      continue;
-    }
-
-    if (rawMessage.message.role === 'user') {
-      if (Array.isArray(rawMessage.message.content)) {
-        const textParts = [];
-
-        for (const part of rawMessage.message.content) {
-          if (part?.type === 'text') {
-            const text = normalizeSearchableText(part.text);
-            if (text.trim()) {
-              textParts.push(text);
-            }
-            continue;
-          }
-
-          if (part?.type === 'tool_result') {
-            const text = normalizeSearchableText(part.content);
-            const relatedMessageKey = toolMessageKeyById.get(part.tool_use_id) || baseMessageKey;
-            if (text.trim()) {
-              searchableMessages.push({
-                messageKey: relatedMessageKey,
-                text,
-                timestamp,
-              });
-            }
-          }
-        }
-
-        const userText = textParts.join('\n').trim();
-        if (userText) {
-          searchableMessages.push({ messageKey: baseMessageKey, text: userText, timestamp });
-        }
-        continue;
-      }
-
-      const text = normalizeSearchableText(rawMessage.message.content);
-      if (text.trim()) {
-        searchableMessages.push({ messageKey: baseMessageKey, text, timestamp });
-      }
-      continue;
-    }
-
-    if (rawMessage.message.role === 'assistant') {
-      if (Array.isArray(rawMessage.message.content)) {
-        for (const part of rawMessage.message.content) {
-          if (part?.type === 'text') {
-            const text = normalizeSearchableText(part.text);
-            if (text.trim()) {
-              searchableMessages.push({
-                messageKey: nextMessageKey(),
-                text,
-                timestamp,
-              });
-            }
-            continue;
-          }
-
-          if (part?.type === 'tool_use') {
-            const messageKey = nextMessageKey();
-            toolMessageKeyById.set(part.id, messageKey);
-            const text = [part.name, normalizeSearchableText(part.input)]
-              .filter(Boolean)
-              .join('\n')
-              .trim();
-            if (text) {
-              searchableMessages.push({ messageKey, text, timestamp });
-            }
-          }
-        }
-        continue;
-      }
-
-      const text = normalizeSearchableText(rawMessage.message.content);
-      if (text.trim()) {
-        searchableMessages.push({ messageKey: baseMessageKey, text, timestamp });
-      }
-    }
-  }
-
-  return searchableMessages;
-}
-
-/**
  * Extract message-level searchable records from one Codex session payload.
  * @param {Array<Record<string, unknown>>} rawMessages
  * @returns {Array<{ messageKey: string, text: string, timestamp: string | number | Date | undefined }>}
@@ -5523,7 +4794,7 @@ function findWorkflowSessionRoute(project, sessionId) {
 }
 
 /**
- * Search across visible Claude/Codex transcripts or Codex JSONL identities.
+ * Search across visible Codex/OpenCode transcripts or Codex JSONL identities.
  * @param {string} query
  * @param {'content' | 'jsonl'} [mode='content']
  * @returns {Promise<Array<Record<string, unknown>>>}
@@ -5550,36 +4821,6 @@ async function searchChatHistory(query, mode = 'content') {
   const seenCodexSessionIds = new Set();
 
   for (const project of projects) {
-    const claudeSessionResult = await getSessions(project.name, Number.MAX_SAFE_INTEGER, 0);
-    const claudeSessions = Array.isArray(claudeSessionResult?.sessions)
-      ? claudeSessionResult.sessions
-      : [];
-    if (searchMode === 'content') {
-      for (const session of claudeSessions) {
-        const sessionPayload = await getSessionMessages(project.name, session.id, null, 0, null);
-        const rawMessages = Array.isArray(sessionPayload) ? sessionPayload : sessionPayload.messages || [];
-        const searchableMessages = extractClaudeSearchableMessages(rawMessages, session.id);
-
-        for (const message of searchableMessages) {
-          if (!matchesSearchQuery(message.text, trimmedQuery)) {
-            continue;
-          }
-
-          results.push({
-            resultType: 'message',
-            projectName: project.name,
-            projectDisplayName: project.displayName,
-            provider: 'claude',
-            sessionId: session.id,
-            sessionSummary: session.summary || session.title || 'Claude Session',
-            messageKey: message.messageKey,
-            snippet: buildSearchSnippet(message.text, trimmedQuery),
-            timestamp: message.timestamp || session.updated_at || session.lastActivity || session.createdAt || null,
-          });
-        }
-      }
-    }
-
     const codexSessions = Array.isArray(project.codexSessions) ? project.codexSessions : [];
     for (const session of codexSessions) {
       seenCodexSessionIds.add(session.id);

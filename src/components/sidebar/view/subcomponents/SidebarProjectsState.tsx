@@ -58,7 +58,7 @@ export default function SidebarProjectsState({
           <Folder className="w-6 h-6 text-muted-foreground" />
         </div>
         <h3 className="text-base font-medium text-foreground mb-2 md:mb-1">{t('projects.noProjects')}</h3>
-        <p className="text-sm text-muted-foreground">{t('projects.runClaudeCli')}</p>
+        <p className="text-sm text-muted-foreground">{t('projects.runAgentCli')}</p>
       </div>
     );
   }

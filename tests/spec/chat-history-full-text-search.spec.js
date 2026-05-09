@@ -22,42 +22,6 @@ const OPEN_CHAT_SEARCH = '[data-testid="open-chat-history-search"]';
 const CHAT_SEARCH_HIGHLIGHT = '.chat-search-highlight';
 
 /**
- * Encode an absolute project path the same way Claude stores project folders.
- *
- * @param {string} projectPath
- * @returns {string}
- */
-function encodeClaudeProjectName(projectPath) {
-  return projectPath.replace(/\//g, '-');
-}
-
-/**
- * Write one Claude JSONL session file under the Playwright fixture HOME.
- *
- * @param {{
- *   sessionId: string,
- *   entries: Array<Record<string, unknown>>,
- * }} params
- * @returns {Promise<void>}
- */
-async function writeClaudeSession({ sessionId, entries }) {
-  const projectDir = path.join(
-    PLAYWRIGHT_FIXTURE_HOME,
-    '.claude',
-    'projects',
-    encodeClaudeProjectName(PRIMARY_FIXTURE_PROJECT_PATH),
-  );
-  const sessionPath = path.join(projectDir, `${sessionId}.jsonl`);
-
-  await fs.mkdir(projectDir, { recursive: true });
-  await fs.writeFile(
-    sessionPath,
-    entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n',
-    'utf8',
-  );
-}
-
-/**
  * Write one Codex JSONL session file under the Playwright fixture HOME.
  *
  * @param {{
@@ -150,30 +114,6 @@ async function pointFixtureWorkflowExecutionAtThread(thread) {
 }
 
 /**
- * Build a minimal Claude transcript with stable ordering and timestamps.
- *
- * @param {{
- *   sessionId: string,
- *   messages: Array<{ role: 'user' | 'assistant', content: string }>
- * }} params
- * @returns {Array<Record<string, unknown>>}
- */
-function buildClaudeTranscript({ sessionId, messages }) {
-  return messages.map((message, index) => ({
-    sessionId,
-    cwd: PRIMARY_FIXTURE_PROJECT_PATH,
-    timestamp: `2026-04-14T08:00:${String(index).padStart(2, '0')}.000Z`,
-    parentUuid: index === 0 ? null : `${sessionId}-uuid-${index - 1}`,
-    uuid: `${sessionId}-uuid-${index}`,
-    type: message.role,
-    message: {
-      role: message.role,
-      content: message.content,
-    },
-  }));
-}
-
-/**
  * Build a minimal Codex transcript that the current parser can read.
  *
  * @param {{
@@ -195,6 +135,46 @@ function buildCodexTranscript({ sessionId, records }) {
     },
     ...records,
   ];
+}
+
+/**
+ * Build a Codex chat transcript from user and assistant messages.
+ *
+ * @param {{
+ *   sessionId: string,
+ *   messages: Array<{ role: 'user' | 'assistant', content: string }>,
+ *   startedAt?: string,
+ * }} params
+ * @returns {Array<Record<string, unknown>>}
+ */
+function buildCodexChatTranscript({ sessionId, messages, startedAt = '2026-04-14T09:00:00.000Z' }) {
+  const base = new Date(startedAt).getTime();
+  return buildCodexTranscript({
+    sessionId,
+    records: messages.map((message, index) => {
+      const timestamp = new Date(base + index * 1000).toISOString();
+      if (message.role === 'user') {
+        return {
+          timestamp,
+          type: 'event_msg',
+          payload: {
+            type: 'user_message',
+            message: message.content,
+          },
+        };
+      }
+
+      return {
+        timestamp,
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: message.content }],
+        },
+      };
+    }),
+  });
 }
 
 /**
@@ -223,14 +203,14 @@ test.beforeEach(async ({ page }) => {
   await authenticatePage(page);
 });
 
-test('returns a hit when the keyword only exists in an older Claude assistant message', async ({ page }) => {
-  /** Scenario: 关键词命中旧 Claude 会话中的助手消息 */
-  const sessionId = 'claude-search-assistant-hit';
-  const keyword = 'needle-claude-assistant-legacy';
+test('returns a hit when the keyword only exists in an older Codex assistant message', async ({ page }) => {
+  /** Scenario: 关键词命中旧 Codex 会话中的助手消息 */
+  const sessionId = 'codex-search-assistant-hit';
+  const keyword = 'needle-codex-assistant-legacy';
 
-  await writeClaudeSession({
+  await writeCodexSession({
     sessionId,
-    entries: buildClaudeTranscript({
+    entries: buildCodexChatTranscript({
       sessionId,
       messages: [
         { role: 'user', content: 'Please help me review the previous implementation.' },
@@ -242,7 +222,7 @@ test('returns a hit when the keyword only exists in an older Claude assistant me
   const results = await runChatSearch(page, keyword);
 
   await expect(results.filter({ hasText: keyword })).toHaveCount(1);
-  await expect(results.filter({ hasText: /Claude/i })).toHaveCount(1);
+  await expect(results.filter({ hasText: /Codex/i })).toHaveCount(1);
 });
 
 test('returns a hit when the keyword only exists in a Codex user message', async ({ page }) => {
@@ -321,13 +301,13 @@ test('returns separate message-level results when the same keyword hits multiple
   /** Scenario: 同一关键词命中多个会话 */
   const keyword = 'needle-multi-session';
 
-  await writeClaudeSession({
-    sessionId: 'claude-multi-session-a',
-    entries: buildClaudeTranscript({
-      sessionId: 'claude-multi-session-a',
+  await writeCodexSession({
+    sessionId: 'codex-multi-session-a',
+    entries: buildCodexChatTranscript({
+      sessionId: 'codex-multi-session-a',
       messages: [
         { role: 'user', content: 'Session A request.' },
-        { role: 'assistant', content: `A result mentions ${keyword} in Claude.` },
+        { role: 'assistant', content: `A result mentions ${keyword} in Codex.` },
       ],
     }),
   });
@@ -365,12 +345,12 @@ test('returns separate message-level results when the same keyword hits multiple
 
 test('returns separate message-level results when the same keyword appears in multiple messages of one session', async ({ page }) => {
   /** Scenario: 同一会话中同词命中多条消息 */
-  const sessionId = 'claude-same-session-multi-hit';
+  const sessionId = 'codex-same-session-multi-hit';
   const keyword = 'needle-same-session-many';
 
-  await writeClaudeSession({
+  await writeCodexSession({
     sessionId,
-    entries: buildClaudeTranscript({
+    entries: buildCodexChatTranscript({
       sessionId,
       messages: [
         { role: 'user', content: 'Initial request without the keyword.' },
@@ -388,13 +368,13 @@ test('returns separate message-level results when the same keyword appears in mu
 
 test('clicking a search result scrolls directly to a hit that is already loaded', async ({ page }) => {
   /** Scenario: 命中消息已在当前加载窗口中 */
-  const sessionId = 'claude-click-loaded-hit';
+  const sessionId = 'codex-click-loaded-hit';
   const keyword = 'needle-click-loaded';
   const targetText = `The loaded hit contains ${keyword} and should be immediately visible.`;
 
-  await writeClaudeSession({
+  await writeCodexSession({
     sessionId,
-    entries: buildClaudeTranscript({
+    entries: buildCodexChatTranscript({
       sessionId,
       messages: [
         { role: 'user', content: 'Show the latest item.' },
@@ -413,7 +393,7 @@ test('clicking a search result scrolls directly to a hit that is already loaded'
 
 test('clicking a search result auto-loads older history until the hit message is available', async ({ page }) => {
   /** Scenario: 命中消息不在当前加载窗口中 */
-  const sessionId = 'claude-click-unloaded-hit';
+  const sessionId = 'codex-click-unloaded-hit';
   const keyword = 'needle-click-unloaded';
   const messages = [{ role: 'user', content: 'Start session.' }];
 
@@ -426,9 +406,9 @@ test('clicking a search result auto-loads older history until the hit message is
     });
   }
 
-  await writeClaudeSession({
+  await writeCodexSession({
     sessionId,
-    entries: buildClaudeTranscript({ sessionId, messages }),
+    entries: buildCodexChatTranscript({ sessionId, messages }),
   });
 
   const results = await runChatSearch(page, keyword);
@@ -442,17 +422,17 @@ test('clicking a search result auto-loads older history until the hit message is
 test('opening a search result highlights every match occurrence inside the target message', async ({ page }) => {
   /** Scenario: 搜索结果打开后高亮命中词 */
   /** Scenario: 同一条消息中关键词出现多次 */
-  const sessionId = 'claude-highlight-repeated-hit';
+  const sessionId = 'codex-highlight-repeated-hit';
   const keyword = 'needle-highlight-repeat';
   const repeatedMessage = `${keyword} appears here, and ${keyword} appears again in the same reply.`;
 
-  await writeClaudeSession({
+  await writeCodexSession({
     sessionId,
-    entries: buildClaudeTranscript({
+    entries: buildCodexChatTranscript({
       sessionId,
       messages: [
-        { role: 'user', content: 'Open the highlighted reply.' },
-        { role: 'assistant', content: repeatedMessage },
+        { role: 'user', content: repeatedMessage },
+        { role: 'assistant', content: 'Opened the highlighted request.' },
       ],
     }),
   });

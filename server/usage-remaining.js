@@ -1,6 +1,6 @@
 /**
  * PURPOSE: Provide provider-specific 5h/7d remaining usage data for WebUI.
- * This module reads local provider state (Claude/Codex) and normalizes it into
+ * This module reads local Codex state and normalizes it into
  * a shared API response shape that the frontend can render consistently.
  */
 
@@ -40,123 +40,6 @@ function toRemainingPercent(usedPercent) {
 
   const remaining = 100 - normalizedUsed;
   return Math.max(0, Math.min(100, Number(remaining.toFixed(1))));
-}
-
-/**
- * Convert Kimi limit/remaining counters to remaining-percent display values.
- */
-function toKimiRemainingPercent(windowData) {
-  const limit = parseNumber(windowData?.limit);
-  const remaining = parseNumber(windowData?.remaining);
-
-  if (limit === null || remaining === null || limit <= 0) {
-    return null;
-  }
-
-  return Math.max(0, Math.min(100, Number(((remaining / limit) * 100).toFixed(1))));
-}
-
-/**
- * Detect Claude Code settings that route Anthropic requests through Kimi Code.
- */
-function getKimiSettingsEnv(settings) {
-  const env = settings?.env;
-  if (!env || typeof env !== 'object') {
-    return null;
-  }
-
-  const baseUrl = typeof env.ANTHROPIC_BASE_URL === 'string' ? env.ANTHROPIC_BASE_URL : '';
-  const apiKey = typeof env.ANTHROPIC_API_KEY === 'string' ? env.ANTHROPIC_API_KEY : '';
-  if (!baseUrl.includes('api.kimi.com') || !apiKey.trim()) {
-    return null;
-  }
-
-  return { baseUrl, apiKey };
-}
-
-/**
- * Resolve the Kimi Code usage endpoint from either Anthropic or OpenAI base URLs.
- */
-function getKimiUsageUrl(baseUrl) {
-  const parsedUrl = new URL(baseUrl);
-  return `${parsedUrl.origin}/coding/v1/usages`;
-}
-
-/**
- * Fetch Kimi Code 5h/7d quota data directly from the Kimi usage API.
- */
-async function getKimiUsageRemaining(settings, options = {}) {
-  const kimiEnv = getKimiSettingsEnv(settings);
-  if (!kimiEnv) {
-    return null;
-  }
-
-  const fetchImpl = options.fetchImpl || globalThis.fetch;
-  if (typeof fetchImpl !== 'function') {
-    return createUnavailableUsageRemaining('claude', 'kimi-usage-api', 'fetch-unavailable');
-  }
-
-  try {
-    const response = await fetchImpl(getKimiUsageUrl(kimiEnv.baseUrl), {
-      headers: {
-        Authorization: `Bearer ${kimiEnv.apiKey}`,
-      },
-    });
-
-    if (!response.ok) {
-      return createUnavailableUsageRemaining('claude', 'kimi-usage-api', `http-${response.status}`);
-    }
-
-    const payload = await response.json();
-    const fiveHourWindow = Array.isArray(payload?.limits)
-      ? payload.limits.find((item) => parseNumber(item?.window?.duration) === 300)?.detail
-      : null;
-    const fiveHourRemaining = toKimiRemainingPercent(fiveHourWindow);
-    const sevenDayRemaining = toKimiRemainingPercent(payload?.usage);
-
-    if (fiveHourRemaining === null && sevenDayRemaining === null) {
-      return createUnavailableUsageRemaining('claude', 'kimi-usage-api', 'usage-response-invalid');
-    }
-
-    return buildUsageRemainingPayload({
-      provider: 'claude',
-      status: 'ok',
-      source: 'kimi-usage-api',
-      updatedAt: new Date().toISOString(),
-      fiveHourRemaining,
-      sevenDayRemaining,
-    });
-  } catch (error) {
-    return createUnavailableUsageRemaining('claude', 'kimi-usage-api', 'request-failed');
-  }
-}
-
-/**
- * Resolve used-percent fields from Claude/Kimi statusline cache variants.
- */
-function getWindowUsedPercent(payload, snakeWindow, camelWindow) {
-  const directWindow = payload?.[snakeWindow];
-  const directUsed =
-    directWindow?.utilization ??
-    directWindow?.used_percent ??
-    directWindow?.used_percentage ??
-    directWindow?.usedPercent ??
-    directWindow?.usedPercentage;
-
-  if (parseNumber(directUsed) !== null) {
-    return directUsed;
-  }
-
-  const rateLimits = payload?.rate_limits || payload?.rateLimits;
-  const rateWindow = rateLimits?.[snakeWindow] || rateLimits?.[camelWindow];
-  return (
-    rateWindow?.utilization ??
-    rateWindow?.used_percent ??
-    rateWindow?.used_percentage ??
-    rateWindow?.usedPercent ??
-    rateWindow?.usedPercentage ??
-    null
-  );
 }
 
 /**
@@ -200,67 +83,6 @@ export function createUnavailableUsageRemaining(provider, source, reason = null)
     fiveHourRemaining: null,
     sevenDayRemaining: null,
     reason,
-  });
-}
-
-/**
- * Load and parse Claude usage cache produced by statusline integrations.
- */
-export async function getClaudeUsageRemaining(options = {}) {
-  const homeDir = options.homeDir || os.homedir();
-  const settingsPath = path.join(homeDir, '.claude', 'settings.json');
-  const usageCachePath = path.join(homeDir, '.claude', 'cache', 'usage-api.json');
-
-  let settings;
-  try {
-    const settingsContent = await fs.readFile(settingsPath, 'utf8');
-    settings = JSON.parse(settingsContent);
-  } catch (error) {
-    return createUnavailableUsageRemaining('claude', 'claude-settings', 'settings-not-found');
-  }
-
-  const kimiUsage = await getKimiUsageRemaining(settings, options);
-  if (kimiUsage) {
-    return kimiUsage;
-  }
-
-  const statusLine = settings?.statusLine;
-  if (!statusLine || typeof statusLine !== 'object') {
-    return createUnavailableUsageRemaining('claude', 'claude-statusline', 'statusline-not-configured');
-  }
-
-  let usagePayload;
-  let usageStat;
-  try {
-    const usageContent = await fs.readFile(usageCachePath, 'utf8');
-    usagePayload = JSON.parse(usageContent);
-    usageStat = await fs.stat(usageCachePath);
-  } catch (error) {
-    return createUnavailableUsageRemaining('claude', 'claude-usage-cache', 'usage-cache-not-found');
-  }
-
-  const fiveHourRemaining = toRemainingPercent(getWindowUsedPercent(usagePayload, 'five_hour', 'fiveHour'));
-  const sevenDayRemaining = toRemainingPercent(getWindowUsedPercent(usagePayload, 'seven_day', 'sevenDay'));
-
-  if (fiveHourRemaining === null && sevenDayRemaining === null) {
-    return createUnavailableUsageRemaining('claude', 'claude-usage-cache', 'usage-cache-invalid');
-  }
-
-  const updatedAt =
-    usagePayload?.updated_at ||
-    usagePayload?.updatedAt ||
-    usagePayload?.fetched_at ||
-    usagePayload?.fetchedAt ||
-    usageStat?.mtime?.toISOString?.() ||
-    null;
-
-  return buildUsageRemainingPayload({
-    provider: 'claude',
-    status: 'ok',
-    source: 'claude-usage-cache',
-    updatedAt,
-    fiveHourRemaining,
-    sevenDayRemaining,
   });
 }
 
@@ -404,7 +226,9 @@ export async function getCodexUsageRemaining(options = {}) {
  * Fetch cached provider usage remaining values with short-lived in-memory caching.
  */
 export async function getUsageRemaining(provider, options = {}) {
-  const normalizedProvider = provider === 'codex' ? 'codex' : 'claude';
+  const normalizedProvider = provider === 'codex'
+    ? 'codex'
+    : String(provider || 'unknown');
   const homeDir = options.homeDir || os.homedir();
   const cacheTtlMs = typeof options.cacheTtlMs === 'number'
     ? options.cacheTtlMs
@@ -417,9 +241,12 @@ export async function getUsageRemaining(provider, options = {}) {
     return cached.payload;
   }
 
-  const payload = normalizedProvider === 'codex'
-    ? await getCodexUsageRemaining({ homeDir })
-    : await getClaudeUsageRemaining({ homeDir });
+  let payload;
+  if (normalizedProvider === 'codex') {
+    payload = await getCodexUsageRemaining({ homeDir });
+  } else {
+    payload = createUnavailableUsageRemaining(normalizedProvider, `${normalizedProvider}-usage`, 'provider-unsupported');
+  }
 
   usageRemainingCache.set(cacheKey, {
     timestamp: nowMs,

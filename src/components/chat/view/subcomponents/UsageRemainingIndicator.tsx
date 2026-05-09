@@ -43,10 +43,6 @@ function normalizeUsageProvider(provider: Provider | string): SessionProvider | 
     return 'codex';
   }
 
-  if (provider === 'claude') {
-    return 'claude';
-  }
-
   return null;
 }
 

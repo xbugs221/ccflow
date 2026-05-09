@@ -149,6 +149,8 @@ test('Go-backed workflow persists run id and maps state.json into the read model
         stage: 'repair_1',
         role: 'executor',
         status: 'pending',
+        sessionId: 'codex-exec-thread',
+        logPath: '.wo/runs/run-abc/logs/executor.log',
       },
     );
     assert.deepEqual(
@@ -157,6 +159,8 @@ test('Go-backed workflow persists run id and maps state.json into the read model
         stage: 'archive',
         role: 'executor',
         status: 'pending',
+        sessionId: 'codex-exec-thread',
+        logPath: '.wo/runs/run-abc/logs/executor.log',
       },
     );
     assert.deepEqual(

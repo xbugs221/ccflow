@@ -63,27 +63,6 @@ export interface ChatMessage {
   [key: string]: unknown;
 }
 
-export interface ClaudeSettings {
-  allowedTools: string[];
-  disallowedTools: string[];
-  skipPermissions: boolean;
-  projectSortOrder: string;
-  lastUpdated?: string;
-  [key: string]: unknown;
-}
-
-export interface ClaudePermissionSuggestion {
-  toolName: string;
-  entry: string;
-  isAllowed: boolean;
-}
-
-export interface PermissionGrantResult {
-  success: boolean;
-  alreadyAllowed?: boolean;
-  updatedSettings?: ClaudeSettings;
-}
-
 export interface PendingPermissionRequest {
   requestId: string;
   toolName: string;

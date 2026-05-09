@@ -19,22 +19,10 @@ import {
  */
 async function writeCodexSession({ sessionId, entries }) {
   const sessionDir = path.join(PLAYWRIGHT_FIXTURE_HOME, '.codex', 'sessions', '2026', '04', '24');
-  const claudeProjectDir = path.join(
-    PLAYWRIGHT_FIXTURE_HOME,
-    '.claude',
-    'projects',
-    PRIMARY_FIXTURE_PROJECT_PATH.replace(/\//g, '-'),
-  );
   await fs.mkdir(sessionDir, { recursive: true });
-  await fs.mkdir(claudeProjectDir, { recursive: true });
   await fs.writeFile(
     path.join(sessionDir, `${sessionId}.jsonl`),
     `${entries.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
-    'utf8',
-  );
-  await fs.writeFile(
-    path.join(claudeProjectDir, `${sessionId}-project-anchor.jsonl`),
-    `${JSON.stringify({ cwd: PRIMARY_FIXTURE_PROJECT_PATH, timestamp: '2026-04-24T07:59:58.000Z' })}\n`,
     'utf8',
   );
 }

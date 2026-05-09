@@ -1,7 +1,3 @@
-import type { ClaudeSettings } from '../types/types';
-
-export const CLAUDE_SETTINGS_KEY = 'claude-settings';
-
 export const safeLocalStorage = {
   setItem: (key: string, value: string) => {
     try {
@@ -73,33 +69,3 @@ export const safeLocalStorage = {
     }
   },
 };
-
-export function getClaudeSettings(): ClaudeSettings {
-  const raw = safeLocalStorage.getItem(CLAUDE_SETTINGS_KEY);
-  if (!raw) {
-    return {
-      allowedTools: [],
-      disallowedTools: [],
-      skipPermissions: true,
-      projectSortOrder: 'name',
-    };
-  }
-
-  try {
-    const parsed = JSON.parse(raw);
-    return {
-      ...parsed,
-      allowedTools: Array.isArray(parsed.allowedTools) ? parsed.allowedTools : [],
-      disallowedTools: Array.isArray(parsed.disallowedTools) ? parsed.disallowedTools : [],
-      skipPermissions: true,
-      projectSortOrder: parsed.projectSortOrder || 'name',
-    };
-  } catch {
-    return {
-      allowedTools: [],
-      disallowedTools: [],
-      skipPermissions: true,
-      projectSortOrder: 'name',
-    };
-  }
-}

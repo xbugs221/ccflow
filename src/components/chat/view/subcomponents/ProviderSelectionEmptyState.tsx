@@ -11,9 +11,6 @@ interface ProviderSelectionEmptyStateProps {
   provider: SessionProvider;
   setProvider: (next: SessionProvider) => void;
   textareaRef: React.RefObject<HTMLTextAreaElement>;
-  claudeModel: string;
-  setClaudeModel: (model: string) => void;
-  claudeModelOptions: Array<{ value: string; label: string }>;
   codexModel: string;
   setCodexModel: (model: string) => void;
   codexModelOptions: Array<{ value: string; label: string }>;
@@ -37,14 +34,6 @@ type ProviderDef = {
 
 const PROVIDERS: ProviderDef[] = [
   {
-    id: 'claude',
-    name: 'Claude Code',
-    infoKey: 'providerSelection.providerInfo.anthropic',
-    accent: 'border-primary',
-    ring: 'ring-primary/15',
-    check: 'bg-primary text-primary-foreground',
-  },
-  {
     id: 'codex',
     name: 'Codex',
     infoKey: 'providerSelection.providerInfo.openai',
@@ -52,28 +41,30 @@ const PROVIDERS: ProviderDef[] = [
     ring: 'ring-emerald-600/15',
     check: 'bg-emerald-600 dark:bg-emerald-500 text-white',
   },
+  {
+    id: 'opencode',
+    name: 'OpenCode',
+    infoKey: 'providerSelection.providerInfo.opencode',
+    accent: 'border-sky-600 dark:border-sky-400',
+    ring: 'ring-sky-600/15',
+    check: 'bg-sky-600 dark:bg-sky-500 text-white',
+  },
 ];
 
 function getModelOptions(
   provider: SessionProvider,
-  claudeModelOptions: Array<{ value: string; label: string }>,
   codexModelOptions: Array<{ value: string; label: string }>,
 ) {
-  if (provider === 'claude') {
-    return claudeModelOptions;
-  }
-
   if (provider === 'codex') {
     return codexModelOptions;
   }
 
-  return claudeModelOptions;
+  return codexModelOptions;
 }
 
-function getModelValue(p: SessionProvider, c: string, co: string) {
-  if (p === 'claude') return c;
+function getModelValue(p: SessionProvider, co: string) {
   if (p === 'codex') return co;
-  return c;
+  return co;
 }
 
 export default function ProviderSelectionEmptyState({
@@ -82,9 +73,6 @@ export default function ProviderSelectionEmptyState({
   provider,
   setProvider,
   textareaRef,
-  claudeModel,
-  setClaudeModel,
-  claudeModelOptions,
   codexModel,
   setCodexModel,
   codexModelOptions,
@@ -106,8 +94,7 @@ export default function ProviderSelectionEmptyState({
   };
 
   const handleModelChange = (value: string) => {
-    if (provider === 'claude') { setClaudeModel(value); localStorage.setItem('claude-model', value); }
-    else if (provider === 'codex') { setCodexModel(value); localStorage.setItem('codex-model', value); }
+    if (provider === 'codex') { setCodexModel(value); localStorage.setItem('codex-model', value); }
   };
 
   const handleReasoningChange = (value: string) => {
@@ -119,8 +106,8 @@ export default function ProviderSelectionEmptyState({
     localStorage.setItem('codex-reasoning-effort', value);
   };
 
-  const modelOptions = getModelOptions(provider, claudeModelOptions, codexModelOptions);
-  const currentModel = getModelValue(provider, claudeModel, codexModel);
+  const modelOptions = getModelOptions(provider, codexModelOptions);
+  const currentModel = getModelValue(provider, codexModel);
 
   /* ── New session — provider picker ── */
   if (!selectedSession && !currentSessionId) {
@@ -213,16 +200,12 @@ export default function ProviderSelectionEmptyState({
             )}
 
             <p className="text-center text-sm text-muted-foreground/70">
-              {
-                {
-                  claude: t('providerSelection.readyPrompt.claude', { model: claudeModel }),
-                  codex: t('providerSelection.readyPrompt.codex', {
-                    model: codexModel,
-                    effort: codexReasoningEffort,
-                  }),
-                  opencode: t('providerSelection.readyPrompt.opencode', { model: codexModel }),
-                }[provider]
-              }
+              {provider === 'opencode'
+                ? t('providerSelection.readyPrompt.opencode')
+                : t('providerSelection.readyPrompt.codex', {
+                  model: codexModel,
+                  effort: codexReasoningEffort,
+                })}
             </p>
           </div>
 

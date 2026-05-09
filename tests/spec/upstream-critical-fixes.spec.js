@@ -62,55 +62,16 @@ test('JSON frontmatter is not parsed through executable engine', async () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. Claude CLI path forwarded into SDK options
+// 2. Retired Claude SDK surface
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('CLAUDE_CLI_PATH is forwarded to SDK options without clobbering existing options', async () => {
+test('retired Claude SDK options mapping rejects runtime use', async () => {
   const { __mapCliOptionsToSDKForTest } = await import('../../server/claude-sdk.js');
 
-  const customCliPath = '/tmp/ccflow-fake-claude-cli';
-  const previous = process.env.CLAUDE_CLI_PATH;
-  process.env.CLAUDE_CLI_PATH = customCliPath;
-  try {
-    const opts = __mapCliOptionsToSDKForTest({
-      cwd: '/tmp/proj',
-      sessionId: 'sess-1',
-      model: 'claude-sonnet-4-6',
-      permissionMode: 'bypassPermissions',
-      settings: { allowedTools: ['Read'], disallowedTools: [] },
-    });
-
-    assert.equal(opts.pathToClaudeCodeExecutable, customCliPath, 'must forward CLAUDE_CLI_PATH');
-    // Existing options must remain intact.
-    assert.equal(opts.cwd, '/tmp/proj');
-    assert.equal(opts.permissionMode, 'bypassPermissions');
-    assert.equal(opts.model, 'claude-sonnet-4-6');
-    assert.equal(opts.resume, 'sess-1');
-    assert.deepEqual(opts.systemPrompt, { type: 'preset', preset: 'claude_code' });
-    assert.deepEqual(opts.settingSources, ['project', 'user', 'local']);
-    assert.ok(Array.isArray(opts.allowedTools));
-  } finally {
-    if (previous === undefined) delete process.env.CLAUDE_CLI_PATH;
-    else process.env.CLAUDE_CLI_PATH = previous;
-  }
-});
-
-test('CLAUDE_CLI_PATH absent leaves pathToClaudeCodeExecutable unset', async () => {
-  const { __mapCliOptionsToSDKForTest } = await import('../../server/claude-sdk.js');
-
-  const previous = process.env.CLAUDE_CLI_PATH;
-  delete process.env.CLAUDE_CLI_PATH;
-  try {
-    const opts = __mapCliOptionsToSDKForTest({
-      cwd: '/tmp/proj',
-      sessionId: '',
-      permissionMode: 'default',
-      settings: { allowedTools: [], disallowedTools: [] },
-    });
-    assert.equal(opts.pathToClaudeCodeExecutable, undefined);
-  } finally {
-    if (previous !== undefined) process.env.CLAUDE_CLI_PATH = previous;
-  }
+  assert.throws(
+    () => __mapCliOptionsToSDKForTest({ cwd: '/tmp/proj' }),
+    /Claude SDK provider is no longer supported/,
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

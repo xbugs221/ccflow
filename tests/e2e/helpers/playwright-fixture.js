@@ -1,6 +1,6 @@
 /**
  * PURPOSE: Build an isolated HOME fixture for Playwright end-to-end runs.
- * The fixture keeps e2e independent from the developer's real Claude/Codex history,
+ * The fixture keeps e2e independent from the developer's real Codex history,
  * auth database, and long-running local CCUI instances.
  */
 import fs from 'node:fs';
@@ -74,16 +74,7 @@ const FIXTURE_PROJECT_EXTRA_SESSIONS = [
 ];
 
 /**
- * Encode an absolute project path the same way Claude stores project folders.
- * @param {string} projectPath - Absolute project path.
- * @returns {string} Encoded Claude project directory name.
- */
-function encodeClaudeProjectName(projectPath) {
-  return projectPath.replace(/\//g, '-');
-}
-
-/**
- * Write a minimal Claude session JSONL file that project discovery can parse quickly.
+ * Write a minimal Codex session JSONL file that project discovery can parse quickly.
  * @param {string} projectPath - Absolute project path.
  * @param {string} sessionId - Synthetic session ID.
  * @param {string} userMessage - Session summary source text.
@@ -91,12 +82,21 @@ function encodeClaudeProjectName(projectPath) {
  * @param {boolean} isActive - Whether to stamp the fixture as recently active.
  * @param {string | null} baseTimestamp - Optional fixed ISO timestamp for deterministic ordering.
  */
-function writeClaudeSessionFixture(projectPath, sessionId, userMessage, messagePairs = 1, isActive = false, baseTimestamp = null) {
-  const projectDir = path.join(FIXTURE_ROOT, '.claude', 'projects', encodeClaudeProjectName(projectPath));
-  const sessionPath = path.join(projectDir, `${sessionId}.jsonl`);
+function writeCodexSessionFixture(projectPath, sessionId, userMessage, messagePairs = 1, isActive = false, baseTimestamp = null) {
+  const sessionDir = path.join(FIXTURE_ROOT, '.codex', 'sessions', '2026', '04', '19');
+  const sessionPath = path.join(sessionDir, `${sessionId}.jsonl`);
   const sessionLines = [];
 
-  fs.mkdirSync(projectDir, { recursive: true });
+  fs.mkdirSync(sessionDir, { recursive: true });
+  sessionLines.push(JSON.stringify({
+    type: 'session_meta',
+    timestamp: baseTimestamp || new Date(Date.UTC(2026, 3, 19, 10, 0, 0)).toISOString(),
+    payload: {
+      id: sessionId,
+      cwd: projectPath,
+      model: 'gpt-5-codex',
+    },
+  }));
 
   for (let index = 0; index < messagePairs; index += 1) {
     const pairNumber = index + 1;
@@ -111,32 +111,44 @@ function writeClaudeSessionFixture(projectPath, sessionId, userMessage, messageP
       : `${userMessage} history turn ${String(pairNumber).padStart(2, '0')}`;
 
     sessionLines.push(JSON.stringify({
-      sessionId,
-      cwd: projectPath,
+      type: 'event_msg',
       timestamp,
-      parentUuid: null,
-      uuid: `${sessionId}-user-${pairNumber}`,
-      type: 'user',
-      message: {
-        role: 'user',
-        content: userContent,
+      payload: {
+        type: 'user_message',
+        message: userContent,
       },
     }));
 
     sessionLines.push(JSON.stringify({
-      sessionId,
-      cwd: projectPath,
+      type: 'response_item',
       timestamp: new Date(new Date(timestamp).getTime() + 1000).toISOString(),
-      type: 'assistant',
-      message: {
+      payload: {
+        type: 'message',
         role: 'assistant',
-        content: `${userMessage} assistant turn ${String(pairNumber).padStart(2, '0')}`,
+        content: [{ type: 'output_text', text: `${userMessage} assistant turn ${String(pairNumber).padStart(2, '0')}` }],
       },
     }));
   }
 
   fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
   fs.writeFileSync(sessionPath, `${sessionLines.join('\n')}\n`, 'utf8');
+}
+
+function writeManualProjectConfigFixture() {
+  const configPath = path.join(FIXTURE_ROOT, '.ccflow', 'conf.json');
+  const config = {};
+
+  for (const project of FIXTURE_PROJECTS) {
+    const projectName = project.path.replace(/[\\/:\s~_]/g, '-');
+    config[projectName] = {
+      manuallyAdded: true,
+      originalPath: project.path,
+      displayName: project.label,
+    };
+  }
+
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 }
 
 /**
@@ -250,7 +262,6 @@ export function ensurePlaywrightFixture(options = {}) {
    */
   if (options.preserveAuthDatabase === true) {
     fs.rmSync(path.join(FIXTURE_ROOT, 'workspace'), { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
-    fs.rmSync(path.join(FIXTURE_ROOT, '.claude'), { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     fs.rmSync(path.join(FIXTURE_ROOT, '.codex'), { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   } else {
     fs.rmSync(FIXTURE_ROOT, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
@@ -259,7 +270,7 @@ export function ensurePlaywrightFixture(options = {}) {
 
   for (const project of FIXTURE_PROJECTS) {
     fs.mkdirSync(project.path, { recursive: true });
-    writeClaudeSessionFixture(
+    writeCodexSessionFixture(
       project.path,
       project.sessionId,
       project.userMessage,
@@ -274,7 +285,7 @@ export function ensurePlaywrightFixture(options = {}) {
     if (!project) {
       continue;
     }
-    writeClaudeSessionFixture(
+    writeCodexSessionFixture(
       project.path,
       extraSession.sessionId,
       extraSession.userMessage,
@@ -287,6 +298,7 @@ export function ensurePlaywrightFixture(options = {}) {
   if (options.preserveAuthDatabase !== true) {
     writeAuthDatabaseFixture();
   }
+  writeManualProjectConfigFixture();
   writeWorkflowStoreFixture();
 
   return {

@@ -1,6 +1,7 @@
 // PURPOSE: Provide sidebar project/session formatting, filtering, and stable ordering helpers.
 import type { TFunction } from 'i18next';
 import type { Project } from '../../../types/app';
+import { readProjectSortOrderSetting } from '../../../utils/settingsStorage';
 import type {
   AdditionalSessionsByProject,
   ProjectSortOrder,
@@ -18,17 +19,7 @@ type SessionUiState = {
 export type SessionCardSortMode = 'created' | 'updated' | 'title' | 'provider';
 
 export const readProjectSortOrder = (): ProjectSortOrder => {
-  try {
-    const rawSettings = localStorage.getItem('claude-settings');
-    if (!rawSettings) {
-      return 'name';
-    }
-
-    const settings = JSON.parse(rawSettings) as { projectSortOrder?: ProjectSortOrder };
-    return settings.projectSortOrder === 'date' ? 'date' : 'name';
-  } catch {
-    return 'name';
-  }
+  return readProjectSortOrderSetting();
 };
 
 export const getSessionDate = (session: SessionWithProvider): Date => {
@@ -176,13 +167,6 @@ export const getAllSessions = (
       session.status === 'hidden'
     );
 
-  const claudeSessions = [
-    ...(project.sessions || []),
-    ...(additionalSessions[project.name] || []),
-  ]
-    .filter((session) => includeHidden || isVisibleByDefault(session))
-    .map((session) => ({ ...session, __provider: 'claude' as const }));
-
   const codexSessions = (project.codexSessions || [])
     .filter((session) => includeHidden || isVisibleByDefault(session))
     .map((session) => ({
@@ -190,7 +174,14 @@ export const getAllSessions = (
       __provider: 'codex' as const,
     }));
 
-  return [...claudeSessions, ...codexSessions].sort(compareSessionsByCreationNumber);
+  const opencodeSessions = (project.opencodeSessions || [])
+    .filter((session) => includeHidden || isVisibleByDefault(session))
+    .map((session) => ({
+      ...session,
+      __provider: 'opencode' as const,
+    }));
+
+  return [...codexSessions, ...opencodeSessions].sort(compareSessionsByCreationNumber);
 };
 
 /**

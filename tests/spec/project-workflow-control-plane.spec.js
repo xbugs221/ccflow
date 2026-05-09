@@ -14,7 +14,7 @@ import {
 import { PLAYWRIGHT_FIXTURE_HOME, PLAYWRIGHT_FIXTURE_PROJECT_PATHS } from '../e2e/helpers/playwright-fixture.js';
 
 /**
- * Write one synthetic Claude session fixture so acceptance tests can exercise
+ * Write one synthetic Codex session fixture so acceptance tests can exercise
  * real project-discovery behavior with more than five visible sessions.
  *
  * @param {string} projectPath
@@ -22,40 +22,39 @@ import { PLAYWRIGHT_FIXTURE_HOME, PLAYWRIGHT_FIXTURE_PROJECT_PATHS } from '../e2
  * @param {string} sessionTitle
  * @param {string} timestamp
  */
-function writeSyntheticClaudeSession(projectPath, sessionId, sessionTitle, timestamp) {
-  const projectDir = path.join(
-    PLAYWRIGHT_FIXTURE_HOME,
-    '.claude',
-    'projects',
-    projectPath.replace(/\//g, '-'),
-  );
-  const sessionPath = path.join(projectDir, `${sessionId}.jsonl`);
+function writeSyntheticCodexSession(projectPath, sessionId, sessionTitle, timestamp) {
+  const sessionDir = path.join(PLAYWRIGHT_FIXTURE_HOME, '.codex', 'sessions', '2026', '04', '20');
+  const sessionPath = path.join(sessionDir, `${sessionId}.jsonl`);
   const lines = [
     {
-      sessionId,
-      cwd: projectPath,
+      type: 'session_meta',
       timestamp,
-      parentUuid: null,
-      uuid: `${sessionId}-user-1`,
-      type: 'user',
-      message: {
-        role: 'user',
-        content: sessionTitle,
+      payload: {
+        id: sessionId,
+        cwd: projectPath,
+        model: 'gpt-5-codex',
       },
     },
     {
-      sessionId,
-      cwd: projectPath,
+      type: 'event_msg',
       timestamp: new Date(new Date(timestamp).getTime() + 1000).toISOString(),
-      type: 'assistant',
-      message: {
+      payload: {
+        type: 'user_message',
+        message: sessionTitle,
+      },
+    },
+    {
+      type: 'response_item',
+      timestamp: new Date(new Date(timestamp).getTime() + 2000).toISOString(),
+      payload: {
+        type: 'message',
         role: 'assistant',
-        content: `${sessionTitle} assistant turn 01`,
+        content: [{ type: 'output_text', text: `${sessionTitle} assistant turn 01` }],
       },
     },
   ];
 
-  fs.mkdirSync(projectDir, { recursive: true });
+  fs.mkdirSync(sessionDir, { recursive: true });
   fs.writeFileSync(sessionPath, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`, 'utf8');
 }
 
@@ -66,10 +65,10 @@ function writeSyntheticClaudeSession(projectPath, sessionId, sessionTitle, times
  * @param {string} parentName
  * @returns {string}
  */
-function writeTemp001ClaudeProject(parentName) {
+function writeTemp001CodexProject(parentName) {
   const projectPath = path.join('/tmp', parentName, '001');
   fs.mkdirSync(projectPath, { recursive: true });
-  writeSyntheticClaudeSession(
+  writeSyntheticCodexSession(
     projectPath,
     `${parentName.toLowerCase()}-session`,
     `${parentName} fixture session`,
@@ -161,7 +160,7 @@ test.describe('项目内需求工作流控制面', () => {
     const projectPath = PLAYWRIGHT_FIXTURE_PROJECT_PATHS[0];
     for (let index = 0; index < 5; index += 1) {
       const sequence = String(index + 1).padStart(2, '0');
-      writeSyntheticClaudeSession(
+      writeSyntheticCodexSession(
         projectPath,
         `fixture-project-overflow-session-${sequence}`,
         `fixture-project overflow session ${sequence}`,
@@ -217,8 +216,9 @@ test.describe('项目内需求工作流控制面', () => {
 
     await page.getByRole('button', { name: /新建会话|New Session/i }).click();
     await expect(page.getByTestId('project-new-session-provider-picker')).toBeVisible();
-    await expect(page.getByTestId('project-new-session-provider-claude')).toBeVisible();
+    await expect(page.getByTestId('project-new-session-provider-claude')).toHaveCount(0);
     await expect(page.getByTestId('project-new-session-provider-codex')).toBeVisible();
+    await expect(page.getByTestId('project-new-session-provider-opencode')).toBeVisible();
     page.once('dialog', async (dialog) => {
       await dialog.accept('新建 Codex 验收会话');
     });
@@ -253,8 +253,8 @@ test.describe('项目内需求工作流控制面', () => {
 
   test('项目导航不出现重复 001 且 workflow 详情保留 wo 进度文本', async ({ page }) => {
     await openFixtureProject(page);
-    const firstTempProject = writeTemp001ClaudeProject('TestCcflowDuplicate001A');
-    const secondTempProject = writeTemp001ClaudeProject('TestCcflowDuplicate001B');
+    const firstTempProject = writeTemp001CodexProject('TestCcflowDuplicate001A');
+    const secondTempProject = writeTemp001CodexProject('TestCcflowDuplicate001B');
 
     const projectsResponse = await page.request.get('/api/projects', { headers: authHeaders() });
     expect(projectsResponse.ok()).toBeTruthy();
@@ -457,14 +457,14 @@ test.describe('项目内需求工作流控制面', () => {
         id: 'fixture-project-session',
         title: '子会话 规划',
         summary: '需求分解与计划确认',
-        provider: 'claude',
+        provider: 'codex',
         stageKey: 'planning',
       },
       {
         id: 'fixture-project-execution-session',
         title: '子会话 执行',
         summary: '实现与运行状态同步',
-        provider: 'claude',
+        provider: 'codex',
         stageKey: 'execution',
       },
       {

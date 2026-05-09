@@ -12,31 +12,23 @@ import {
 } from './helpers/spec-test-helpers.js';
 
 /**
- * Encode an absolute project path the same way Claude stores project folders.
- *
- * @param {string} projectPath
- * @returns {string}
- */
-function encodeClaudeProjectName(projectPath) {
-  return projectPath.replace(/\//g, '-');
-}
-
-/**
- * Write one Claude JSONL session file under the Playwright fixture HOME.
+ * Write one Codex JSONL session file under the Playwright fixture HOME.
  *
  * @param {{ sessionId: string, entries: Array<Record<string, unknown>> }} params
  * @returns {Promise<void>}
  */
-async function writeClaudeSession({ sessionId, entries }) {
-  const projectDir = path.join(
+async function writeCodexSession({ sessionId, entries }) {
+  const sessionDir = path.join(
     PLAYWRIGHT_FIXTURE_HOME,
-    '.claude',
-    'projects',
-    encodeClaudeProjectName(PRIMARY_FIXTURE_PROJECT_PATH),
+    '.codex',
+    'sessions',
+    '2026',
+    '04',
+    '20',
   );
-  const sessionPath = path.join(projectDir, `${sessionId}.jsonl`);
+  const sessionPath = path.join(sessionDir, `${sessionId}.jsonl`);
 
-  await fs.mkdir(projectDir, { recursive: true });
+  await fs.mkdir(sessionDir, { recursive: true });
   await fs.writeFile(
     sessionPath,
     entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n',
@@ -45,26 +37,31 @@ async function writeClaudeSession({ sessionId, entries }) {
 }
 
 /**
- * Build a minimal Claude transcript containing tool_use/tool_result pairs.
+ * Build a minimal Codex transcript containing tool_use/tool_result pairs.
  *
  * @param {{ sessionId: string, records: Array<Record<string, unknown>> }} params
  * @returns {Array<Record<string, unknown>>}
  */
-function buildClaudeTranscript({ sessionId, records }) {
-  return records.map((record, index) => ({
-    sessionId,
-    cwd: PRIMARY_FIXTURE_PROJECT_PATH,
-    parentUuid: index === 0 ? null : `${sessionId}-uuid-${index - 1}`,
-    uuid: `${sessionId}-uuid-${index}`,
-    ...record,
-  }));
+function buildCodexTranscript({ sessionId, records }) {
+  return [
+    {
+      type: 'session_meta',
+      timestamp: '2026-04-20T09:00:00.000Z',
+      payload: {
+        id: sessionId,
+        cwd: PRIMARY_FIXTURE_PROJECT_PATH,
+        model: 'gpt-5-codex',
+      },
+    },
+    ...records,
+  ];
 }
 
 test.beforeEach(async ({ page }) => {
   await resetWorkspaceProject();
   await authenticatePage(page);
   await page.addInitScript(() => {
-    window.localStorage.setItem('selected-provider', 'claude');
+    window.localStorage.setItem('selected-provider', 'codex');
   });
 });
 
@@ -72,9 +69,9 @@ test('会将 update_plan、ctx_batch_execute、write_stdin 和 FileChanges 渲�
   /** Scenario: 历史会话中的工具消息不再展示原始 JSON，计划步骤也要反映最新推进状态。 */
   const sessionId = 'fixture-structured-tool-rendering';
 
-  await writeClaudeSession({
+  await writeCodexSession({
     sessionId,
-    entries: buildClaudeTranscript({
+    entries: buildCodexTranscript({
       sessionId,
       records: [
         {
@@ -228,7 +225,7 @@ test('会将 update_plan、ctx_batch_execute、write_stdin 和 FileChanges 渲�
   });
 
   const params = new URLSearchParams({
-    provider: 'claude',
+    provider: 'codex',
     projectPath: PRIMARY_FIXTURE_PROJECT_PATH,
   });
   await page.goto(`/session/${sessionId}?${params.toString()}`, { waitUntil: 'networkidle' });

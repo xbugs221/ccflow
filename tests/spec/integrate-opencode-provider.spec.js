@@ -5,9 +5,10 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, stat } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..', '..');
@@ -129,7 +130,8 @@ test('buildOpencodeExecArgs for new session', async () => {
   assert.ok(args.includes('--format'));
   assert.ok(args.includes('json'))
   ;
-  assert.ok(args.includes('--cd'));
+  assert.ok(args.includes('--dir'));
+  assert.ok(!args.includes('--cd'));
   assert.ok(args.includes('/tmp'));
   assert.ok(args.includes('hello'));
 });
@@ -142,6 +144,37 @@ test('buildOpencodeExecArgs for continued session', async () => {
   assert.ok(args.includes('--continue'));
 });
 
+test('queryOpencode reports real CLI failures by throwing after opencode-error', async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), 'ccflow-opencode-failure-'));
+  const fakeCli = join(tempDir, 'opencode');
+  const previousCliPath = process.env.OPENCODE_CLI_PATH;
+
+  try {
+    await writeFile(fakeCli, '#!/bin/sh\necho "usage: opencode run --dir" >&2\nexit 2\n', 'utf8');
+    await chmod(fakeCli, 0o755);
+    process.env.OPENCODE_CLI_PATH = fakeCli;
+
+    const { queryOpencode } = await import(`../../server/opencode-sdk.js?failure=${Date.now()}`);
+    const sent = [];
+    const writer = {
+      isWebSocketWriter: true,
+      send(payload) {
+        sent.push(payload);
+      },
+    };
+
+    await assert.rejects(
+      () => queryOpencode('hello', { projectPath: tempDir }, writer),
+      /usage: opencode run --dir/,
+    );
+    assert.equal(sent.at(-1)?.type, 'opencode-error');
+  } finally {
+    if (previousCliPath === undefined) delete process.env.OPENCODE_CLI_PATH;
+    else process.env.OPENCODE_CLI_PATH = previousCliPath;
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // REST route existence assertions
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,6 +185,11 @@ test('OpenCode REST routes handle models, sessions, messages, and delete', async
   assert.match(source, /router\.get\('\/sessions'/, 'must define GET /sessions');
   assert.match(source, /router\.get\('\/sessions\/:sessionId\/messages'/, 'must define GET /sessions/:sessionId/messages');
   assert.match(source, /router\.delete\('\/sessions\/:sessionId'/, 'must define DELETE /sessions/:sessionId');
+  assert.match(source, /\['models'\]/, 'models route must use current OpenCode models contract');
+  assert.match(source, /\['session', 'list', '--format', 'json'\]/, 'sessions route must use current OpenCode JSON format flag');
+  assert.match(source, /\['export', sessionId\]/, 'messages route must use current OpenCode export contract');
+  assert.doesNotMatch(source, /\['models', '--json'\]/, 'models route must not pass retired --json flag');
+  assert.doesNotMatch(source, /\['export', sessionId, '--json'\]/, 'messages route must not pass retired --json flag');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -190,7 +228,13 @@ test('server/index.js handles opencode in check-session-status', async () => {
 
 test('server/index.js includes opencode in get-active-sessions', async () => {
   const source = await readRepoFile('server/index.js');
-  assert.match(source, /opencode:\s*getActiveOpencodeSessions\(\)/, 'must include opencode in active sessions');
+  assert.match(source, /opencode:\s*\[[\s\S]*?getActiveOpencodeSessions\(\)[\s\S]*?runnerSessions\.filter\(\(turn\)\s*=>\s*turn\.provider\s*===\s*'opencode'\)/, 'must include opencode and runner sessions in active sessions');
+});
+
+test('server/index.js does not replay terminal runner turns after reconnect', async () => {
+  const source = await readRepoFile('server/index.js');
+  assert.match(source, /if\s*\(turn\.status !== 'running'\)\s*\{[\s\S]*?continue;/, 'runner replay must skip terminal turns');
+  assert.match(source, /runnerActiveTurns\.delete\(turnKey\)/, 'terminal runner events must be removed from active replay set');
 });
 
 test('server/index.js handles opencode-error in catch block', async () => {
@@ -211,6 +255,9 @@ test('server/projects.js normalizes opencode provider in chat records', async ()
 test('server/projects.js defines getOpencodeSessions function', async () => {
   const source = await readRepoFile('server/projects.js');
   assert.match(source, /async function getOpencodeSessions\(/, 'must define getOpencodeSessions');
+  assert.match(source, /stdout\.trim\(\)[\s\S]*?\?\s*JSON\.parse\(trimmedStdout\)\s*:\s*\[\]/, 'empty OpenCode session list stdout must mean no sessions');
+  assert.match(source, /\['session', 'list', '--format', 'json'\]/, 'must use current OpenCode JSON format flag');
+  assert.doesNotMatch(source, /\['session', 'list', '--json'\]/, 'must not use retired OpenCode --json flag');
 });
 
 test('server/projects.js includes opencodeSessions in project payload', async () => {
@@ -220,7 +267,8 @@ test('server/projects.js includes opencodeSessions in project payload', async ()
 
 test('server/projects.js populates opencodeSessions in populateProjectCollections', async () => {
   const source = await readRepoFile('server/projects.js');
-  assert.match(source, /getOpencodeSessions\(actualProjectDir\)/, 'populateProjectCollections must fetch opencode sessions');
+  assert.match(source, /getOpencodeSessions\(actualProjectDir,[\s\S]*?indexRef:\s*opencodeSessionsIndexRef[\s\S]*?\)/, 'populateProjectCollections must fetch opencode sessions through the shared index');
+  assert.match(source, /const opencodeSessionsIndexRef = \{ sessionsByProject: null \}/, 'getProjects must reuse one OpenCode session index per refresh');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,8 +314,8 @@ test('useSettingsController sets opencode auth status to authenticated', async (
   assert.match(source, /if\s*\(\s*provider === 'opencode'\s*\)\s*\{[\s\S]*?authenticated:\s*true/, 'checkAuthStatus must set opencode as authenticated');
 });
 
-test('AccountContent renders login button for opencode', async () => {
+test('AccountContent hides unavailable quota and login for local OpenCode', async () => {
   const source = await readRepoFile('src/components/settings/view/tabs/agents-settings/sections/content/AccountContent.tsx');
-  assert.doesNotMatch(source, /agent\s*===\s*'opencode'\s*\?\s*\(/, 'must NOT hide login button for opencode');
-  assert.doesNotMatch(source, /agent\s*!==\s*'opencode'\s*&&\s*\(/, 'must NOT guard UsageProviderQuota for opencode');
+  assert.match(source, /agent\s*===\s*'opencode'\s*\?\s*\(/, 'must render local OpenCode status without login action');
+  assert.match(source, /agent\s*!==\s*'opencode'\s*&&\s*\([\s\S]*?<UsageProviderQuota/, 'must skip UsageProviderQuota for opencode');
 });

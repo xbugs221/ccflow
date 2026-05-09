@@ -22,6 +22,13 @@ const ANSI_ESCAPE_REGEX =
 const PROCESS_EXIT_REGEX = /Process exited with code (\d+)/;
 
 /**
+ * Resolve shell session providers to supported agent backends only.
+ */
+function normalizeShellSessionProvider(provider: unknown): 'codex' | 'opencode' {
+  return provider === 'opencode' ? 'opencode' : 'codex';
+}
+
+/**
  * Resolve the shell working directory for the active session.
  * Worktree sessions must reattach from their own projectPath instead of the merged parent project path.
  */
@@ -224,7 +231,7 @@ export function useShellConnection({
       hasSession: isPlainShellRef.current ? false : Boolean(currentSession),
       provider: isPlainShellRef.current
         ? 'plain-shell'
-        : (currentSession?.__provider || localStorage.getItem('selected-provider') || 'claude'),
+        : normalizeShellSessionProvider(currentSession?.__provider || localStorage.getItem('selected-provider')),
       cols: currentTerminal.cols,
       rows: currentTerminal.rows,
       initialCommand: initialCommandRef.current,

@@ -35,6 +35,10 @@ import {
 const ITEM_ACTION_LONG_PRESS_MS = 450;
 type WorkflowCardSortMode = 'created' | 'updated' | 'title' | 'provider';
 
+const normalizeActionSessionProvider = (provider: unknown): SessionProvider => (
+  provider === 'opencode' ? 'opencode' : 'codex'
+);
+
 const CARD_SORT_OPTIONS: Array<{ value: SessionCardSortMode; label: string }> = [
   { value: 'created', label: '创建时间' },
   { value: 'updated', label: '最近消息' },
@@ -897,15 +901,6 @@ export default function ProjectOverviewPanel({
                     type="button"
                     size="sm"
                     variant="outline"
-                    data-testid="project-new-session-provider-claude"
-                    onClick={() => handleCreateSession('claude')}
-                  >
-                    Claude Code
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
                     data-testid="project-new-session-provider-codex"
                     onClick={() => handleCreateSession('codex')}
                   >
@@ -1159,31 +1154,41 @@ export default function ProjectOverviewPanel({
               delete: 'project-overview-context-delete',
             }}
             onRename={() => {
+              const actionProvider = normalizeActionSessionProvider(activeSessionActionItem.__provider);
               void handleRenameSession(
                 activeSessionActionItem.__projectName || project.name,
                 activeSessionActionItem.id,
-                activeSessionActionItem.__provider || 'claude',
+                actionProvider,
                 createSessionViewModel(activeSessionActionItem, currentTime, t).sessionName,
               );
             }}
-            onToggleFavorite={() => handleToggleSessionFavorite(
-              activeSessionActionItem.__projectName || project.name,
-              activeSessionActionItem.id,
-              activeSessionActionItem.__provider || 'claude',
-              activeSessionActionItem,
-            )}
-            onTogglePending={() => handleToggleSessionPending(
-              activeSessionActionItem.__projectName || project.name,
-              activeSessionActionItem.id,
-              activeSessionActionItem.__provider || 'claude',
-              activeSessionActionItem,
-            )}
-            onToggleHidden={() => handleHideSession(
-              activeSessionActionItem.__projectName || project.name,
-              activeSessionActionItem.id,
-              activeSessionActionItem.__provider || 'claude',
-              activeSessionActionItem,
-            )}
+            onToggleFavorite={() => {
+              const actionProvider = normalizeActionSessionProvider(activeSessionActionItem.__provider);
+              handleToggleSessionFavorite(
+                activeSessionActionItem.__projectName || project.name,
+                activeSessionActionItem.id,
+                actionProvider,
+                activeSessionActionItem,
+              );
+            }}
+            onTogglePending={() => {
+              const actionProvider = normalizeActionSessionProvider(activeSessionActionItem.__provider);
+              handleToggleSessionPending(
+                activeSessionActionItem.__projectName || project.name,
+                activeSessionActionItem.id,
+                actionProvider,
+                activeSessionActionItem,
+              );
+            }}
+            onToggleHidden={() => {
+              const actionProvider = normalizeActionSessionProvider(activeSessionActionItem.__provider);
+              handleHideSession(
+                activeSessionActionItem.__projectName || project.name,
+                activeSessionActionItem.id,
+                actionProvider,
+                activeSessionActionItem,
+              );
+            }}
             onDelete={() => void handleDeleteSession(
               actionMenu.sessionProjectName,
               actionMenu.sessionId,

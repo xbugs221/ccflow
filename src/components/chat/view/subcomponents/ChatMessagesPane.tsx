@@ -31,9 +31,6 @@ interface ChatMessagesPaneProps {
   provider: SessionProvider;
   setProvider: (provider: SessionProvider) => void;
   textareaRef: RefObject<HTMLTextAreaElement>;
-  claudeModel: string;
-  setClaudeModel: (model: string) => void;
-  claudeModelOptions: Array<{ value: string; label: string }>;
   codexModel: string;
   setCodexModel: (model: string) => void;
   codexModelOptions: Array<{ value: string; label: string }>;
@@ -77,9 +74,6 @@ export default function ChatMessagesPane({
   provider,
   setProvider,
   textareaRef,
-  claudeModel,
-  setClaudeModel,
-  claudeModelOptions,
   codexModel,
   setCodexModel,
   codexModelOptions,
@@ -168,9 +162,6 @@ export default function ChatMessagesPane({
           provider={provider}
           setProvider={setProvider}
           textareaRef={textareaRef}
-            claudeModel={claudeModel}
-            setClaudeModel={setClaudeModel}
-            claudeModelOptions={claudeModelOptions}
             codexModel={codexModel}
           setCodexModel={setCodexModel}
           codexModelOptions={codexModelOptions}

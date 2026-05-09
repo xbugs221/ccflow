@@ -23,37 +23,6 @@ const OPEN_CHAT_SEARCH = '[data-testid="open-chat-history-search"]';
 const CHAT_SEARCH_MODE_CONTENT = '[data-testid="chat-history-search-mode-content"]';
 
 /**
- * Encode an absolute project path the same way Claude stores project folders.
- *
- * @param {string} projectPath
- * @returns {string}
- */
-function encodeClaudeProjectName(projectPath) {
-  return projectPath.replace(/\//g, '-');
-}
-
-/**
- * Write one Claude JSONL session file under the Playwright fixture HOME.
- *
- * @param {{ sessionId: string, entries: Array<Record<string, unknown>> }} params
- * @returns {Promise<void>}
- */
-async function writeClaudeSession({ sessionId, entries }) {
-  const projectDir = path.join(
-    PLAYWRIGHT_FIXTURE_HOME,
-    '.claude',
-    'projects',
-    encodeClaudeProjectName(PRIMARY_FIXTURE_PROJECT_PATH),
-  );
-  await fs.mkdir(projectDir, { recursive: true });
-  await fs.writeFile(
-    path.join(projectDir, `${sessionId}.jsonl`),
-    entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n',
-    'utf8',
-  );
-}
-
-/**
  * Write one Codex JSONL session file under the Playwright fixture HOME.
  *
  * @param {{ sessionId: string, entries: Array<Record<string, unknown>>, datePath?: string[] }} params
@@ -67,28 +36,6 @@ async function writeCodexSession({ sessionId, entries, datePath = ['2026', '04',
     entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n',
     'utf8',
   );
-}
-
-/**
- * Build a minimal Claude transcript with deterministic timestamps.
- *
- * @param {{ sessionId: string, startedAt?: string, messages: Array<{ role: 'user' | 'assistant', content: string }> }} params
- * @returns {Array<Record<string, unknown>>}
- */
-function buildClaudeTranscript({ sessionId, startedAt = '2026-04-15T08:00:00.000Z', messages }) {
-  const base = new Date(startedAt).getTime();
-  return messages.map((message, index) => ({
-    sessionId,
-    cwd: PRIMARY_FIXTURE_PROJECT_PATH,
-    timestamp: new Date(base + index * 1_000).toISOString(),
-    parentUuid: index === 0 ? null : `${sessionId}-uuid-${index - 1}`,
-    uuid: `${sessionId}-uuid-${index}`,
-    type: message.role,
-    message: {
-      role: message.role,
-      content: message.content,
-    },
-  }));
 }
 
 /**
@@ -113,6 +60,42 @@ function buildCodexTranscript({ sessionId, records }) {
 }
 
 /**
+ * Build a Codex chat transcript from user and assistant messages.
+ *
+ * @param {{ sessionId: string, startedAt?: string, messages: Array<{ role: 'user' | 'assistant', content: string }> }} params
+ * @returns {Array<Record<string, unknown>>}
+ */
+function buildCodexChatTranscript({ sessionId, startedAt = '2026-04-15T09:00:00.000Z', messages }) {
+  const base = new Date(startedAt).getTime();
+  return buildCodexTranscript({
+    sessionId,
+    records: messages.map((message, index) => {
+      const timestamp = new Date(base + index * 1000).toISOString();
+      if (message.role === 'user') {
+        return {
+          timestamp,
+          type: 'event_msg',
+          payload: {
+            type: 'user_message',
+            message: message.content,
+          },
+        };
+      }
+
+      return {
+        timestamp,
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: message.content }],
+        },
+      };
+    }),
+  });
+}
+
+/**
  * Run a global chat-history search and return the result rows locator.
  *
  * @param {import('@playwright/test').Page} page
@@ -134,17 +117,17 @@ test.beforeEach(async ({ page }) => {
   await authenticatePage(page);
 });
 
-test('returns a hit when the keyword only exists in the sixth visible Claude session', async ({ page }) => {
-  /** Scenario: 关键词仅存在于某项目第六个及之后的 Claude 可见会话 */
-  const keyword = 'needle-claude-visible-session-six';
+test('returns a hit when the keyword only exists in the sixth visible Codex session', async ({ page }) => {
+  /** Scenario: 关键词仅存在于某项目第六个及之后的 Codex 可见会话 */
+  const keyword = 'needle-codex-visible-session-six';
 
   for (let index = 0; index < 6; index += 1) {
-    const sessionId = `claude-search-window-${index}`;
-    await writeClaudeSession({
+    const sessionId = `codex-search-window-${index}`;
+    await writeCodexSession({
       sessionId,
-      entries: buildClaudeTranscript({
+      entries: buildCodexChatTranscript({
         sessionId,
-        startedAt: `2026-04-15T08:0${index}:00.000Z`,
+        startedAt: `2026-04-15T09:0${index}:00.000Z`,
         messages: [
           { role: 'user', content: `Session ${index} request.` },
           {

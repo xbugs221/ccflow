@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type React from 'react';
 import type { TFunction } from 'i18next';
 import { api } from '../../../utils/api';
+import { CCFLOW_SETTINGS_KEY } from '../../../utils/settingsStorage';
 import type { Project, ProjectSession } from '../../../types/app';
 import type {
   AdditionalSessionsByProject,
@@ -141,7 +142,7 @@ export function useSidebarController({
     loadSortOrder();
 
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'claude-settings') {
+      if (event.key === CCFLOW_SETTINGS_KEY) {
         loadSortOrder();
       }
     };
@@ -332,7 +333,7 @@ export function useSidebarController({
       projectName: string,
       sessionId: string,
       sessionTitle: string,
-      provider: SessionDeleteConfirmation['provider'] = 'claude',
+      provider: SessionDeleteConfirmation['provider'] = 'codex',
       projectPath = '',
     ) => {
       setSessionDeleteConfirmation({ projectName, sessionId, sessionTitle, provider, projectPath });

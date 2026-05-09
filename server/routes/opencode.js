@@ -36,7 +36,7 @@ function spawnOpencodeCli(args) {
 router.get('/models', async (_req, res) => {
   try {
     const respond = createCliResponder(res);
-    const { proc, cliPath } = spawnOpencodeCli(['models', '--json']);
+    const { proc, cliPath } = spawnOpencodeCli(['models']);
 
     let stdout = '';
     let stderr = '';
@@ -79,7 +79,7 @@ router.get('/sessions', async (req, res) => {
     }
 
     const respond = createCliResponder(res);
-    const { proc, cliPath } = spawnOpencodeCli(['session', 'list', '--json']);
+    const { proc, cliPath } = spawnOpencodeCli(['session', 'list', '--format', 'json']);
 
     let stdout = '';
     let stderr = '';
@@ -132,7 +132,7 @@ router.get('/sessions/:sessionId/messages', async (req, res) => {
     const { sessionId } = req.params;
 
     const respond = createCliResponder(res);
-    const { proc, cliPath } = spawnOpencodeCli(['export', sessionId, '--json']);
+    const { proc, cliPath } = spawnOpencodeCli(['export', sessionId]);
 
     let stdout = '';
     let stderr = '';

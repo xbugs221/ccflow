@@ -15,54 +15,50 @@ import {
 } from './helpers/spec-test-helpers.js';
 
 /**
- * Encode an absolute project path the same way Claude stores project folders.
- *
- * @param {string} projectPath
- * @returns {string}
- */
-function encodeClaudeProjectName(projectPath) {
-  return projectPath.replace(/\//g, '-');
-}
-
-/**
- * Create a Claude-format session fixture containing one assistant markdown reply.
+ * Create a Codex-format session fixture containing one assistant markdown reply.
  *
  * @param {{ sessionId: string, assistantContent: string }} params
  * @returns {Promise<void>}
  */
 async function writeAssistantLinkSession({ sessionId, assistantContent }) {
-  const projectDir = path.join(
+  const sessionDir = path.join(
     PLAYWRIGHT_FIXTURE_HOME,
-    '.claude',
-    'projects',
-    encodeClaudeProjectName(PRIMARY_FIXTURE_PROJECT_PATH),
+    '.codex',
+    'sessions',
+    '2026',
+    '04',
+    '14',
   );
-  const sessionPath = path.join(projectDir, `${sessionId}.jsonl`);
+  const sessionPath = path.join(sessionDir, `${sessionId}.jsonl`);
 
-  await fs.mkdir(projectDir, { recursive: true });
+  await fs.mkdir(sessionDir, { recursive: true });
   await fs.writeFile(
     sessionPath,
     [
       JSON.stringify({
-        sessionId,
-        cwd: PRIMARY_FIXTURE_PROJECT_PATH,
+        type: 'session_meta',
         timestamp: '2026-04-14T08:00:00.000Z',
-        parentUuid: null,
-        uuid: `${sessionId}-user-1`,
-        type: 'user',
-        message: {
-          role: 'user',
-          content: 'Show me the relevant file.',
+        payload: {
+          id: sessionId,
+          cwd: PRIMARY_FIXTURE_PROJECT_PATH,
+          model: 'gpt-5-codex',
         },
       }),
       JSON.stringify({
-        sessionId,
-        cwd: PRIMARY_FIXTURE_PROJECT_PATH,
+        type: 'event_msg',
         timestamp: '2026-04-14T08:00:01.000Z',
-        type: 'assistant',
-        message: {
+        payload: {
+          type: 'user_message',
+          message: 'Show me the relevant file.',
+        },
+      }),
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-04-14T08:00:02.000Z',
+        payload: {
+          type: 'message',
           role: 'assistant',
-          content: assistantContent,
+          content: [{ type: 'output_text', text: assistantContent }],
         },
       }),
     ].join('\n') + '\n',
@@ -77,10 +73,10 @@ async function writeAssistantLinkSession({ sessionId, assistantContent }) {
  * @param {string} sessionId
  * @returns {Promise<void>}
  */
-async function openFixtureClaudeSession(page, sessionId) {
+async function openFixtureCodexSession(page, sessionId) {
   const query = new URLSearchParams({
     projectPath: PRIMARY_FIXTURE_PROJECT_PATH,
-    provider: 'claude',
+    provider: 'codex',
   });
   await page.goto(`/session/${sessionId}?${query.toString()}`, { waitUntil: 'networkidle' });
 }
@@ -113,7 +109,7 @@ test('absolute workspace file links open the referenced file in the embedded edi
     assistantContent: `Open [absolute-link-target.ts](${absolutePath}) for the implementation details.`,
   });
 
-  await openFixtureClaudeSession(page, sessionId);
+  await openFixtureCodexSession(page, sessionId);
   await expect(page.getByRole('link', { name: 'absolute-link-target.ts' })).toBeVisible();
 
   await page.getByRole('link', { name: 'absolute-link-target.ts' }).click();
@@ -134,7 +130,7 @@ test('project-relative workspace file links resolve against the selected project
     assistantContent: 'Review [relative-link-target.md](docs/relative-link-target.md) before editing.',
   });
 
-  await openFixtureClaudeSession(page, sessionId);
+  await openFixtureCodexSession(page, sessionId);
   await expect(page.getByRole('link', { name: 'relative-link-target.md' })).toBeVisible();
 
   await page.getByRole('link', { name: 'relative-link-target.md' }).click();
@@ -156,7 +152,7 @@ test('workspace file links with line suffixes still open the file in the embedde
     assistantContent: `Inspect [line-suffix-target.ts](${absolutePath}#L2) for the second export.`,
   });
 
-  await openFixtureClaudeSession(page, sessionId);
+  await openFixtureCodexSession(page, sessionId);
   await expect(page.getByRole('link', { name: 'line-suffix-target.ts' })).toBeVisible();
 
   await page.getByRole('link', { name: 'line-suffix-target.ts' }).click();
@@ -177,7 +173,7 @@ test('clicking a workspace file reference keeps the current chat route active wh
     assistantContent: 'Open [sidebar-route-target.ts](src/sidebar-route-target.ts) without leaving this chat.',
   });
 
-  await openFixtureClaudeSession(page, sessionId);
+  await openFixtureCodexSession(page, sessionId);
   await expect(page.getByRole('link', { name: 'sidebar-route-target.ts' })).toBeVisible();
 
   await page.getByRole('link', { name: 'sidebar-route-target.ts' }).click();
@@ -196,7 +192,7 @@ test('external links keep normal browser navigation instead of opening the edito
     assistantContent: 'See [OpenAI docs](https://platform.openai.com/docs/overview) for external guidance.',
   });
 
-  await openFixtureClaudeSession(page, sessionId);
+  await openFixtureCodexSession(page, sessionId);
   await expect(page.getByRole('link', { name: 'OpenAI docs' })).toBeVisible();
 
   const [popup] = await Promise.all([

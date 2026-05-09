@@ -27,8 +27,6 @@ type PendingViewSession = {
 const NETWORK_RESPONSE_TIMEOUT_MS = 30_000;
 const NETWORK_TIMEOUT_MESSAGE =
   '30 秒内没有收到服务端响应，疑似网络连接异常。请检查网络后重试。';
-const NETWORK_DISCONNECTED_MESSAGE =
-  '与服务端的实时连接已断开，本次请求已停止等待。请确认公网反代支持 WebSocket 后重试。';
 const SESSION_STATUS_RECONCILE_INTERVAL_MS = 4_000;
 
 const isTemporarySessionId = (sessionId?: string | null): boolean =>
@@ -62,10 +60,6 @@ const resolveProjectSessionProvider = (
 
   if ((selectedProject.codexSessions || []).some((session) => session.id === sessionId)) {
     return 'codex';
-  }
-
-  if ((selectedProject.sessions || []).some((session) => session.id === sessionId)) {
-    return 'claude';
   }
 
   return null;
@@ -170,9 +164,6 @@ function ChatInterface({
   const {
     provider,
     setProvider,
-    claudeModel,
-    setClaudeModel,
-    claudeModelOptions,
     codexModel,
     setCodexModel,
     codexModelOptions,
@@ -264,8 +255,6 @@ function ChatInterface({
     textareaRef,
     inputHighlightRef,
     isTextareaExpanded,
-    thinkingMode,
-    setThinkingMode,
     filteredCommands,
     frequentCommands,
     showCommandMenu,
@@ -305,7 +294,6 @@ function ChatInterface({
     selectedSession,
     currentSessionId,
     provider: effectiveProvider,
-    claudeModel,
     codexModel,
     codexModelSwitchSessionId,
     codexReasoningEffort,
@@ -386,7 +374,7 @@ function ChatInterface({
   );
 
   const persistSessionModelState = useCallback(
-    async (patch: { provider?: Provider; model?: string; reasoningEffort?: string; thinkingMode?: string }) => {
+    async (patch: { provider?: Provider; model?: string; reasoningEffort?: string }) => {
       if (
         !selectedSession?.id
         || isUnsavedSessionId(selectedSession.id)
@@ -432,45 +420,6 @@ function ChatInterface({
     ],
   );
 
-  const handleSetThinkingMode = useCallback(
-    (nextMode: string) => {
-      setThinkingMode(nextMode);
-      void persistSessionModelState({
-        model: claudeModel,
-        thinkingMode: nextMode,
-      }).catch((error) => {
-        console.error('Failed to persist Claude thinking mode:', error);
-      });
-    },
-    [
-      claudeModel,
-      persistSessionModelState,
-      setThinkingMode,
-    ],
-  );
-
-  useEffect(() => {
-    const sessionThinkingMode = typeof selectedSession?.thinkingMode === 'string'
-      ? selectedSession.thinkingMode.trim()
-      : '';
-    if (
-      effectiveProvider !== 'claude'
-      || !sessionThinkingMode
-      || sessionThinkingMode === thinkingMode
-    ) {
-      return;
-    }
-
-    setThinkingMode(sessionThinkingMode);
-  }, [
-    effectiveProvider,
-    selectedSession?.__provider,
-    selectedSession?.id,
-    selectedSession?.thinkingMode,
-    setThinkingMode,
-    thinkingMode,
-  ]);
-
   useEffect(() => {
     if (
       !selectedSession?.id
@@ -498,18 +447,12 @@ function ChatInterface({
         const reasoningEffort = typeof payload?.state?.reasoningEffort === 'string'
           ? payload.state.reasoningEffort.trim()
           : '';
-        const syncedThinkingMode = typeof payload?.state?.thinkingMode === 'string'
-          ? payload.state.thinkingMode.trim()
-          : '';
 
         if (effectiveProvider === 'codex' && model && model !== codexModel) {
           setCodexModel(model);
         }
         if (effectiveProvider === 'codex' && reasoningEffort && reasoningEffort !== codexReasoningEffort) {
           setCodexReasoningEffort(reasoningEffort);
-        }
-        if (effectiveProvider === 'claude' && syncedThinkingMode && syncedThinkingMode !== thinkingMode) {
-          setThinkingMode(syncedThinkingMode);
         }
       } catch (error) {
         console.error('Failed to sync session model state:', error);
@@ -525,8 +468,6 @@ function ChatInterface({
     selectedSession,
     setCodexModel,
     setCodexReasoningEffort,
-    setThinkingMode,
-    thinkingMode,
   ]);
 
   const handleCodexModelSwitchComplete = useCallback(() => {
@@ -633,17 +574,13 @@ function ChatInterface({
         const state = message.state && typeof message.state === 'object' ? message.state : {};
         const model = typeof state.model === 'string' ? state.model.trim() : '';
         const reasoningEffort = typeof state.reasoningEffort === 'string' ? state.reasoningEffort.trim() : '';
-        const syncedThinkingMode = typeof state.thinkingMode === 'string' ? state.thinkingMode.trim() : '';
         const messageProvider = projectSessionProvider
-          || (message.provider === 'claude' || message.provider === 'codex' ? message.provider : effectiveProvider);
+          || (message.provider === 'codex' || message.provider === 'opencode' ? message.provider : effectiveProvider);
         if (messageProvider === 'codex' && model && model !== codexModel) {
           setCodexModel(model);
         }
         if (messageProvider === 'codex' && reasoningEffort && reasoningEffort !== codexReasoningEffort) {
           setCodexReasoningEffort(reasoningEffort);
-        }
-        if (messageProvider === 'claude' && syncedThinkingMode && syncedThinkingMode !== thinkingMode) {
-          setThinkingMode(syncedThinkingMode);
         }
       }
 
@@ -673,38 +610,6 @@ function ChatInterface({
   }, []);
 
   useEffect(() => {
-    if (!awaitingBackendResponseRef.current || !isLoading || ws?.readyState === WebSocket.OPEN) {
-      return;
-    }
-
-    // Fail fast when the socket drops after dispatch so users are not left waiting for the full timeout window.
-    awaitingBackendResponseRef.current = false;
-    if (pendingNetworkTimeoutRef.current) {
-      clearTimeout(pendingNetworkTimeoutRef.current);
-      pendingNetworkTimeoutRef.current = null;
-    }
-
-    setIsLoading(false);
-    setCanAbortSession(false);
-    setClaudeStatus(null);
-    setChatMessages((previous) => [
-      ...previous,
-      {
-        type: 'error',
-        content: NETWORK_DISCONNECTED_MESSAGE,
-        timestamp: new Date(),
-      },
-    ]);
-  }, [
-    isLoading,
-    setCanAbortSession,
-    setChatMessages,
-    setClaudeStatus,
-    setIsLoading,
-    ws,
-  ]);
-
-  useEffect(() => {
     if (!isLoading) {
       return;
     }
@@ -720,7 +625,7 @@ function ChatInterface({
       return;
     }
 
-    const statusProvider = effectiveProvider === 'codex' ? 'codex' : 'claude';
+    const statusProvider = effectiveProvider === 'opencode' ? 'opencode' : 'codex';
     const reconcileSessionStatus = () => {
       sendMessage({
         type: 'check-session-status',
@@ -929,7 +834,7 @@ function ChatInterface({
     const selectedProviderLabel =
       effectiveProvider === 'codex'
         ? t('messageTypes.codex')
-        : t('messageTypes.claude');
+        : t('messageTypes.opencode');
 
     return (
       <div className="flex-1 min-h-0 flex flex-col">
@@ -963,9 +868,6 @@ function ChatInterface({
           provider={effectiveProvider}
           setProvider={(nextProvider) => setProvider(nextProvider as Provider)}
           textareaRef={textareaRef}
-          claudeModel={claudeModel}
-          setClaudeModel={setClaudeModel}
-          claudeModelOptions={claudeModelOptions}
           codexModel={codexModel}
           setCodexModel={handleSetCodexModel}
           codexModelOptions={codexModelOptions}
@@ -1002,11 +904,6 @@ function ChatInterface({
           isComposerSubmitting={isComposerSubmitting}
           onAbortSession={handleAbortSession}
           provider={effectiveProvider}
-          thinkingMode={thinkingMode}
-          setThinkingMode={handleSetThinkingMode}
-          claudeModel={claudeModel}
-          setClaudeModel={setClaudeModel}
-          claudeModelOptions={claudeModelOptions}
           codexModel={codexModel}
           setCodexModel={handleSetCodexModel}
           codexModelOptions={codexModelOptions}
@@ -1066,7 +963,7 @@ function ChatInterface({
               provider:
               effectiveProvider === 'codex'
                 ? t('messageTypes.codex')
-                : t('messageTypes.claude'),
+                : t('messageTypes.opencode'),
           })}
           isTextareaExpanded={isTextareaExpanded}
           sendByCtrlEnter={sendByCtrlEnter}

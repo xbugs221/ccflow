@@ -170,7 +170,7 @@ export const AskUserQuestionPanel: React.FC<PermissionPanelProps> = ({
 
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <span className="text-[10px] font-medium tracking-wide uppercase text-gray-400 dark:text-gray-500">
-                Claude needs your input
+                Assistant needs your input
               </span>
               {q.header && (
                 <span className="inline-flex items-center px-1.5 py-px rounded text-[9px] font-semibold uppercase tracking-wider bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800/50">

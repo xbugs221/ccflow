@@ -609,6 +609,7 @@ export async function queryCodex(command, options = {}, ws) {
     permissionMode = 'default'
   } = options;
   const requestId = typeof clientRequestId === 'string' ? clientRequestId : null;
+  let failed = false;
 
   const workingDirectory = cwd || projectPath || process.cwd();
   const effectivePermissionMode = normalizeCodexPermissionMode(permissionMode);
@@ -765,6 +766,7 @@ export async function queryCodex(command, options = {}, ws) {
       String(error?.message || '').toLowerCase().includes('aborted');
 
     if (!wasAborted) {
+      failed = true;
       console.error('[Codex] Error:', error);
       sendMessage(ws, {
         type: 'codex-error',
@@ -772,13 +774,14 @@ export async function queryCodex(command, options = {}, ws) {
         sessionId: currentSessionId
       });
     }
+    throw error;
 
   } finally {
     // Update session status
     if (currentSessionId) {
       const session = activeCodexSessions.get(currentSessionId);
       if (session) {
-        session.status = session.status === 'aborted' ? 'aborted' : 'completed';
+        session.status = session.status === 'aborted' ? 'aborted' : failed ? 'failed' : 'completed';
       }
     }
   }

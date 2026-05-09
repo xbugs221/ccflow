@@ -7,7 +7,6 @@ import { spawn } from 'child_process';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { extractProjectDirectory } from '../projects.js';
-import { queryClaudeSDK } from '../claude-sdk.js';
 import { queryCodex } from '../openai-codex.js';
 
 const router = express.Router();
@@ -841,14 +840,14 @@ router.get('/commit-diff', async (req, res) => {
 
 // Generate a commit message based on selected file diffs.
 router.post('/generate-commit-message', async (req, res) => {
-  const { project, files, provider = 'claude', projectPath } = req.body;
+  const { project, files, provider = 'codex', projectPath } = req.body;
 
   if (!project || !files || files.length === 0) {
     return res.status(400).json({ error: 'Project name and files are required' });
   }
 
-  if (!['claude', 'codex'].includes(provider)) {
-    return res.status(400).json({ error: 'provider must be "claude" or "codex"' });
+  if (provider !== 'codex') {
+    return res.status(400).json({ error: 'provider must be "codex"' });
   }
 
   try {
@@ -896,7 +895,7 @@ router.post('/generate-commit-message', async (req, res) => {
  *
  * @param {Array<string>} files
  * @param {string} diffContext
- * @param {'claude' | 'codex'} provider
+ * @param {'codex'} provider
  * @param {string} projectPath
  * @returns {Promise<string>}
  */
@@ -952,18 +951,11 @@ Generate the commit message:`;
       setSessionId: () => {},
     };
 
-    if (provider === 'claude') {
-      await queryClaudeSDK(prompt, {
-        cwd: projectPath,
-        permissionMode: 'bypassPermissions',
-      }, writer);
-    } else {
-      await queryCodex(prompt, {
-        cwd: projectPath,
-        projectPath,
-        permissionMode: 'bypassPermissions',
-      }, writer);
-    }
+    await queryCodex(prompt, {
+      cwd: projectPath,
+      projectPath,
+      permissionMode: 'bypassPermissions',
+    }, writer);
 
     const cleanedMessage = cleanCommitMessage(responseText);
     return cleanedMessage || 'chore: update files';

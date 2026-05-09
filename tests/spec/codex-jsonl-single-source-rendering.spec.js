@@ -26,28 +26,15 @@ function codexSessionPath(sessionId) {
 }
 
 /**
- * Write a Codex JSONL transcript under the isolated Playwright HOME and create
- * a Claude project anchor so the existing project/session discovery can find it.
+ * Write a Codex JSONL transcript under the isolated Playwright HOME.
  *
  * @param {{ sessionId: string, entries: Array<Record<string, unknown>> }} params
  * @returns {Promise<void>}
  */
 async function writeCodexSession({ sessionId, entries }) {
   const sessionPath = codexSessionPath(sessionId);
-  const anchorDir = path.join(
-    PLAYWRIGHT_FIXTURE_HOME,
-    '.claude',
-    'projects',
-    PRIMARY_FIXTURE_PROJECT_PATH.replace(/\//g, '-'),
-  );
   await fs.mkdir(path.dirname(sessionPath), { recursive: true });
-  await fs.mkdir(anchorDir, { recursive: true });
   await fs.writeFile(sessionPath, `${entries.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
-  await fs.writeFile(
-    path.join(anchorDir, `${sessionId}-project-anchor.jsonl`),
-    `${JSON.stringify({ cwd: PRIMARY_FIXTURE_PROJECT_PATH, timestamp: '2026-04-24T10:00:00.000Z' })}\n`,
-    'utf8',
-  );
 }
 
 /**

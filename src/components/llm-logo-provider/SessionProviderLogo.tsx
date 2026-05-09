@@ -1,5 +1,4 @@
 import type { SessionProvider } from '../../types/app';
-import ClaudeLogo from './ClaudeLogo';
 import ChatGptLogo from './ChatGptLogo';
 import KimiLogo from './KimiLogo';
 
@@ -10,7 +9,7 @@ type SessionProviderLogoProps = {
 };
 
 export default function SessionProviderLogo({
-  provider = 'claude',
+  provider = 'codex',
   model = null,
   className = 'w-5 h-5',
 }: SessionProviderLogoProps) {
@@ -23,5 +22,5 @@ export default function SessionProviderLogo({
     return <KimiLogo className={className} />;
   }
 
-  return <ClaudeLogo className={className} />;
+  return <ChatGptLogo className={className} />;
 }

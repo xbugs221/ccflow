@@ -2,11 +2,8 @@ import type {
   AgentCategory,
   AgentProvider,
   AuthStatus,
-  ClaudeMcpFormState,
   CodexMcpFormState,
   CodeEditorSettingsState,
-  McpToolsResult,
-  McpTestResult,
   ProjectSortOrder,
   SettingsMainTab,
 } from '../types/types';
@@ -18,7 +15,7 @@ export const SETTINGS_MAIN_TABS: SettingsMainTab[] = [
   'agents',
 ];
 
-export const AGENT_PROVIDERS: AgentProvider[] = ['claude', 'codex', 'opencode'];
+export const AGENT_PROVIDERS: AgentProvider[] = ['codex', 'opencode'];
 export const AGENT_CATEGORIES: AgentCategory[] = ['account', 'mcp'];
 
 export const DEFAULT_PROJECT_SORT_ORDER: ProjectSortOrder = 'name';
@@ -40,37 +37,6 @@ export const DEFAULT_AUTH_STATUS: AuthStatus = {
   baseUrl: null,
 };
 
-export const DEFAULT_MCP_TEST_RESULT: McpTestResult = {
-  success: false,
-  message: '',
-  details: [],
-  loading: false,
-};
-
-export const DEFAULT_MCP_TOOLS_RESULT: McpToolsResult = {
-  success: false,
-  tools: [],
-  resources: [],
-  prompts: [],
-};
-
-export const DEFAULT_CLAUDE_MCP_FORM: ClaudeMcpFormState = {
-  name: '',
-  type: 'stdio',
-  scope: 'user',
-  projectPath: '',
-  config: {
-    command: '',
-    args: [],
-    env: {},
-    url: '',
-    headers: {},
-    timeout: 30000,
-  },
-  importMode: 'form',
-  jsonInput: '',
-};
-
 export const DEFAULT_CODEX_MCP_FORM: CodexMcpFormState = {
   name: '',
   type: 'stdio',
@@ -81,8 +47,7 @@ export const DEFAULT_CODEX_MCP_FORM: CodexMcpFormState = {
   },
 };
 
-export const AUTH_STATUS_ENDPOINTS: Record<AgentProvider, string> = {
-  claude: '/api/cli/claude/status',
+export const AUTH_STATUS_ENDPOINTS: Partial<Record<AgentProvider, string>> = {
   codex: '/api/cli/codex/status',
   opencode: '/api/cli/opencode/status',
 };

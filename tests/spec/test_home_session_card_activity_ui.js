@@ -51,7 +51,7 @@ test('cross-project session cards use the source project key when clearing unrea
   const homeProjectName = 'main-project';
   const session = {
     id: 'c2',
-    __provider: 'claude',
+    __provider: 'codex',
     __projectName: 'worktree-project',
     messageCount: 4,
     updatedAt: '2026-04-29T02:00:00.000Z',

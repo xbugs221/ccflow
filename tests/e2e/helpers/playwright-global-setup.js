@@ -213,6 +213,8 @@ export default async function globalSetup() {
     ...process.env,
     PORT: serverPort,
     VITE_PORT: vitePort,
+    CCFLOW_FAKE_RUNNER: process.env.CCFLOW_FAKE_RUNNER || '1',
+    CCFLOW_FAKE_RUNNER_DELAY_MS: process.env.CCFLOW_FAKE_RUNNER_DELAY_MS || '8000',
   };
   childEnv.PATH = `${ensureWorkflowToolFixtures(cwd)}:${childEnv.PATH || ''}`;
 

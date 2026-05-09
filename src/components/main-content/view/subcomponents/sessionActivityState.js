@@ -5,11 +5,18 @@
 
 export const VIEWED_SESSION_SIGNATURES_STORAGE_KEY = 'ccflow:viewed-session-signatures';
 
+function getSupportedSessionProvider(session) {
+  /**
+   * Convert missing or retired provider values to the default supported backend.
+   */
+  return session.__provider === 'opencode' || session.provider === 'opencode' ? 'opencode' : 'codex';
+}
+
 export function getViewedSessionKey(projectName, session) {
   /**
    * Build the localStorage key for a session using its owning project name.
    */
-  return [projectName, session.__provider || 'claude', session.id].join(':');
+  return [projectName, getSupportedSessionProvider(session), session.id].join(':');
 }
 
 export function getSessionProjectName(projectName, session) {

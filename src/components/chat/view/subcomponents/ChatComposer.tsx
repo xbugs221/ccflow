@@ -1,7 +1,7 @@
 /**
  * Chat composer presentation component.
  * Renders message input, attachment controls, command/file menus, and action buttons.
- * Permission approval UI is intentionally disabled because YOLO mode auto-approves Claude tools.
+ * Permission approval UI is intentionally disabled because YOLO mode auto-approves tools.
  */
 import { Command, FileUp, FolderUp, Paperclip } from 'lucide-react';
 import CommandMenu from './CommandMenu';
@@ -46,11 +46,6 @@ interface ChatComposerProps {
   isComposerSubmitting: boolean;
   onAbortSession: () => void;
   provider: Provider | string;
-  thinkingMode: string;
-  setThinkingMode: (mode: string) => void;
-  claudeModel: string;
-  setClaudeModel: (model: string) => void;
-  claudeModelOptions: { value: string; label: string }[];
   codexModel: string;
   setCodexModel: (model: string) => void;
   codexModelOptions: { value: string; label: string }[];
@@ -109,11 +104,6 @@ export default function ChatComposer({
   isComposerSubmitting,
   onAbortSession,
   provider,
-  thinkingMode,
-  setThinkingMode,
-  claudeModel,
-  setClaudeModel,
-  claudeModelOptions,
   codexModel,
   setCodexModel,
   codexModelOptions,
@@ -384,20 +374,16 @@ export default function ChatComposer({
                   </button>
                 )}
 
-                <SessionModelControls
-                  provider={provider}
-                  thinkingMode={thinkingMode}
-                  setThinkingMode={setThinkingMode}
-                  claudeModel={claudeModel}
-                  setClaudeModel={setClaudeModel}
-                  claudeModelOptions={claudeModelOptions}
-                  codexModel={codexModel}
-                  setCodexModel={setCodexModel}
-                  codexModelOptions={codexModelOptions}
-                  codexReasoningEffort={codexReasoningEffort}
-                  setCodexReasoningEffort={setCodexReasoningEffort}
-                  codexReasoningOptions={codexReasoningOptions}
-                />
+                {provider === 'codex' && (
+                  <SessionModelControls
+                    codexModel={codexModel}
+                    setCodexModel={setCodexModel}
+                    codexModelOptions={codexModelOptions}
+                    codexReasoningEffort={codexReasoningEffort}
+                    setCodexReasoningEffort={setCodexReasoningEffort}
+                    codexReasoningOptions={codexReasoningOptions}
+                  />
+                )}
 
                 <div className="ml-2 flex items-center">
                   {isLoading ? (

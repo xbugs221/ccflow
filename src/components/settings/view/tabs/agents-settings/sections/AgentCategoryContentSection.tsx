@@ -7,16 +7,8 @@ export default function AgentCategoryContentSection({
   selectedAgent,
   selectedCategory,
   agentContextById,
-  mcpServers,
   codexMcpServers,
-  mcpTestResults,
-  mcpServerTools,
-  mcpToolsLoading,
   deleteError,
-  onOpenMcpForm,
-  onDeleteMcpServer,
-  onTestMcpServer,
-  onDiscoverMcpTools,
   onOpenCodexMcpForm,
   onDeleteCodexMcpServer,
 }: AgentCategoryContentSectionProps) {
@@ -28,22 +20,6 @@ export default function AgentCategoryContentSection({
           authStatus={agentContextById[selectedAgent].authStatus}
           onLogin={agentContextById[selectedAgent].onLogin}
           usageEnabled={usageEnabled}
-        />
-      )}
-
-      {selectedCategory === 'mcp' && selectedAgent === 'claude' && (
-        <McpServersContent
-          agent="claude"
-          servers={mcpServers}
-          onAdd={() => onOpenMcpForm()}
-          onEdit={(server) => onOpenMcpForm(server)}
-          onDelete={onDeleteMcpServer}
-          onTest={onTestMcpServer}
-          onDiscoverTools={onDiscoverMcpTools}
-          testResults={mcpTestResults}
-          serverTools={mcpServerTools}
-          toolsLoading={mcpToolsLoading}
-          deleteError={deleteError}
         />
       )}
 

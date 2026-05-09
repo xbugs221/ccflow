@@ -7,7 +7,6 @@ import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 
-const DEFAULT_CLAUDE_CONTEXT_WINDOW = 160000;
 const DEFAULT_CODEX_CONTEXT_WINDOW = 200000;
 const CODEX_BASELINE_TOKENS = 12000;
 
@@ -192,87 +191,4 @@ export async function getCodexSessionTokenUsage(sessionId, options = {}) {
   }
 
   return getCodexSessionTokenUsageFromFile(sessionFilePath);
-}
-
-/**
- * Read the latest Claude assistant usage payload from a session file.
- */
-export async function getClaudeSessionTokenUsage(sessionFilePath, options = {}) {
-  const fileContent = await fs.readFile(sessionFilePath, 'utf8');
-  const fileStat = await fs.stat(sessionFilePath);
-  const lines = fileContent.split('\n').filter((line) => line.trim().length > 0);
-  const contextWindow = Number.isFinite(Number(options.contextWindow))
-    ? Number(options.contextWindow)
-    : DEFAULT_CLAUDE_CONTEXT_WINDOW;
-
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    try {
-      const entry = JSON.parse(lines[index]);
-      if (entry?.type !== 'assistant' || !entry?.message?.usage) {
-        continue;
-      }
-
-      const usage = entry.message.usage;
-      const inputTokens = parseFiniteNumber(usage.input_tokens, 0);
-      const cacheCreationTokens = parseFiniteNumber(usage.cache_creation_input_tokens, 0);
-      const cacheReadTokens = parseFiniteNumber(usage.cache_read_input_tokens, 0);
-      const outputTokens = parseFiniteNumber(usage.output_tokens, 0);
-      const totalUsed = inputTokens + cacheCreationTokens + cacheReadTokens;
-
-      return buildSessionTokenUsagePayload({
-        used: totalUsed,
-        total: contextWindow,
-        source: 'claude-session-jsonl',
-        updatedAt: entry?.timestamp || fileStat?.mtime?.toISOString?.() || null,
-        breakdown: {
-          input: inputTokens,
-          cacheCreation: cacheCreationTokens,
-          cacheRead: cacheReadTokens,
-          output: outputTokens,
-        },
-      });
-    } catch {
-      // Ignore malformed lines and continue searching backwards.
-    }
-  }
-
-  return null;
-}
-
-/**
- * Build a Claude token usage payload from SDK model usage snapshots.
- */
-export function getClaudeSessionTokenUsageFromModelUsage(modelData, options = {}) {
-  if (!modelData || typeof modelData !== 'object') {
-    return null;
-  }
-
-  const inputTokens = parseFiniteNumber(
-    modelData.cumulativeInputTokens ?? modelData.inputTokens,
-    0
-  );
-  const cacheReadTokens = parseFiniteNumber(
-    modelData.cumulativeCacheReadInputTokens ?? modelData.cacheReadInputTokens,
-    0
-  );
-  const cacheCreationTokens = parseFiniteNumber(
-    modelData.cumulativeCacheCreationInputTokens ?? modelData.cacheCreationInputTokens,
-    0
-  );
-  const outputTokens = parseFiniteNumber(
-    modelData.cumulativeOutputTokens ?? modelData.outputTokens,
-    0
-  );
-
-  return buildSessionTokenUsagePayload({
-    used: inputTokens + cacheReadTokens + cacheCreationTokens,
-    total: options.contextWindow || DEFAULT_CLAUDE_CONTEXT_WINDOW,
-    source: 'claude-sdk-model-usage',
-    breakdown: {
-      input: inputTokens,
-      cacheCreation: cacheCreationTokens,
-      cacheRead: cacheReadTokens,
-      output: outputTokens,
-    },
-  });
 }

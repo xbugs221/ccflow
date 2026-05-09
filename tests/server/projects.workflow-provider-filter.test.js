@@ -1,6 +1,5 @@
 /**
- * PURPOSE: Verify provider-aware workflow child filtering for project Claude
- * sessions so Codex runner threads never hide same-id manual Claude chats.
+ * PURPOSE: Verify removed Claude project history no longer contributes manual sessions.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -46,7 +45,7 @@ async function writeClaudeSession(homeDir, projectPath, sessionId, message) {
   );
 }
 
-test('Claude manual session remains visible when only a Codex workflow child has the same id', async () => {
+test('Claude project history is no longer exposed beside Codex workflow children', async () => {
   const previousHome = process.env.HOME;
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-provider-filter-'));
   const projectPath = path.join(tempRoot, 'workspace', 'project-a');
@@ -82,8 +81,7 @@ test('Claude manual session remains visible when only a Codex workflow child has
       excludeWorkflowChildSessions: true,
     });
     const sessionIds = result.sessions.map((session) => session.id);
-    assert.ok(sessionIds.includes('shared-thread'));
-    assert.ok(sessionIds.includes('manual-thread'));
+    assert.deepEqual(sessionIds, []);
     assert.equal(sessionIds.includes('claude-workflow-thread'), false);
   } finally {
     process.env.HOME = previousHome;

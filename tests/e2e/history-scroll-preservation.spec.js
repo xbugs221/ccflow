@@ -39,37 +39,28 @@ function createLocalAuthToken() {
 }
 
 /**
- * Encode an absolute project path using Claude's on-disk directory convention.
- *
- * @param {string} projectPath
- * @returns {string}
- */
-function encodeClaudeProjectName(projectPath) {
-  return projectPath.replace(/\//g, '-');
-}
-
-/**
  * Append a new assistant message to the fixture session file to trigger `projects_updated`.
  */
 function appendAssistantHistoryMessage() {
-  const projectDir = path.join(
+  const sessionDir = path.join(
     PLAYWRIGHT_FIXTURE_HOME,
-    '.claude',
-    'projects',
-    encodeClaudeProjectName(HISTORY_SCROLL_PROJECT_PATH),
+    '.codex',
+    'sessions',
+    '2026',
+    '04',
+    '19',
   );
-  const sessionPath = path.join(projectDir, `${HISTORY_SCROLL_SESSION_ID}.jsonl`);
+  const sessionPath = path.join(sessionDir, `${HISTORY_SCROLL_SESSION_ID}.jsonl`);
 
   fs.appendFileSync(
     sessionPath,
     `${JSON.stringify({
-      sessionId: HISTORY_SCROLL_SESSION_ID,
-      cwd: HISTORY_SCROLL_PROJECT_PATH,
+      type: 'response_item',
       timestamp: '2026-03-28T16:40:00.000Z',
-      type: 'assistant',
-      message: {
+      payload: {
+        type: 'message',
         role: 'assistant',
-        content: 'history scroll externally appended assistant turn',
+        content: [{ type: 'output_text', text: 'history scroll externally appended assistant turn' }],
       },
     })}\n`,
     'utf8',

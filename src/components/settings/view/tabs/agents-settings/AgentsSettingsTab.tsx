@@ -11,33 +11,19 @@ import type { AgentContext, AgentsSettingsTabProps } from './types';
  */
 export default function AgentsSettingsTab({
   usageEnabled = true,
-  claudeAuthStatus,
   codexAuthStatus,
   opencodeAuthStatus,
-  onClaudeLogin,
   onCodexLogin,
   onOpencodeLogin,
-  mcpServers,
   codexMcpServers,
-  mcpTestResults,
-  mcpServerTools,
-  mcpToolsLoading,
   deleteError,
-  onOpenMcpForm,
-  onDeleteMcpServer,
-  onTestMcpServer,
-  onDiscoverMcpTools,
   onOpenCodexMcpForm,
   onDeleteCodexMcpServer,
 }: AgentsSettingsTabProps) {
-  const [selectedAgent, setSelectedAgent] = useState<AgentProvider>('claude');
+  const [selectedAgent, setSelectedAgent] = useState<AgentProvider>('codex');
   const [selectedCategory, setSelectedCategory] = useState<AgentCategory>('account');
 
   const agentContextById = useMemo<Record<AgentProvider, AgentContext>>(() => ({
-    claude: {
-      authStatus: claudeAuthStatus,
-      onLogin: onClaudeLogin,
-    },
     codex: {
       authStatus: codexAuthStatus,
       onLogin: onCodexLogin,
@@ -47,10 +33,8 @@ export default function AgentsSettingsTab({
       onLogin: onOpencodeLogin,
     },
   }), [
-    claudeAuthStatus,
     codexAuthStatus,
     opencodeAuthStatus,
-    onClaudeLogin,
     onCodexLogin,
     onOpencodeLogin,
   ]);
@@ -75,16 +59,8 @@ export default function AgentsSettingsTab({
             selectedAgent={selectedAgent}
             selectedCategory={selectedCategory}
             agentContextById={agentContextById}
-            mcpServers={mcpServers}
             codexMcpServers={codexMcpServers}
-            mcpTestResults={mcpTestResults}
-            mcpServerTools={mcpServerTools}
-            mcpToolsLoading={mcpToolsLoading}
             deleteError={deleteError}
-            onOpenMcpForm={onOpenMcpForm}
-            onDeleteMcpServer={onDeleteMcpServer}
-            onTestMcpServer={onTestMcpServer}
-            onDiscoverMcpTools={onDiscoverMcpTools}
             onOpenCodexMcpForm={onOpenCodexMcpForm}
             onDeleteCodexMcpServer={onDeleteCodexMcpServer}
           />

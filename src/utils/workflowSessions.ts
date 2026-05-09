@@ -14,7 +14,14 @@ function getSessionProvider(session: SessionLike): string {
    * PURPOSE: Normalize provider identity before comparing project and workflow
    * session ids, avoiding cross-provider false matches.
    */
-  return String(session.__provider || session.provider || 'claude');
+  return session.__provider === 'opencode' || session.provider === 'opencode' ? 'opencode' : 'codex';
+}
+
+function getChildSessionProvider(provider: unknown): string {
+  /**
+   * PURPOSE: Treat missing or retired provider values as Codex ownership.
+   */
+  return provider === 'opencode' ? 'opencode' : 'codex';
 }
 
 export function isWorkflowOwnedSession(project: Pick<Project, 'workflows'>, session: SessionLike): boolean {
@@ -30,7 +37,7 @@ export function isWorkflowOwnedSession(project: Pick<Project, 'workflows'>, sess
   return (project.workflows || []).some((workflow) => (
     (workflow.childSessions || []).some((childSession) => (
       childSession.id === session.id
-      && String(childSession.provider || 'claude') === provider
+      && getChildSessionProvider(childSession.provider) === provider
     ))
     || (workflow.runnerProcesses || []).some((process) => (
       process.sessionId === session.id

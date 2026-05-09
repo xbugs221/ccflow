@@ -92,10 +92,9 @@
   },
   "usage": {
     "title": "Usage",
-    "description": "Review the current 5h / 7d remaining quota for Claude and Codex.",
+    "description": "Review the current 5h / 7d remaining quota for supported agents.",
     "providerDescription": "Refreshes automatically from the active account state",
     "providers": {
-      "claude": "Claude",
       "codex": "Codex"
     }
   },
@@ -255,7 +254,7 @@
     "apiDocsLink": "API Documentation",
     "documentation": {
       "title": "External API Documentation",
-      "description": "Learn how to use the external API to trigger Claude/Codex sessions from your applications.",
+      "description": "Learn how to use the external API to trigger Codex/OpenCode sessions from your applications.",
       "viewLink": "View API Documentation →"
     },
     "loading": "Loading...",
@@ -293,11 +292,11 @@
       "authenticatedUser": "authenticated user"
     },
     "account": {
-      "claude": {
-        "description": "Anthropic Claude AI assistant"
-      },
       "codex": {
         "description": "OpenAI Codex AI assistant"
+      },
+      "opencode": {
+        "description": "OpenCode CLI assistant"
       }
     },
     "connectionStatus": "Connection Status",
@@ -314,8 +313,7 @@
   "permissions": {
     "title": "Permission Settings",
     "skipPermissions": {
-      "label": "Skip permission prompts (use with caution)",
-      "claudeDescription": "Equivalent to --dangerously-skip-permissions flag"
+      "label": "Skip permission prompts (use with caution)"
     },
     "allowedTools": {
       "title": "Allowed Tools",
@@ -389,7 +387,6 @@
   "mcpServers": {
     "title": "MCP Servers",
     "description": {
-      "claude": "Model Context Protocol servers provide additional tools and data sources to Claude",
       "codex": "Model Context Protocol servers provide additional tools and data sources to Codex"
     },
     "addButton": "Add MCP Server",

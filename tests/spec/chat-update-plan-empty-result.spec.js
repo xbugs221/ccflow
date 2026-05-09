@@ -12,31 +12,23 @@ import {
 } from './helpers/spec-test-helpers.js';
 
 /**
- * Encode the absolute project path the same way Claude stores project folders.
- *
- * @param {string} projectPath
- * @returns {string}
- */
-function encodeClaudeProjectName(projectPath) {
-  return projectPath.replace(/\//g, '-');
-}
-
-/**
- * Write one Claude JSONL session file under the Playwright fixture HOME.
+ * Write one Codex JSONL session file under the Playwright fixture HOME.
  *
  * @param {{ sessionId: string, entries: Array<Record<string, unknown>> }} params
  * @returns {Promise<void>}
  */
-async function writeClaudeSession({ sessionId, entries }) {
-  const projectDir = path.join(
+async function writeCodexSession({ sessionId, entries }) {
+  const sessionDir = path.join(
     PLAYWRIGHT_FIXTURE_HOME,
-    '.claude',
-    'projects',
-    encodeClaudeProjectName(PRIMARY_FIXTURE_PROJECT_PATH),
+    '.codex',
+    'sessions',
+    '2026',
+    '04',
+    '20',
   );
-  const sessionPath = path.join(projectDir, `${sessionId}.jsonl`);
+  const sessionPath = path.join(sessionDir, `${sessionId}.jsonl`);
 
-  await fs.mkdir(projectDir, { recursive: true });
+  await fs.mkdir(sessionDir, { recursive: true });
   await fs.writeFile(
     sessionPath,
     entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n',
@@ -45,19 +37,24 @@ async function writeClaudeSession({ sessionId, entries }) {
 }
 
 /**
- * Build a minimal Claude transcript containing tool_use/tool_result pairs.
+ * Build a minimal Codex transcript containing function_call pairs.
  *
  * @param {{ sessionId: string, records: Array<Record<string, unknown>> }} params
  * @returns {Array<Record<string, unknown>>}
  */
-function buildClaudeTranscript({ sessionId, records }) {
-  return records.map((record, index) => ({
-    sessionId,
-    cwd: PRIMARY_FIXTURE_PROJECT_PATH,
-    parentUuid: index === 0 ? null : `${sessionId}-uuid-${index - 1}`,
-    uuid: `${sessionId}-uuid-${index}`,
-    ...record,
-  }));
+function buildCodexTranscript({ sessionId, records }) {
+  return [
+    {
+      type: 'session_meta',
+      timestamp: '2026-04-20T09:10:00.000Z',
+      payload: {
+        id: sessionId,
+        cwd: PRIMARY_FIXTURE_PROJECT_PATH,
+        model: 'gpt-5-codex',
+      },
+    },
+    ...records,
+  ];
 }
 
 test.beforeEach(async ({ page }) => {
@@ -66,16 +63,16 @@ test.beforeEach(async ({ page }) => {
 });
 
 /**
- * Open a legacy Claude session with project identity for route recovery.
+ * Open a Codex session with project identity for route recovery.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} sessionId
  * @returns {Promise<void>}
  */
-async function openFixtureClaudeSession(page, sessionId) {
+async function openFixtureCodexSession(page, sessionId) {
   const query = new URLSearchParams({
     projectPath: PRIMARY_FIXTURE_PROJECT_PATH,
-    provider: 'claude',
+    provider: 'codex',
   });
   await page.goto(`/session/${sessionId}?${query.toString()}`, { waitUntil: 'networkidle' });
 }
@@ -84,52 +81,41 @@ test('update_plan 在空 result 时仍然展示 input 里的计划步骤', async
   /** Scenario: 真实运行中 tool_result 可能只返回空对象，输入侧的计划仍然必须可见。 */
   const sessionId = 'fixture-update-plan-empty-result';
 
-  await writeClaudeSession({
+  await writeCodexSession({
     sessionId,
-    entries: buildClaudeTranscript({
+    entries: buildCodexTranscript({
       sessionId,
       records: [
         {
           timestamp: '2026-04-20T09:10:01.000Z',
-          type: 'assistant',
-          message: {
-            role: 'assistant',
-            content: [
-              {
-                type: 'tool_use',
-                id: 'call-plan-empty-result',
-                name: 'update_plan',
-                input: {
-                  explanation: '先确认问题，再改渲染逻辑。',
-                  plan: [
-                    { step: '确认空白来源', status: 'completed' },
-                    { step: '修正回退策略', status: 'in_progress' },
-                  ],
-                },
-              },
-            ],
+          type: 'response_item',
+          payload: {
+            type: 'function_call',
+            call_id: 'call-plan-empty-result',
+            name: 'update_plan',
+            arguments: JSON.stringify({
+              explanation: '先确认问题，再改渲染逻辑。',
+              plan: [
+                { step: '确认空白来源', status: 'completed' },
+                { step: '修正回退策略', status: 'in_progress' },
+              ],
+            }),
           },
         },
         {
           timestamp: '2026-04-20T09:10:02.000Z',
-          type: 'user',
-          message: {
-            role: 'user',
-            content: [
-              {
-                type: 'tool_result',
-                tool_use_id: 'call-plan-empty-result',
-                content: {},
-                is_error: false,
-              },
-            ],
+          type: 'response_item',
+          payload: {
+            type: 'function_call_output',
+            call_id: 'call-plan-empty-result',
+            output: {},
           },
         },
       ],
     }),
   });
 
-  await openFixtureClaudeSession(page, sessionId);
+  await openFixtureCodexSession(page, sessionId);
 
   await expect(page.getByTestId('tool-plan-content')).toContainText('先确认问题，再改渲染逻辑。');
   await expect(page.getByTestId('tool-plan-step-0')).toContainText('确认空白来源');

@@ -25,14 +25,6 @@ type AgentVisualConfig = {
 };
 
 const agentConfig: Record<AgentProvider, AgentVisualConfig> = {
-  claude: {
-    name: 'Claude',
-    bgClass: 'bg-blue-50 dark:bg-blue-900/20',
-    borderClass: 'border-blue-200 dark:border-blue-800',
-    textClass: 'text-blue-900 dark:text-blue-100',
-    subtextClass: 'text-blue-700 dark:text-blue-300',
-    buttonClass: 'bg-blue-600 hover:bg-blue-700',
-  },
   codex: {
     name: 'Codex',
     bgClass: 'bg-gray-100 dark:bg-gray-800/50',
@@ -52,13 +44,9 @@ const agentConfig: Record<AgentProvider, AgentVisualConfig> = {
 };
 
 /**
- * Prefer provider-specific copy when Claude is backed by a compatible gateway.
+ * Return the provider account label shown in settings.
  */
 function getConnectionLabel(agent: AgentProvider, authStatus: AuthStatus, fallbackLabel: string) {
-  if (agent === 'claude' && authStatus.provider === 'kimi') {
-    return 'Kimi provider';
-  }
-
   return authStatus.email || fallbackLabel;
 }
 
@@ -121,26 +109,37 @@ export default function AccountContent({
           </div>
 
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <div className="flex items-center justify-between">
+            {agent === 'opencode' ? (
               <div>
                 <div className={`font-medium ${config.textClass}`}>
-                  {authStatus.authenticated ? t('agents.login.reAuthenticate') : t('agents.login.title')}
+                  {t('agents.authStatus.connected')}
                 </div>
                 <div className={`text-sm ${config.subtextClass}`}>
-                  {authStatus.authenticated
-                    ? t('agents.login.reAuthDescription')
-                    : t('agents.login.description', { agent: config.name })}
+                  {t('agents.account.opencode.description')}
                 </div>
               </div>
-              <Button
-                onClick={onLogin}
-                className={`${config.buttonClass} text-white`}
-                size="sm"
-              >
-                <LogIn className="w-4 h-4 mr-2" />
-                {authStatus.authenticated ? t('agents.login.reLoginButton') : t('agents.login.button')}
-              </Button>
-            </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className={`font-medium ${config.textClass}`}>
+                    {authStatus.authenticated ? t('agents.login.reAuthenticate') : t('agents.login.title')}
+                  </div>
+                  <div className={`text-sm ${config.subtextClass}`}>
+                    {authStatus.authenticated
+                      ? t('agents.login.reAuthDescription')
+                      : t('agents.login.description', { agent: config.name })}
+                  </div>
+                </div>
+                <Button
+                  onClick={onLogin}
+                  className={`${config.buttonClass} text-white`}
+                  size="sm"
+                >
+                  <LogIn className="w-4 h-4 mr-2" />
+                  {authStatus.authenticated ? t('agents.login.reLoginButton') : t('agents.login.button')}
+                </Button>
+              </div>
+            )}
           </div>
 
           {authStatus.error && (
@@ -151,9 +150,11 @@ export default function AccountContent({
             </div>
           )}
 
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <UsageProviderQuota provider={agent} enabled={usageEnabled} />
-          </div>
+          {agent !== 'opencode' && (
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+              <UsageProviderQuota provider={agent} enabled={usageEnabled} />
+            </div>
+          )}
         </div>
       </div>
     </div>

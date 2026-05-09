@@ -68,6 +68,11 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
   const isCodexToolCard = provider === 'codex' && Boolean(message.isToolUse);
   const isCodexRunningTool = isCodexToolCard && message.exitCode === null;
   const codexLiveOutput = isCodexRunningTool ? getCodexLiveOutput(message) : '';
+  const assistantLabel = provider === 'codex'
+    ? t('messageTypes.codex')
+    : provider === 'opencode'
+      ? t('messageTypes.opencode')
+      : t('messageTypes.assistant');
 
   if (shouldHideThinkingMessage) {
     return null;
@@ -164,7 +169,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
           </div>
         </div>
       ) : (
-        /* Claude/Error/Tool messages on the left */
+        /* Assistant/Error/Tool messages on the left */
         <div className="w-full">
           {!isGrouped && (
             <div className="flex items-center space-x-3 mb-2">
@@ -182,9 +187,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                   ? t('messageTypes.error')
                   : message.type === 'tool'
                     ? t('messageTypes.tool')
-                    : provider === 'codex'
-                      ? t('messageTypes.codex')
-                      : t('messageTypes.claude')}
+                    : assistantLabel}
               </div>
             </div>
           )}

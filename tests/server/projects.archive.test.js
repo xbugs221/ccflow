@@ -289,17 +289,17 @@ test('getProjects archival keeps Codex history files on disk', async () => {
   });
 });
 
-test('getProjects re-includes restored Claude project and clears stale archive entry', async () => {
+test('getProjects re-includes restored Codex project and clears stale archive entry', async () => {
   await withTemporaryHome(async (tempHome) => {
     const restoredPath = path.join(tempHome, 'workspace', 'fixture-project');
     await fs.mkdir(restoredPath, { recursive: true });
-    await createClaudeSessionFile(tempHome, restoredPath, 'claude-session-1');
-    await createArchiveEntry(tempHome, restoredPath, 'claude');
+    await createCodexSessionFile(tempHome, restoredPath, 'codex-session-1');
+    await createArchiveEntry(tempHome, restoredPath, 'codex');
 
     const projects = await getProjects();
     assert.equal(projects.length, 1);
     assert.equal(projects[0].fullPath, restoredPath);
-    assert.equal(projects[0].sessions?.[0]?.id, 'claude-session-1');
+    assert.equal(projects[0].codexSessions?.[0]?.id, 'codex-session-1');
 
     const archiveIndex = await loadProjectArchiveIndex({ homeDir: tempHome });
     assert.equal(Object.keys(archiveIndex.archivedProjects).length, 0);

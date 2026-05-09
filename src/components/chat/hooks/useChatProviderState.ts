@@ -17,11 +17,6 @@ type CodexReasoningOption = {
   description?: string;
 };
 
-type ModelOption = {
-  value: string;
-  label: string;
-};
-
 type CodexModelOption = {
   value: string;
   label: string;
@@ -29,8 +24,7 @@ type CodexModelOption = {
   reasoningOptions: CodexReasoningOption[];
 };
 
-const SUPPORTED_PROVIDERS: SessionProvider[] = ['claude', 'codex'];
-const FALLBACK_CLAUDE_MODEL_OPTIONS: ModelOption[] = [];
+const SUPPORTED_PROVIDERS: SessionProvider[] = ['codex', 'opencode'];
 const FALLBACK_CODEX_MODEL_OPTIONS: CodexModelOption[] = [];
 const DEFAULT_CODEX_REASONING_OPTIONS: CodexReasoningOption[] = CODEX_REASONING_EFFORTS.OPTIONS.map((reasoningOption) => ({
   value: reasoningOption.value,
@@ -38,27 +32,12 @@ const DEFAULT_CODEX_REASONING_OPTIONS: CodexReasoningOption[] = CODEX_REASONING_
   description: reasoningOption.description,
 }));
 
-function getModelValues(modelOptions: ModelOption[]): Set<string> {
+function getModelValues(modelOptions: Array<{ value: string }>): Set<string> {
   return new Set(modelOptions.map((option) => option.value));
 }
 
 function getCodexModelValues(modelOptions: CodexModelOption[]): Set<string> {
   return getModelValues(modelOptions);
-}
-
-/**
- * Resolve the default Claude-compatible model from the active catalog.
- * @param {ModelOption[]} modelOptions - Available Claude-compatible models.
- * @param {string} defaultModel - Server-detected default model.
- * @returns {string} Default Claude model value.
- */
-function getDefaultClaudeModel(modelOptions: ModelOption[], defaultModel: string): string {
-  const modelValues = getModelValues(modelOptions);
-  if (modelValues.has(defaultModel)) {
-    return defaultModel;
-  }
-
-  return modelOptions[0]?.value || defaultModel || '';
 }
 
 /**
@@ -133,12 +112,7 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
   const [provider, setProviderState] = useState<SessionProvider>(() => getStoredProvider());
   const permissionMode: PermissionMode = 'bypassPermissions';
   const [pendingPermissionRequests, setPendingPermissionRequests] = useState<PendingPermissionRequest[]>([]);
-  const [claudeModelOptions, setClaudeModelOptions] = useState<ModelOption[]>(FALLBACK_CLAUDE_MODEL_OPTIONS);
-  const [claudeDefaultModel, setClaudeDefaultModel] = useState<string>('');
   const [codexModelOptions, setCodexModelOptions] = useState<CodexModelOption[]>(FALLBACK_CODEX_MODEL_OPTIONS);
-  const [claudeModel, setClaudeModelState] = useState<string>(() => {
-    return localStorage.getItem('claude-model') || '';
-  });
   const [codexModel, setCodexModelState] = useState<string>(() => {
     return getStoredCodexModel(FALLBACK_CODEX_MODEL_OPTIONS);
   });
@@ -147,11 +121,6 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
   });
 
   const lastProviderRef = useRef(provider);
-
-  const setClaudeModel = useCallback((nextModel: string) => {
-    setClaudeModelState(nextModel);
-    localStorage.setItem('claude-model', nextModel);
-  }, []);
 
   const setCodexModel = useCallback((nextModel: string) => {
     setCodexModelState(nextModel);
@@ -167,44 +136,6 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
     const normalizedProvider = normalizeProvider(nextProvider);
     setProviderState(normalizedProvider);
     localStorage.setItem('selected-provider', normalizedProvider);
-  }, []);
-
-  useEffect(() => {
-    let isCancelled = false;
-
-    async function loadClaudeModelCatalog() {
-      try {
-        const response = await authenticatedFetch('/api/claude/models');
-        if (!response.ok) {
-          return;
-        }
-
-        const data = await response.json();
-        if (!data?.success || !Array.isArray(data?.models) || data.models.length === 0) {
-          return;
-        }
-
-        const normalizedModelOptions = data.models.map((model: ModelOption) => ({
-          value: model.value,
-          label: model.label,
-        }));
-        const nextDefaultModel = typeof data.defaultModel === 'string'
-          ? data.defaultModel.trim()
-          : '';
-
-        if (!isCancelled) {
-          setClaudeModelOptions(normalizedModelOptions);
-          setClaudeDefaultModel(nextDefaultModel);
-        }
-      } catch (error) {
-        console.error('Failed to load Claude model catalog:', error);
-      }
-    }
-
-    void loadClaudeModelCatalog();
-    return () => {
-      isCancelled = true;
-    };
   }, []);
 
   useEffect(() => {
@@ -244,32 +175,6 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
       isCancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    const modelValues = getModelValues(claudeModelOptions);
-    if (modelValues.size === 0) {
-      if (claudeModel) {
-        setClaudeModel('');
-      }
-      return;
-    }
-
-    const storedModel = localStorage.getItem('claude-model')?.trim() || '';
-    const nextDefaultModel = getDefaultClaudeModel(claudeModelOptions, claudeDefaultModel);
-    const shouldUseDetectedDefault = !storedModel && Boolean(nextDefaultModel);
-
-    if (modelValues.has(claudeModel) && !shouldUseDetectedDefault) {
-      return;
-    }
-
-    const nextModel = shouldUseDetectedDefault || !modelValues.has(claudeModel)
-      ? nextDefaultModel
-      : claudeModel;
-
-    if (nextModel && nextModel !== claudeModel) {
-      setClaudeModel(nextModel);
-    }
-  }, [claudeDefaultModel, claudeModel, claudeModelOptions, setClaudeModel]);
 
   useEffect(() => {
     const sessionModel = typeof selectedSession?.model === 'string' ? selectedSession.model.trim() : '';
@@ -352,11 +257,7 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
       setCodexModelState(sessionModel);
       return;
     }
-
-    if (selectedSession?.__provider === 'claude' && sessionModel !== claudeModel) {
-      setClaudeModelState(sessionModel);
-    }
-  }, [claudeModel, codexModel, codexModelOptions, selectedSession?.__provider, selectedSession?.id, selectedSession?.model]);
+  }, [codexModel, codexModelOptions, selectedSession?.__provider, selectedSession?.id, selectedSession?.model]);
 
   useEffect(() => {
     const sessionReasoningEffort = typeof selectedSession?.reasoningEffort === 'string'
@@ -396,9 +297,6 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
   return {
     provider,
     setProvider,
-    claudeModel,
-    setClaudeModel,
-    claudeModelOptions,
     codexModel,
     setCodexModel,
     codexModelOptions,

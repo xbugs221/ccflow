@@ -1,6 +1,6 @@
 /**
  * PURPOSE: Validate provider-specific usage remaining adapters and fallback behavior.
- * This suite ensures Claude/Codex parsing and unavailable-state handling stay stable.
+ * This suite ensures Codex parsing and unsupported-provider handling stay stable.
  */
 
 import test from 'node:test';
@@ -11,7 +11,6 @@ import path from 'node:path';
 
 import {
   clearUsageRemainingCache,
-  getClaudeUsageRemaining,
   getCodexUsageRemaining,
   getUsageRemaining,
 } from '../../server/usage-remaining.js';
@@ -47,30 +46,6 @@ async function withTemporaryHome(testBody) {
   const runPromise = homeIsolationQueue.then(run, run);
   homeIsolationQueue = runPromise.catch(() => {});
   return runPromise;
-}
-
-/**
- * Write minimal Claude statusline settings and usage cache fixtures.
- */
-async function createClaudeUsageFixture(homeDir, usagePayload, options = {}) {
-  const claudeDir = path.join(homeDir, '.claude');
-  const cacheDir = path.join(claudeDir, 'cache');
-  const settings = {
-    statusLine: {
-      type: 'command',
-      command: 'bash ~/.claude/statusline-command.sh',
-    },
-    ...(options.settings || {}),
-  };
-
-  await fs.mkdir(cacheDir, { recursive: true });
-  await fs.writeFile(
-    path.join(claudeDir, 'settings.json'),
-    JSON.stringify(settings, null, 2),
-    'utf8'
-  );
-
-  await fs.writeFile(path.join(cacheDir, 'usage-api.json'), JSON.stringify(usagePayload, null, 2), 'utf8');
 }
 
 /**
@@ -130,97 +105,6 @@ async function createCodexUsageFixture(homeDir, rateLimitsPayload, options = {})
     'utf8'
   );
 }
-
-test('getClaudeUsageRemaining converts utilization to 5h/7d remaining values', { concurrency: false }, async () => {
-  await withTemporaryHome(async (tempHome) => {
-    await createClaudeUsageFixture(tempHome, {
-      five_hour: { utilization: 82.3 },
-      seven_day: { utilization: 41 },
-      updated_at: '2026-03-05T09:00:00.000Z',
-    });
-
-    const usage = await getClaudeUsageRemaining({ homeDir: tempHome });
-
-    assert.equal(usage.status, 'ok');
-    assert.equal(usage.provider, 'claude');
-    assert.equal(usage.fiveHourRemaining.value, 17.7);
-    assert.equal(usage.sevenDayRemaining.value, 59);
-    assert.equal(usage.source, 'claude-usage-cache');
-  });
-});
-
-test('getClaudeUsageRemaining accepts statusline rate limit field names', { concurrency: false }, async () => {
-  await withTemporaryHome(async (tempHome) => {
-    await createClaudeUsageFixture(tempHome, {
-      rate_limits: {
-        five_hour: { used_percentage: 25 },
-        seven_day: { used_percent: 12.5 },
-      },
-      fetched_at: '2026-03-05T09:05:00.000Z',
-    });
-
-    const usage = await getClaudeUsageRemaining({ homeDir: tempHome });
-
-    assert.equal(usage.status, 'ok');
-    assert.equal(usage.fiveHourRemaining.value, 75);
-    assert.equal(usage.sevenDayRemaining.value, 87.5);
-    assert.equal(usage.updatedAt, '2026-03-05T09:05:00.000Z');
-  });
-});
-
-test('getClaudeUsageRemaining fetches Kimi quota when Claude uses Kimi provider', { concurrency: false }, async () => {
-  await withTemporaryHome(async (tempHome) => {
-    await createClaudeUsageFixture(
-      tempHome,
-      {
-        five_hour: { utilization: 99 },
-        seven_day: { utilization: 99 },
-      },
-      {
-        settings: {
-          env: {
-            ANTHROPIC_BASE_URL: 'https://api.kimi.com/coding/',
-            ANTHROPIC_API_KEY: 'test-key',
-          },
-        },
-      }
-    );
-
-    const usage = await getClaudeUsageRemaining({
-      homeDir: tempHome,
-      fetchImpl: async (url, request) => {
-        assert.equal(url, 'https://api.kimi.com/coding/v1/usages');
-        assert.equal(request.headers.Authorization, 'Bearer test-key');
-        return {
-          ok: true,
-          json: async () => ({
-            usage: {
-              limit: '100',
-              remaining: '80',
-            },
-            limits: [
-              {
-                window: {
-                  duration: 300,
-                  timeUnit: 'TIME_UNIT_MINUTE',
-                },
-                detail: {
-                  limit: '50',
-                  remaining: '25',
-                },
-              },
-            ],
-          }),
-        };
-      },
-    });
-
-    assert.equal(usage.status, 'ok');
-    assert.equal(usage.source, 'kimi-usage-api');
-    assert.equal(usage.fiveHourRemaining.value, 50);
-    assert.equal(usage.sevenDayRemaining.value, 80);
-  });
-});
 
 test('getCodexUsageRemaining converts primary/secondary used_percent to remaining values', { concurrency: false }, async () => {
   await withTemporaryHome(async (tempHome) => {
@@ -284,17 +168,13 @@ test('getCodexUsageRemaining falls back to older session when newest file has no
   });
 });
 
-test('getUsageRemaining returns unavailable payload when source data is missing or invalid', { concurrency: false }, async () => {
+test('getUsageRemaining returns unavailable payload for missing data and unsupported providers', { concurrency: false }, async () => {
   await withTemporaryHome(async (tempHome) => {
-    await fs.mkdir(path.join(tempHome, '.claude'), { recursive: true });
-    await fs.writeFile(
-      path.join(tempHome, '.claude', 'settings.json'),
-      JSON.stringify({ statusLine: { type: 'command', command: 'echo' } }),
-      'utf8'
-    );
-
     const claudeUsage = await getUsageRemaining('claude', { homeDir: tempHome, cacheTtlMs: 0 });
+    assert.equal(claudeUsage.provider, 'claude');
     assert.equal(claudeUsage.status, 'unavailable');
+    assert.equal(claudeUsage.source, 'claude-usage');
+    assert.equal(claudeUsage.reason, 'provider-unsupported');
 
     await fs.mkdir(path.join(tempHome, '.codex'), { recursive: true });
     await fs.writeFile(
@@ -306,5 +186,10 @@ test('getUsageRemaining returns unavailable payload when source data is missing 
     const codexUsage = await getUsageRemaining('codex', { homeDir: tempHome, cacheTtlMs: 0 });
     assert.equal(codexUsage.status, 'unavailable');
     assert.equal(codexUsage.reason, 'session-file-not-found');
+
+    const opencodeUsage = await getUsageRemaining('opencode', { homeDir: tempHome, cacheTtlMs: 0 });
+    assert.equal(opencodeUsage.provider, 'opencode');
+    assert.equal(opencodeUsage.status, 'unavailable');
+    assert.equal(opencodeUsage.reason, 'provider-unsupported');
   });
 });

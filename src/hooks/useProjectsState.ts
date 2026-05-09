@@ -302,7 +302,7 @@ const resolveRouteSelection = (
               || (matchedProject.opencodeSessions || []).some((entry) => entry.id === (childSession?.id || projectSession?.id))
             )
               ? 'opencode'
-              : 'claude';
+              : 'codex';
           const baseSession = projectSession || {
             id: childSession?.id || runnerProcess?.sessionId || `${workflow.id}-${childAddress}`,
             title: childSession?.title,
@@ -392,7 +392,7 @@ const withSessionProjectMetadata = (
 const providerToSessionsKey = (provider: SessionProvider): keyof Project => {
   if (provider === 'codex') return 'codexSessions';
   if (provider === 'opencode') return 'opencodeSessions';
-  return 'sessions';
+  throw new Error(`Unsupported session provider: ${String(provider)}`);
 };
 
 const insertSessionIntoProject = (
@@ -652,7 +652,7 @@ export function useProjectsState({
       const searchParams = new URLSearchParams(locationSearch);
       const hintedProjectPath = searchParams.get('projectPath') || '';
       const rawProvider = searchParams.get('provider');
-      const hintedProvider: SessionProvider = rawProvider === 'codex' ? 'codex' : rawProvider === 'opencode' ? 'opencode' : 'claude';
+      const hintedProvider: SessionProvider = rawProvider === 'opencode' ? 'opencode' : 'codex';
       const decodedSessionId = decodeURIComponent(legacySessionMatch[1]);
       const requestedSessionSummary = String(searchParams.get('sessionSummary') || '').trim();
       const matchedProject = projects.find((project) => (
@@ -728,7 +728,7 @@ export function useProjectsState({
         (session) => session.id === resolvedSession.id,
       ) ? 'codex' : (resolvedProject.opencodeSessions || []).some(
         (session) => session.id === resolvedSession.id,
-      ) ? 'opencode' : 'claude');
+      ) ? 'opencode' : 'codex');
       const nextSession = withSessionProjectMetadata(resolvedSession, resolvedProject, provider);
       if (
         selectedSession?.id !== nextSession.id
@@ -1032,7 +1032,7 @@ export function useProjectsState({
         const normalizedRefreshedSession = withSessionProjectMetadata(
           refreshedSession,
           refreshedProject,
-          selectedSession.__provider || 'claude',
+          selectedSession.__provider || 'codex',
         );
 
         if (serialize(normalizedRefreshedSession) !== serialize(selectedSession)) {

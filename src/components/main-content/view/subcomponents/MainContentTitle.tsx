@@ -4,7 +4,7 @@
  * from the real provider state during session creation and first message send.
  */
 import { useTranslation } from 'react-i18next';
-import type { AppTab, Project, ProjectSession, ProjectWorkflow } from '../../../../types/app';
+import type { AppTab, Project, ProjectSession, ProjectWorkflow, SessionProvider } from '../../../../types/app';
 
 type MainContentTitleProps = {
   activeTab: AppTab;
@@ -38,6 +38,21 @@ function getSessionTitle(session: ProjectSession): string {
   return (session.summary as string) || (session.name as string) || 'New Session';
 }
 
+function getSupportedProvider(session: ProjectSession): SessionProvider | null {
+  /**
+   * Normalize session metadata before rendering provider-specific resume commands.
+   */
+  if (session.__provider === 'codex' || session.provider === 'codex') {
+    return 'codex';
+  }
+
+  if (session.__provider === 'opencode' || session.provider === 'opencode') {
+    return 'opencode';
+  }
+
+  return null;
+}
+
 function getSessionResumeCommand(session: ProjectSession | null): string {
   /**
    * Build the interactive CLI resume command for the selected provider session.
@@ -55,11 +70,16 @@ function getSessionResumeCommand(session: ProjectSession | null): string {
     return '';
   }
 
-  if (session.__provider === 'codex') {
+  const provider = getSupportedProvider(session);
+  if (provider === 'codex') {
     return `codex --dangerously-bypass-approvals-and-sandbox resume ${resumeSessionId}`;
   }
 
-  return `claude --dangerously-skip-permissions --resume ${resumeSessionId}`;
+  if (provider === 'opencode') {
+    return `opencode --session ${resumeSessionId}`;
+  }
+
+  return '';
 }
 
 export default function MainContentTitle({

@@ -6,7 +6,6 @@ import { promises as fs } from 'fs';
 import crypto from 'crypto';
 import { userDb, apiKeysDb, githubTokensDb } from '../database/db.js';
 import { addProjectManually } from '../projects.js';
-import { queryClaudeSDK } from '../claude-sdk.js';
 import { queryCodex } from '../openai-codex.js';
 import { Octokit } from '@octokit/rest';
 import { IS_PLATFORM } from '../constants/config.js';
@@ -411,14 +410,28 @@ async function cloneGitHubRepo(githubUrl, githubToken = null, projectPath) {
 }
 
 /**
- * Clean up a temporary project directory and its Claude session
- * @param {string} projectPath - Path to the project directory
- * @param {string} sessionId - Session ID to clean up
+ * Check whether a path is a temporary external project owned by ccflow.
+ * @param {string} projectPath - Candidate project directory path
+ * @returns {boolean} - Whether the path is inside the external-projects root
  */
-async function cleanupProject(projectPath, sessionId = null) {
+function isCcflowExternalProjectPath(projectPath) {
+  const externalProjectsRoot = path.resolve(os.homedir(), '.ccflow', 'external-projects');
+  const resolvedProjectPath = path.resolve(projectPath);
+  const relativeProjectPath = path.relative(externalProjectsRoot, resolvedProjectPath);
+
+  return relativeProjectPath !== ''
+    && !relativeProjectPath.startsWith('..')
+    && !path.isAbsolute(relativeProjectPath);
+}
+
+/**
+ * Clean up a temporary project directory.
+ * @param {string} projectPath - Path to the project directory
+ */
+async function cleanupProject(projectPath) {
   try {
     // Only clean up projects in the external-projects directory
-    if (!projectPath.includes('.claude/external-projects')) {
+    if (!isCcflowExternalProjectPath(projectPath)) {
       console.warn('⚠️ Refusing to clean up non-external project:', projectPath);
       return;
     }
@@ -426,18 +439,6 @@ async function cleanupProject(projectPath, sessionId = null) {
     console.log('🧹 Cleaning up project:', projectPath);
     await fs.rm(projectPath, { recursive: true, force: true });
     console.log('✅ Project cleaned up');
-
-    // Also clean up the Claude session directory if sessionId provided
-    if (sessionId) {
-      try {
-        const sessionPath = path.join(os.homedir(), '.claude', 'sessions', sessionId);
-        console.log('🧹 Cleaning up session directory:', sessionPath);
-        await fs.rm(sessionPath, { recursive: true, force: true });
-        console.log('✅ Session directory cleaned up');
-      } catch (error) {
-        console.error('⚠️ Failed to clean up session directory:', error.message);
-      }
-    }
   } catch (error) {
     console.error('❌ Failed to clean up project:', error);
   }
@@ -523,28 +524,76 @@ class ResponseCollector {
   }
 
   /**
+   * Parse a collected writer message into an object when possible.
+   * @param {unknown} msg - Raw message captured by the collector
+   * @returns {object|null} - Parsed message object or null
+   */
+  parseMessage(msg) {
+    if (typeof msg === 'string') {
+      try {
+        return JSON.parse(msg);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    return msg && typeof msg === 'object' ? msg : null;
+  }
+
+  /**
+   * Add or replace the latest assistant message for a Codex item.
+   * @param {Array<object>} assistantMessages - Accumulated assistant messages
+   * @param {Map<string, number>} itemIndexes - Indexes by stable Codex item id
+   * @param {object} message - Assistant message payload
+   * @param {string|null} itemId - Stable Codex item id when available
+   */
+  upsertAssistantMessage(assistantMessages, itemIndexes, message, itemId) {
+    if (!itemId) {
+      assistantMessages.push(message);
+      return;
+    }
+
+    const existingIndex = itemIndexes.get(itemId);
+    if (existingIndex !== undefined) {
+      assistantMessages[existingIndex] = message;
+      return;
+    }
+
+    itemIndexes.set(itemId, assistantMessages.length);
+    assistantMessages.push(message);
+  }
+
+  /**
    * Get filtered assistant messages only
    */
   getAssistantMessages() {
     const assistantMessages = [];
+    const itemIndexes = new Map();
 
     for (const msg of this.messages) {
-      // Skip initial status message
-      if (msg && msg.type === 'status') {
+      const parsed = this.parseMessage(msg);
+
+      // Skip initial status and other transport messages.
+      if (!parsed || parsed.type === 'status') {
         continue;
       }
 
-      // Handle JSON strings
-      if (typeof msg === 'string') {
-        try {
-          const parsed = JSON.parse(msg);
-          // Only include claude-response messages with assistant type
-          if (parsed.type === 'claude-response' && parsed.data && parsed.data.type === 'assistant') {
-            assistantMessages.push(parsed.data);
-          }
-        } catch (e) {
-          // Not JSON, skip
-        }
+      const codexData = parsed.type === 'codex-response' ? parsed.data : null;
+      const codexMessage = codexData?.message;
+
+      if (
+        codexData?.type === 'item'
+        && codexData.itemType === 'agent_message'
+        && codexMessage?.role === 'assistant'
+        && typeof codexMessage.content === 'string'
+        && codexMessage.content.length > 0
+      ) {
+        this.upsertAssistantMessage(
+          assistantMessages,
+          itemIndexes,
+          codexMessage,
+          typeof codexData.itemId === 'string' ? codexData.itemId : null
+        );
       }
     }
 
@@ -552,45 +601,67 @@ class ResponseCollector {
   }
 
   /**
+   * Apply a Codex turn usage payload to the aggregate token summary.
+   * @param {object} totals - Mutable token totals
+   * @param {object|null|undefined} usage - Codex turn usage payload
+   */
+  addCodexUsage(totals, usage) {
+    if (!usage || typeof usage !== 'object') {
+      return;
+    }
+
+    const inputTokens = Number(usage.input_tokens) || 0;
+    const outputTokens = Number(usage.output_tokens) || 0;
+    const cachedInputTokens = Number(usage.cached_input_tokens) || 0;
+    const reasoningOutputTokens = Number(usage.reasoning_output_tokens) || 0;
+    const totalTokens = Number(usage.total_tokens);
+
+    totals.inputTokens += inputTokens;
+    totals.outputTokens += outputTokens;
+    totals.cacheReadTokens += cachedInputTokens;
+    totals.reasoningOutputTokens += reasoningOutputTokens;
+    totals.totalTokens += Number.isFinite(totalTokens)
+      ? totalTokens
+      : inputTokens + outputTokens + cachedInputTokens + reasoningOutputTokens;
+  }
+
+  /**
    * Calculate total tokens from all messages
    */
   getTotalTokens() {
-    let totalInput = 0;
-    let totalOutput = 0;
-    let totalCacheRead = 0;
-    let totalCacheCreation = 0;
+    const totals = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      reasoningOutputTokens: 0,
+      totalTokens: 0
+    };
+    let contextBudget = null;
 
     for (const msg of this.messages) {
-      let data = msg;
-
-      // Parse if string
-      if (typeof msg === 'string') {
-        try {
-          data = JSON.parse(msg);
-        } catch (e) {
-          continue;
-        }
+      const parsed = this.parseMessage(msg);
+      if (!parsed) {
+        continue;
       }
 
-      // Extract usage from claude-response messages
-      if (data && data.type === 'claude-response' && data.data) {
-        const msgData = data.data;
-        if (msgData.message && msgData.message.usage) {
-          const usage = msgData.message.usage;
-          totalInput += usage.input_tokens || 0;
-          totalOutput += usage.output_tokens || 0;
-          totalCacheRead += usage.cache_read_input_tokens || 0;
-          totalCacheCreation += usage.cache_creation_input_tokens || 0;
-        }
+      const codexData = parsed.type === 'codex-response' ? parsed.data : null;
+      if (codexData?.type === 'turn_complete') {
+        this.addCodexUsage(totals, codexData.usage);
+      }
+
+      if (parsed.type === 'token-budget' && parsed.data && typeof parsed.data === 'object') {
+        contextBudget = parsed.data;
       }
     }
 
+    if (totals.totalTokens === 0 && Number.isFinite(Number(contextBudget?.used))) {
+      totals.totalTokens = Number(contextBudget.used);
+    }
+
     return {
-      inputTokens: totalInput,
-      outputTokens: totalOutput,
-      cacheReadTokens: totalCacheRead,
-      cacheCreationTokens: totalCacheCreation,
-      totalTokens: totalInput + totalOutput + totalCacheRead + totalCacheCreation
+      ...totals,
+      contextBudget
     };
   }
 }
@@ -602,7 +673,7 @@ class ResponseCollector {
 /**
  * POST /api/agent
  *
- * Trigger an AI agent (Claude or Codex) to work on a project.
+ * Trigger a Codex agent to work on a project.
  * Supports automatic GitHub branch and pull request creation after successful completion.
  *
  * ================================================================================================
@@ -620,15 +691,15 @@ class ResponseCollector {
  *                               Behavior depends on usage:
  *                               - If used alone: Must point to existing project directory
  *                               - If used with githubUrl: Target location for cloning
- *                               - If omitted with githubUrl: Auto-generates temporary path in ~/.claude/external-projects/
+ *                               - If omitted with githubUrl: Auto-generates temporary path in ~/.ccflow/external-projects/
  *
  * @param {string} message - (Required) Task description for the AI agent. Used as:
  *                          - Instructions for the agent
  *                          - Source for auto-generated branch names (if createBranch=true and no branchName)
  *                          - Fallback for PR title if no commits are made
  *
- * @param {string} provider - (Optional) AI provider to use. Options: 'claude' | 'codex'
- *                           Default: 'claude'
+ * @param {string} provider - (Optional) AI provider to use. Options: 'codex'
+ *                           Default: 'codex'
  *
  * @param {boolean} stream - (Optional) Enable Server-Sent Events (SSE) streaming for real-time updates.
  *                          Default: true
@@ -644,7 +715,6 @@ class ResponseCollector {
  *                           Behavior:
  *                           - Only applies when cloning via githubUrl (not for existing projectPath)
  *                           - Deletes cloned repository after 5 seconds
- *                           - Also deletes associated Claude session directory
  *                           - Remote branch and PR remain on GitHub if created
  *
  * @param {string} githubToken - (Optional) GitHub Personal Access Token for authentication.
@@ -693,7 +763,7 @@ class ResponseCollector {
  *
  * Scenario 1: Only githubUrl provided
  *   Input:  { githubUrl: "https://github.com/owner/repo" }
- *   Action: Clones to auto-generated temporary path: ~/.claude/external-projects/<hash>/
+ *   Action: Clones to auto-generated temporary path: ~/.ccflow/external-projects/<hash>/
  *   Cleanup: Yes (if cleanup=true)
  *
  * Scenario 2: Only projectPath provided
@@ -740,7 +810,7 @@ class ResponseCollector {
  * Input Validations (400 Bad Request):
  *   - Either githubUrl OR projectPath must be provided (not neither)
  *   - message must be non-empty string
- *   - provider must be 'claude' or 'codex'
+ *   - provider must be 'codex'
  *   - createBranch/createPR requires githubUrl OR projectPath (not neither)
  *   - branchName must pass Git naming rules (if provided)
  *
@@ -766,7 +836,7 @@ class ResponseCollector {
  *   Content-Type: text/event-stream
  *   Events:
  *     - { type: "status", message: "...", projectPath: "..." }
- *     - { type: "claude-response", data: {...} }
+ *     - { type: "codex-response", data: {...} }
  *     - { type: "github-branch", branch: { name: "...", url: "..." } }
  *     - { type: "github-pr", pullRequest: { number: 42, url: "..." } }
  *     - { type: "github-error", error: "..." }
@@ -783,7 +853,9 @@ class ResponseCollector {
  *       outputTokens: 50,
  *       cacheReadTokens: 0,
  *       cacheCreationTokens: 0,
- *       totalTokens: 200
+ *       reasoningOutputTokens: 0,
+ *       totalTokens: 200,
+ *       contextBudget: {...}
  *     },
  *     projectPath: "/path/to/project",
  *     branch: {               // Only if createBranch=true
@@ -829,7 +901,7 @@ class ResponseCollector {
  *   }
  */
 router.post('/', validateExternalApiKey, async (req, res) => {
-  const { githubUrl, projectPath, message, provider = 'claude', model, githubToken, branchName } = req.body;
+  const { githubUrl, projectPath, message, provider = 'codex', model, githubToken, branchName } = req.body;
 
   // Parse stream and cleanup as booleans (handle string "true"/"false" from curl)
   const stream = req.body.stream === undefined ? true : (req.body.stream === true || req.body.stream === 'true');
@@ -848,8 +920,8 @@ router.post('/', validateExternalApiKey, async (req, res) => {
     return res.status(400).json({ error: 'message is required' });
   }
 
-  if (!['claude', 'codex'].includes(provider)) {
-    return res.status(400).json({ error: 'provider must be "claude" or "codex"' });
+  if (provider !== 'codex') {
+    return res.status(400).json({ error: 'provider must be "codex"' });
   }
 
   // Validate GitHub branch/PR creation requirements
@@ -873,7 +945,7 @@ router.post('/', validateExternalApiKey, async (req, res) => {
       } else {
         // Generate a unique path for cloning
         const repoHash = crypto.createHash('md5').update(githubUrl + Date.now()).digest('hex');
-        targetPath = path.join(os.homedir(), '.claude', 'external-projects', repoHash);
+        targetPath = path.join(os.homedir(), '.ccflow', 'external-projects', repoHash);
       }
 
       finalProjectPath = await cloneGitHubRepo(githubUrl.trim(), tokenToUse, targetPath);
@@ -932,29 +1004,15 @@ router.post('/', validateExternalApiKey, async (req, res) => {
       });
     }
 
-    // Start the appropriate session
-    if (provider === 'claude') {
-      console.log('🤖 Starting Claude SDK session');
+    console.log('🤖 Starting Codex SDK session');
 
-      await queryClaudeSDK(message.trim(), {
-        projectPath: finalProjectPath,
-        cwd: finalProjectPath,
-        sessionId: null, // New session
-        model: model,
-        permissionMode: 'bypassPermissions' // Bypass all permissions for API calls
-      }, writer);
-
-    } else if (provider === 'codex') {
-      console.log('🤖 Starting Codex SDK session');
-
-      await queryCodex(message.trim(), {
-        projectPath: finalProjectPath,
-        cwd: finalProjectPath,
-        sessionId: null,
-        model: model || undefined,
-        permissionMode: 'bypassPermissions'
-      }, writer);
-    }
+    await queryCodex(message.trim(), {
+      projectPath: finalProjectPath,
+      cwd: finalProjectPath,
+      sessionId: null,
+      model: model || undefined,
+      permissionMode: 'bypassPermissions'
+    }, writer);
 
     // Handle GitHub branch and PR creation after successful agent completion
     let branchInfo = null;
@@ -1210,5 +1268,11 @@ router.post('/', validateExternalApiKey, async (req, res) => {
     }
   }
 });
+
+export const __agentRouteInternalsForTest = {
+  ResponseCollector,
+  cleanupProject,
+  isCcflowExternalProjectPath
+};
 
 export default router;

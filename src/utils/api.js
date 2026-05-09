@@ -103,7 +103,7 @@ export const api = {
     authenticatedFetch(`${projectApiPath(projectName)}/sessions?limit=${limit}&offset=${offset}`),
   chatSearch: (query, mode = 'content') =>
     authenticatedFetch(`/api/chat/search?q=${encodeURIComponent(String(query || ''))}&mode=${encodeURIComponent(String(mode || 'content'))}`),
-  sessionMessages: (projectName, sessionId, limit = null, offset = 0, provider = 'claude', afterLine = null) => {
+  sessionMessages: (projectName, sessionId, limit = null, offset = 0, provider = 'codex', afterLine = null) => {
     const params = new URLSearchParams();
     if (afterLine !== null) {
       // afterLine 模式：只返回第 N 行之后的增量内容，忽略 limit/offset
@@ -170,7 +170,7 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ summary, projectPath }),
     }),
-  usageRemaining: (provider = 'claude') =>
+  usageRemaining: (provider = 'codex') =>
     authenticatedFetch(`/api/usage/remaining?provider=${encodeURIComponent(provider)}`),
   deleteSession: (projectName, sessionId) =>
     authenticatedFetch(`${projectApiPath(projectName)}/sessions/${sessionId}`, {
