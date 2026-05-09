@@ -49,21 +49,14 @@ test.describe('项目工作区导航壳层', () => {
     await expect(manualGroup).not.toContainText('codex-runner-execution-thread');
   });
 
-  test('工作流详情展示 runner 进程并从详情页进入 runner 子会话', async ({ page }) => {
+  test('工作流详情用 wo 行进入 runner 子会话且不展示进程卡片', async ({ page }) => {
     await openFixtureProject(page);
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
 
-    const processes = page.getByTestId('workflow-runner-processes');
-    await expect(processes).toBeVisible();
-    await expect(processes).toContainText('execution');
-    await expect(processes).toContainText('completed');
-    await expect(processes).toContainText('thread=fixture-project-execution-session');
-    await expect(processes).toContainText('pid=4321');
-    await processes.getByRole('button', { name: /log/ }).nth(1).click();
-    await expect(page.locator('body')).toContainText('executor log fixture');
+    await expect(page.getByTestId('workflow-runner-processes')).toHaveCount(0);
 
-    await processes.getByRole('button', { name: /thread=fixture-project-execution-session/ }).click();
+    await page.getByTestId('workflow-display-lines').getByRole('button', { name: 'start' }).click();
     await expect(page).toHaveURL(/\/workspace\/fixture-project\/runs\/run-fixture\/sessions\/execution$/);
   });
 

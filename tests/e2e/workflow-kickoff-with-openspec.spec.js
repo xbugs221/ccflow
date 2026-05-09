@@ -99,7 +99,7 @@ test('creating a workflow with existing OpenSpec change binds correctly', async 
   await expect(page.getByTestId('workflow-display-lines')).toContainText('start');
   await expect(page.getByTestId('workflow-display-lines')).toContainText('review', { timeout: 10000 });
   await expect(page.getByTestId('workflow-stage-tree')).toHaveCount(0);
-  await page.getByTestId('workflow-display-lines').getByRole('button', { name: 'codex-exec-thread.jsonl' }).click();
+  await page.getByTestId('workflow-display-lines').getByRole('button', { name: 'start' }).click();
   await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/playwright-run-[^/]+/sessions/execution$`));
   await page.goto(`${projectRoutePrefix}/runs/${workflowIdFromUrl(page.url())}`);
   await expect(page.getByText(/Go runner: playwright-run-/)).toBeVisible();

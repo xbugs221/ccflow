@@ -397,7 +397,6 @@ function renderWorkflowDisplayLines(
     <section className="space-y-2" data-testid={testId} aria-label="workflow display">
       {lines.map((line) => {
         const session = buildSession(line);
-        const label = line.sessionRef?.label;
         return (
           <div
             key={line.id}
@@ -407,21 +406,20 @@ function renderWorkflowDisplayLines(
             <span className={line.marker === '✓' ? 'text-green-500' : line.marker === '→' ? 'text-blue-500' : 'text-muted-foreground'}>
               {line.marker || ' '}
             </span>
-            <span className="font-medium text-foreground">{line.text}</span>
-            {label && session ? (
+            {session ? (
               <button
                 type="button"
-                className="truncate text-primary underline decoration-current underline-offset-2"
+                className="truncate text-left text-sm font-medium text-primary underline decoration-current underline-offset-2"
                 onClick={() => onNavigateToSession(
                   session.id,
                   buildWorkflowSessionRouteOptions(project, workflow, session),
                 )}
               >
-                {label}
+                {line.text}
               </button>
-            ) : label ? (
-              <span className="truncate text-muted-foreground">{label}</span>
-            ) : null}
+            ) : (
+              <span className="font-medium text-foreground">{line.text}</span>
+            )}
           </div>
         );
       })}
@@ -1149,8 +1147,7 @@ export default function WorkflowDetailView({
   if (treeOnly) {
     return (
       <div className="max-h-[70vh] overflow-auto rounded-md border border-border/60 bg-background/95 shadow-sm backdrop-blur-sm">
-        {stageTree}
-        <div className="border-t border-border/40 p-3">
+        <div className="p-3">
           {renderWorkflowDisplayLines(project, currentWorkflow, onNavigateToSession, 'workflow-display-lines-preview')}
         </div>
       </div>
@@ -1194,35 +1191,9 @@ export default function WorkflowDetailView({
               )}
             </div>
           </div>
-          {currentWorkflow.runner === 'go' && (
-            <div
-              data-testid="workflow-runner-diagnostics"
-              className="mt-4 rounded-md border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground"
-            >
-              <div className="mb-2 font-medium text-foreground">Runner diagnostics</div>
-              <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
-                <div><dt className="inline text-muted-foreground">state path: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'statePath')}</dd></div>
-                <div><dt className="inline text-muted-foreground">state mtime: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'stateMtime')}</dd></div>
-                <div><dt className="inline text-muted-foreground">raw status: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'rawStatus')}</dd></div>
-                <div><dt className="inline text-muted-foreground">raw stage: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'rawStage')}</dd></div>
-                <div><dt className="inline text-muted-foreground">wo contract: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'woContractVersion')} / ok {getWorkflowDiagnosticsValue(currentWorkflow, 'woContractOk')}</dd></div>
-                <div><dt className="inline text-muted-foreground">runner error: </dt><dd className="inline text-foreground">{currentWorkflow.runnerError || getWorkflowDiagnosticsValue(currentWorkflow, 'runnerError')}</dd></div>
-                <div><dt className="inline text-muted-foreground">paths: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'pathCount')}</dd></div>
-                <div><dt className="inline text-muted-foreground">sessions: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'sessionCount')}</dd></div>
-                <div><dt className="inline text-muted-foreground">processes: </dt><dd className="inline text-foreground">{getWorkflowDiagnosticsValue(currentWorkflow, 'processCount')}</dd></div>
-              </dl>
-              {getWorkflowDiagnosticWarnings(currentWorkflow).length > 0 && (
-                <ul className="mt-2 list-disc space-y-1 pl-4">
-                  {getWorkflowDiagnosticWarnings(currentWorkflow).map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-          {stageTree}
-          {renderWorkflowDisplayLines(project, currentWorkflow, onNavigateToSession)}
-          {renderRunnerProcesses(project, currentWorkflow, onNavigateToSession, onOpenArtifactFile)}
+          <div className="mt-4">
+            {renderWorkflowDisplayLines(project, currentWorkflow, onNavigateToSession)}
+          </div>
         </div>
 
       </div>

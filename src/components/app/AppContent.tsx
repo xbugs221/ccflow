@@ -145,7 +145,12 @@ export default function AppContent() {
         )) || null
       : null;
     const childSession = targetWorkflow
-      ? (targetWorkflow.childSessions || []).find((session) => session.id === targetSessionId) || null
+      ? (targetWorkflow.childSessions || []).find((session) => (
+          session.id === targetSessionId
+          && (!options?.workflowStageKey || session.stageKey === options.workflowStageKey)
+        ))
+        || (targetWorkflow.childSessions || []).find((session) => session.id === targetSessionId)
+        || null
       : null;
     const nextSearchParams = new URLSearchParams(options?.routeSearch || {});
     const isConcreteSessionRoute = /\/c\d+$/.test(location.pathname);

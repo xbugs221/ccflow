@@ -126,6 +126,7 @@ import {
     getRuntimeDependencyDiagnostics,
 } from './runtime-dependencies.js';
 import { ensureGoRunnerWatchersForProjects } from './domains/workflows/go-runner-watchers.js';
+import { shouldServeSpaIndex } from './utils/spaFallback.js';
 
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true });
@@ -3051,8 +3052,8 @@ app.use('/api', (req, res) => {
 
 // Serve React app for all other routes (excluding static files)
 app.get('*', (req, res) => {
-    // Skip requests for static assets (files with extensions)
-    if (path.extname(req.path)) {
+    // Skip static asset requests while still serving dotted workflow run ids.
+    if (!shouldServeSpaIndex(req)) {
         return res.status(404).send('Not found');
     }
 

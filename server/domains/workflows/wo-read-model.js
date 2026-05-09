@@ -347,15 +347,18 @@ function buildRunnerProcesses(state, stageStatuses, logsByKey, warnings) {
   return stageStatuses.map((stageStatus) => {
     const role = inferRole(stageStatus.key);
     const allowRoleFallback = stageStatus.status === 'active' || String(pick(state, 'stage') || '') === stageStatus.key;
+    const roleSessionId = sessions[role] || sessions[`codex:${role}`] || sessions[`claude:${role}`];
     const sessionId = String(
       sessions[stageStatus.key]
       || sessions[`${stageStatus.key}_${role}`]
       || (allowRoleFallback ? sessions[role] : '')
+      || roleSessionId
       || '',
     ).trim();
     const logPath = logsByKey.get(`${stageStatus.key}_${role}_log`)
       || logsByKey.get(`${stageStatus.key}_log`)
-      || (allowRoleFallback ? logsByKey.get(`${role}_log`) : '');
+      || (allowRoleFallback ? logsByKey.get(`${role}_log`) : '')
+      || logsByKey.get(`${role}_log`);
     return {
       stage: stageStatus.key,
       role,
@@ -402,18 +405,31 @@ function buildChildSessions(runId, processes, warnings) {
   });
 }
 
-function sessionMatchesJsonlName(sessionId, jsonlName) {
+function sessionMatchesJsonlName(sessionId, jsonlName, logPath = '') {
   /**
    * Match wo display jsonl labels to the runner session id they are derived
    * from; a same-stage session is not enough evidence for a link.
    */
   const normalizedSessionId = String(sessionId || '').trim();
   const normalizedJsonlName = path.posix.basename(String(jsonlName || '').trim());
+  const normalizedLogName = path.posix.basename(String(logPath || '').trim());
   if (!normalizedSessionId || !normalizedJsonlName) {
     return false;
   }
   return normalizedJsonlName === `${normalizedSessionId}.jsonl`
-    || normalizedJsonlName.replace(/\.jsonl$/i, '') === normalizedSessionId;
+    || normalizedJsonlName.replace(/\.jsonl$/i, '') === normalizedSessionId
+    || normalizedJsonlName === normalizedLogName;
+}
+
+/**
+ * Return the most readable jsonl label for a runner process link.
+ */
+function sessionJsonlLabel(sessionId, logPath = '') {
+  const logName = path.posix.basename(String(logPath || '').trim());
+  if (/\.jsonl$/i.test(logName)) {
+    return logName;
+  }
+  return `${sessionId}.jsonl`;
 }
 
 /**
@@ -421,13 +437,14 @@ function sessionMatchesJsonlName(sessionId, jsonlName) {
  */
 function findSessionRefForStage(stageKey, childSessions, runnerProcesses, warnings, jsonlName) {
   const hasJsonlName = Boolean(String(jsonlName || '').trim());
+  const stageProcess = runnerProcesses.find((entry) => entry.stage === stageKey && entry.sessionId);
   const stageSession = childSessions.find((session) => (
     session.stageKey === stageKey
-    && (!hasJsonlName || sessionMatchesJsonlName(session.id, jsonlName))
+    && (!hasJsonlName || sessionMatchesJsonlName(session.id, jsonlName, stageProcess?.logPath))
   ));
   if (stageSession) {
     return {
-      label: jsonlName || `${stageSession.id}.jsonl`,
+      label: jsonlName || sessionJsonlLabel(stageSession.id, stageProcess?.logPath),
       sessionId: stageSession.id,
       provider: stageSession.provider || 'codex',
       stageKey,
@@ -438,11 +455,11 @@ function findSessionRefForStage(stageKey, childSessions, runnerProcesses, warnin
   const process = runnerProcesses.find((entry) => (
     entry.stage === stageKey
     && entry.sessionId
-    && (!hasJsonlName || sessionMatchesJsonlName(entry.sessionId, jsonlName))
+    && (!hasJsonlName || sessionMatchesJsonlName(entry.sessionId, jsonlName, entry.logPath))
   ));
   if (process) {
     return {
-      label: jsonlName || `${process.sessionId}.jsonl`,
+      label: jsonlName || sessionJsonlLabel(process.sessionId, process.logPath),
       sessionId: process.sessionId,
       provider: 'codex',
       stageKey,
@@ -460,12 +477,28 @@ function findSessionRefForStage(stageKey, childSessions, runnerProcesses, warnin
 }
 
 /**
+ * Remove standalone repair rows once wo has emitted the following review row.
+ */
+function collapseSupersededRepairLines(lines) {
+  const reviewedFixNumbers = new Set(lines
+    .map((line) => String(line.text || '').trim().match(/^(\d+)\s+fix\s+review$/)?.[1])
+    .filter(Boolean));
+  if (reviewedFixNumbers.size === 0) {
+    return lines;
+  }
+  return lines.filter((line) => {
+    const fixNumber = String(line.text || '').trim().match(/^(\d+)\s+fix$/)?.[1];
+    return !fixNumber || !reviewedFixNumbers.has(fixNumber);
+  });
+}
+
+/**
  * Generate only the wo checklist lines that have happened or are currently active.
  */
 function buildWorkflowDisplayLines(state, stageStatuses, childSessions, runnerProcesses, warnings) {
   const displayLines = Array.isArray(state?.workflow_display?.lines) ? state.workflow_display.lines : [];
   if (displayLines.length > 0) {
-    return displayLines.map((line, index) => {
+    return collapseSupersededRepairLines(displayLines.map((line, index) => {
       const rawLine = String(line?.raw_line || line?.rawLine || '').trim();
       const marker = String(line?.marker || rawLine.match(/^[✓→ ]/)?.[0] || '').trim() || ' ';
       const text = String(line?.text || rawLine.replace(/^[✓→ ]\s*/, '').replace(/\s+\S+\.jsonl$/, '') || '').trim();
@@ -479,10 +512,10 @@ function buildWorkflowDisplayLines(state, stageStatuses, childSessions, runnerPr
         rawLine: rawLine || [marker, text, jsonlName].filter(Boolean).join(' '),
         ...(jsonlName ? { sessionRef: findSessionRefForStage(stageKey, childSessions, runnerProcesses, warnings, jsonlName) } : {}),
       };
-    });
+    }));
   }
 
-  return stageStatuses
+  return collapseSupersededRepairLines(stageStatuses
     .filter((stage) => stage.status !== 'pending')
     .map((stage) => {
       const marker = stage.status === 'completed' ? '✓' : stage.status === 'active' ? '→' : ' ';
@@ -497,7 +530,7 @@ function buildWorkflowDisplayLines(state, stageStatuses, childSessions, runnerPr
         rawLine,
         ...(sessionRef ? { sessionRef } : {}),
       };
-    });
+    }));
 }
 
 /**

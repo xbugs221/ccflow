@@ -239,16 +239,15 @@ test.describe('项目内需求工作流控制面', () => {
     await page.getByRole('button', { name: /登录升级/ }).click();
 
     await expect(page.getByRole('heading', { name: '登录升级' }).last()).toBeVisible();
-    await expect(page.getByTestId('workflow-runner-processes')).toContainText('execution');
+    await expect(page.getByTestId('workflow-runner-processes')).toHaveCount(0);
     await expect(page.getByText('阶段进度')).toHaveCount(0);
-    await expect(page.getByTestId('workflow-runner-diagnostics')).toContainText('state path');
-    await expect(page.getByTestId('workflow-runner-diagnostics')).toContainText('raw status');
-    await expect(page.getByTestId('workflow-runner-diagnostics')).toContainText('raw stage');
-    await expect(page.getByTestId('workflow-runner-diagnostics')).toContainText('wo contract');
+    await expect(page.getByTestId('workflow-runner-diagnostics')).toHaveCount(0);
+    await expect(page.getByTestId('workflow-inspection-tree')).toHaveCount(0);
     await expect(page.getByTestId('workflow-display-lines')).toBeVisible();
     await expect(page.getByTestId('workflow-display-lines')).toContainText('start');
     await expect(page.getByTestId('workflow-display-lines')).toContainText('review');
-    await page.getByTestId('workflow-display-lines').getByRole('button', { name: /fixture-project-execution-session\.jsonl/ }).click();
+    await expect(page.getByTestId('workflow-display-lines')).not.toContainText('fixture-project-execution-session.jsonl');
+    await page.getByTestId('workflow-display-lines').getByRole('button', { name: 'start' }).click();
     await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/execution$/);
   });
 
@@ -303,7 +302,7 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(displayLines).not.toContainText('复审');
   });
 
-  test('无法匹配的 workflow jsonl 名称保留为普通文本', async ({ page }) => {
+  test('无法匹配的 workflow jsonl 不会把阶段文字渲染成链接', async ({ page }) => {
     await openFixtureProject(page);
     rewriteFixtureRunState({
       stage: 'review_1',
@@ -329,9 +328,10 @@ test.describe('项目内需求工作流控制面', () => {
     await page.getByRole('button', { name: /登录升级/ }).click();
 
     const displayLines = page.getByTestId('workflow-display-lines');
-    await expect(displayLines).toContainText('unknown-thread.jsonl');
-    await expect(displayLines.getByRole('button', { name: 'unknown-thread.jsonl' })).toHaveCount(0);
-    await expect(page.getByTestId('workflow-runner-diagnostics')).toContainText('unknown-thread.jsonl');
+    await expect(displayLines).toContainText('review');
+    await expect(displayLines).not.toContainText('unknown-thread.jsonl');
+    await expect(displayLines.getByRole('button', { name: 'review' })).toHaveCount(0);
+    await expect(page.getByTestId('workflow-runner-diagnostics')).toHaveCount(0);
   });
 
   test('打开规划会话会直接进入已有 planning 子会话', async ({ page }) => {
@@ -349,7 +349,7 @@ test.describe('项目内需求工作流控制面', () => {
     await openFixtureProject(page);
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
-    await page.getByTestId('workflow-stage-planning').getByRole('button', { name: /规划/ }).click();
+    await page.getByTestId('workflow-display-lines').getByRole('button', { name: 'planning' }).click();
 
     await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/planning$/);
     await expect(page).not.toHaveURL(/\/session\/new-session-/);
@@ -392,7 +392,7 @@ test.describe('项目内需求工作流控制面', () => {
 
     await expect(page).toHaveURL(/\/runs\/[^/]+$/);
     await expect(page.getByTestId('workflow-display-lines')).toBeVisible();
-    await expect(page.getByTestId('workflow-runner-processes')).toBeVisible();
+    await expect(page.getByTestId('workflow-runner-processes')).toHaveCount(0);
   });
 
   test('工作流产物可直接打开文件或目录', async ({ page }) => {
@@ -400,15 +400,9 @@ test.describe('项目内需求工作流控制面', () => {
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
 
-    await page.getByRole('button', { name: /执行/ }).click();
-    const executionStage = page.getByTestId('workflow-stage-execution');
-    await expect(executionStage).toContainText('workflow-output');
-    await expect(executionStage).toContainText('SUMMARY.md');
-    await executionStage.getByRole('button', { name: /SUMMARY.md/ }).click();
-    await expect(page.locator('body')).toContainText('Workflow summary fixture');
-
-    await executionStage.getByRole('button', { name: /workflow-output/ }).click();
-    await expect(page.locator('body')).toContainText('result.txt');
+    await expect(page.getByTestId('workflow-inspection-tree')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /SUMMARY.md/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /workflow-output/ })).toHaveCount(0);
   });
 
   test('2030 需求工作流详情默认落在项目作用域详情路由', async ({ page }) => {
@@ -428,8 +422,9 @@ test.describe('项目内需求工作流控制面', () => {
 
     await expect(page.getByTestId('workflow-display-lines')).toBeVisible();
     await expect(page.getByTestId('workflow-stage-mini-map')).toHaveCount(0);
+    await expect(page.getByTestId('workflow-inspection-tree')).toHaveCount(0);
 
-    await page.getByTestId('workflow-stage-planning').getByRole('button', { name: '规划提案' }).click();
+    await page.getByTestId('workflow-display-lines').getByRole('button', { name: 'planning' }).click();
     await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/planning$/);
     await expect(page.getByTestId('workflow-display-lines-preview')).toBeVisible();
 
@@ -504,17 +499,17 @@ test.describe('项目内需求工作流控制面', () => {
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
 
-    await page.getByTestId('workflow-substage-review_1').getByRole('button', { name: /需求与范围覆盖/ }).click();
+    await page.getByTestId('workflow-display-line-review_1').getByRole('button', { name: 'review' }).click();
     await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/review_1$/);
 
     await page.goBack({ waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { name: '登录升级' }).last()).toBeVisible();
-    await page.getByTestId('workflow-substage-review_2').getByRole('button', { name: /实现风险与回归/ }).click();
+    await page.getByTestId('workflow-display-line-review_2').getByRole('button', { name: '1 fix review' }).click();
     await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/review_2$/);
 
     await page.goBack({ waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { name: '登录升级' }).last()).toBeVisible();
-    await page.getByTestId('workflow-substage-review_3').getByRole('button', { name: /验收与交付闭环/ }).click();
+    await page.getByTestId('workflow-display-line-review_3').getByRole('button', { name: '2 fix review' }).click();
     await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/review_3$/);
   });
 
@@ -578,9 +573,9 @@ test.describe('项目内需求工作流控制面', () => {
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
 
-    await page.getByTestId('workflow-stage-archive').getByRole('button', { name: /归档/ }).click();
-    await expect(page.getByRole('button', { name: /delivery-summary\.md/ })).toBeVisible();
-    await expect(page.getByText('delivery-summary.md 尚未生成。')).toBeVisible();
+    await expect(page.getByTestId('workflow-inspection-tree')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /delivery-summary\.md/ })).toHaveCount(0);
+    await expect(page.getByText('delivery-summary.md 尚未生成。')).toHaveCount(0);
   });
 
   test('收尾工作流只显示一个归档入口并允许选择验收决策', async ({ page }) => {
@@ -632,7 +627,7 @@ test.describe('项目内需求工作流控制面', () => {
     await page.getByRole('button', { name: /登录升级/ }).click();
     await workflowDetailResponse;
 
-    await expect(page.getByTestId('workflow-stage-archive').getByRole('button', { name: '归档' })).toHaveCount(1);
+    await expect(page.getByTestId('workflow-stage-archive')).toHaveCount(0);
     await expect(page.getByText('验收状态')).toHaveCount(0);
     await expect(page.getByRole('button', { name: '继续推进' })).toHaveCount(0);
     await expect(page.getByTestId('workflow-gate-decision-pass')).toHaveCount(0);
@@ -763,7 +758,7 @@ test.describe('项目内需求工作流控制面', () => {
     await openFixtureProject(page);
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
-    await expect(page.getByTestId('workflow-runner-processes')).toBeVisible();
+    await expect(page.getByTestId('workflow-runner-processes')).toHaveCount(0);
   });
 
   test('项目主页的工作流和会话右键菜单支持收藏、待处理、隐藏及恢复', async ({ page }) => {

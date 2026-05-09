@@ -147,15 +147,10 @@ test('wo read model sorts arbitrary review and repair rounds without unknown war
     assert.deepEqual(workflow.workflowDisplay.lines.map((line) => line.text), [
       'start',
       'review',
-      '1 fix',
       '1 fix review',
-      '2 fix',
       '2 fix review',
-      '3 fix',
       '3 fix review',
-      '4 fix',
       '4 fix review',
-      '5 fix',
       '5 fix review',
       'archive',
     ]);
@@ -190,9 +185,52 @@ test('wo read model keeps workflow display text from state lines', async () => {
     assert.deepEqual(workflow.workflowDisplay.lines.map((line) => `${line.marker} ${line.text}`), [
       '✓ start',
       '✓ review',
-      '✓ 1 fix',
       '→ 1 fix review',
     ]);
+    assert.ok(!workflow.workflowDisplay.lines.some((line) => line.text === '1 fix'));
     assert.ok(!workflow.workflowDisplay.lines.some((line) => line.text === 'review 2'));
+  });
+});
+
+test('wo read model links role jsonl checklist rows to frontend sessions', async () => {
+  await withFakePath(async ({ projectPath }) => {
+    const runRoot = path.join(projectPath, '.wo', 'runs', 'run-role-sessions');
+    await fs.mkdir(runRoot, { recursive: true });
+    await fs.mkdir(path.join(runRoot, 'logs'), { recursive: true });
+    await fs.writeFile(path.join(runRoot, 'logs', 'executor.jsonl'), '');
+    await fs.writeFile(path.join(runRoot, 'logs', 'reviewer.jsonl'), '');
+    await fs.writeFile(path.join(runRoot, 'state.json'), JSON.stringify({
+      run_id: 'run-role-sessions',
+      change_name: 'change-a',
+      status: 'done',
+      stage: 'done',
+      stages: {
+        execution: 'completed',
+        review_1: 'completed',
+        repair_1: 'completed',
+        review_2: 'completed',
+        archive: 'completed',
+      },
+      sessions: {
+        'codex:executor': 'executor-session',
+        'codex:reviewer': 'reviewer-session',
+      },
+      paths: {
+        executor_log: '.wo/runs/run-role-sessions/logs/executor.jsonl',
+        reviewer_log: '.wo/runs/run-role-sessions/logs/reviewer.jsonl',
+      },
+    }));
+
+    const [workflow] = await listWoWorkflowReadModels(projectPath);
+    assert.deepEqual(workflow.workflowDisplay.lines.map((line) => line.text), [
+      'start',
+      'review',
+      '1 fix review',
+      'archive',
+    ]);
+    assert.equal(workflow.workflowDisplay.lines[0].sessionRef.label, 'executor.jsonl');
+    assert.equal(workflow.workflowDisplay.lines[1].sessionRef.label, 'reviewer.jsonl');
+    assert.equal(workflow.workflowDisplay.lines[2].sessionRef.sessionId, 'reviewer-session');
+    assert.equal(workflow.workflowDisplay.lines[3].sessionRef.sessionId, 'executor-session');
   });
 });
