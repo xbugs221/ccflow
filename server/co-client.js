@@ -47,6 +47,31 @@ export function resolveCoHome(env = process.env) {
 }
 
 /**
+ * Ensure the resolved co home is either absent or already a real directory.
+ */
+export async function assertCoHomeDirectory(coHome = resolveCoHome()) {
+    /**
+     * Missing homes are created lazily by request writes, but an existing file
+     * or symlink to a binary cannot contain request/state subdirectories.
+     */
+    try {
+        const stats = await fsPromises.stat(coHome);
+        if (!stats.isDirectory()) {
+            throw new Error(`co home is not a directory: ${coHome}`);
+        }
+    } catch (error) {
+        if (error?.code === 'ENOENT') {
+            return coHome;
+        }
+        if (error?.code === 'ENOTDIR') {
+            throw new Error(`co home path contains a non-directory component: ${coHome}`);
+        }
+        throw error;
+    }
+    return coHome;
+}
+
+/**
  * Normalize the provider section returned by co doctor into ccflow's internal shape.
  */
 export function normalizeCoProviders(providers = {}) {
@@ -100,22 +125,32 @@ export async function runCoDoctor({ command = 'co', timeoutMs = 5000 } = {}) {
         });
         child.on('close', (code) => {
             clearTimeout(timer);
-            try {
-                const parsed = JSON.parse(stdout || '{}');
-                const ok = code === 0 && parsed?.ok === true && parsed?.contract === CO_REQUEST_CONTRACT;
-                const providers = normalizeCoProviders(parsed?.providers || {});
-                resolve({
-                    ...parsed,
-                    command_path: commandPath === command ? '' : commandPath,
-                    providers,
-                    ok,
-                    error: ok ? '' : formatCoDoctorFailure(parsed?.error || stderr.trim() || `exit ${code}`),
-                    stderr,
-                });
-            } catch (error) {
-                const detail = [stderr.trim(), `invalid JSON: ${error.message}`].filter(Boolean).join('; ');
-                resolve({ ok: false, command_path: commandPath === command ? '' : commandPath, contract: '', providers: normalizeCoProviders(), error: formatCoDoctorFailure(detail), stderr });
-            }
+            void (async () => {
+                try {
+                    const parsed = JSON.parse(stdout || '{}');
+                    const home = parsed?.home || resolveCoHome();
+                    let homeError = '';
+                    try {
+                        await assertCoHomeDirectory(home);
+                    } catch (error) {
+                        homeError = error.message;
+                    }
+                    const ok = code === 0 && parsed?.ok === true && parsed?.contract === CO_REQUEST_CONTRACT && !homeError;
+                    const providers = normalizeCoProviders(parsed?.providers || {});
+                    resolve({
+                        ...parsed,
+                        command_path: commandPath === command ? '' : commandPath,
+                        home,
+                        providers,
+                        ok,
+                        error: ok ? '' : formatCoDoctorFailure(homeError || parsed?.error || stderr.trim() || `exit ${code}`),
+                        stderr,
+                    });
+                } catch (error) {
+                    const detail = [stderr.trim(), `invalid JSON: ${error.message}`].filter(Boolean).join('; ');
+                    resolve({ ok: false, command_path: commandPath === command ? '' : commandPath, contract: '', providers: normalizeCoProviders(), error: formatCoDoctorFailure(detail), stderr });
+                }
+            })();
         });
     });
 }
@@ -206,8 +241,16 @@ export function buildCoRequest({
  * Atomically submit a request into requests/pending so co can claim it once.
  */
 export async function writeCoRequest(request, { coHome = resolveCoHome() } = {}) {
+    await assertCoHomeDirectory(coHome);
     const pendingDir = path.join(coHome, 'requests', 'pending');
-    await fsPromises.mkdir(pendingDir, { recursive: true });
+    try {
+        await fsPromises.mkdir(pendingDir, { recursive: true });
+    } catch (error) {
+        if (error?.code === 'ENOTDIR') {
+            throw new Error(`co request directory contains a non-directory component: ${pendingDir}`);
+        }
+        throw error;
+    }
     const finalPath = path.join(pendingDir, `${request.request_id}.json`);
     const tempPath = `${finalPath}.tmp`;
     await fsPromises.writeFile(tempPath, `${JSON.stringify(request, null, 2)}\n`, 'utf8');

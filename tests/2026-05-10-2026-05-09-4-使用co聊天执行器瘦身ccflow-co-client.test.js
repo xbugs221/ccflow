@@ -8,6 +8,7 @@ import os from 'os';
 import path from 'path';
 
 import {
+  assertCoHomeDirectory,
   assertCoProviderAvailable,
   buildCoRequest,
   isCoProviderAvailable,
@@ -23,6 +24,15 @@ async function makeCoHome() {
    * Create an isolated co home fixture with the directory shape used by the daemon.
    */
   return fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-co-client-'));
+}
+
+async function writeFakeCommand(binDir, name, body) {
+  /**
+   * Create an executable command fixture for doctor protocol tests.
+   */
+  const filePath = path.join(binDir, name);
+  await fs.writeFile(filePath, body, { mode: 0o755 });
+  return filePath;
 }
 
 test('Codex message writes an atomic co-request-v1 file without UI metadata', async () => {
@@ -58,6 +68,57 @@ test('Codex message writes an atomic co-request-v1 file without UI metadata', as
   assert.equal(Object.hasOwn(persisted.attachments[0], 'transientPreviewUrl'), false);
   assert.equal(Object.hasOwn(persisted, 'routeIndex'), false);
   assert.equal(Object.hasOwn(persisted, 'summary'), false);
+});
+
+test('co home file is rejected before pending request write', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-co-home-file-'));
+  const coHome = path.join(tempRoot, 'co');
+  await fs.writeFile(coHome, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const request = buildCoRequest({
+    requestId: 'req_bad_home',
+    conversationId: 'c12',
+    projectPath: '/tmp/project',
+    provider: 'codex',
+    text: 'hello',
+  });
+
+  await assert.rejects(
+    () => assertCoHomeDirectory(coHome),
+    /co home is not a directory/,
+  );
+  await assert.rejects(
+    () => writeCoRequest(request, { coHome }),
+    /co home is not a directory/,
+  );
+});
+
+test('co doctor marks binary-shaped home as unavailable', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-co-doctor-home-'));
+  const binDir = path.join(tempRoot, 'bin');
+  const coHome = path.join(tempRoot, 'co');
+  await fs.mkdir(binDir, { recursive: true });
+  await fs.writeFile(coHome, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const payload = JSON.stringify({
+    ok: true,
+    contract: 'co-request-v1',
+    version: 'co-test',
+    home: coHome,
+    providers: { codex: true, opencode: true },
+  });
+  const fakeCo = await writeFakeCommand(binDir, 'co', [
+    '#!/bin/sh',
+    'if [ "$1" = "doctor" ] && [ "$2" = "--json" ]; then',
+    `  printf '%s\\n' '${payload}'`,
+    '  exit 0',
+    'fi',
+    'exit 1',
+  ].join('\n'));
+
+  const status = await runCoDoctor({ command: fakeCo, timeoutMs: 500 });
+
+  assert.equal(status.ok, false);
+  assert.equal(status.home, coHome);
+  assert.match(status.error, /co home is not a directory/);
 });
 
 test('OpenCode running-turn intervention preserves active_policy and target_turn_id', async () => {
