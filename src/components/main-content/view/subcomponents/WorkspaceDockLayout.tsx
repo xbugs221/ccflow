@@ -80,7 +80,7 @@ export default function WorkspaceDockLayout({
   const effectiveShowBottomDock = showBottomDock && !showRightSplit;
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full w-full min-w-0 flex-1 overflow-hidden" data-testid="workspace-dock-layout">
       {/* Center area */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <div className="flex min-h-0 flex-1 overflow-hidden">{centerContent}</div>
