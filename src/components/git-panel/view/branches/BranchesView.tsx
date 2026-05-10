@@ -41,15 +41,15 @@ function BranchRow({
 }: BranchRowProps) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3 last:border-b-0">
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className={`truncate text-sm ${isCurrent ? 'font-semibold text-foreground' : 'text-foreground'}`}>{name}</span>
+          <span className={`block min-w-0 truncate text-sm ${isCurrent ? 'font-semibold text-foreground' : 'text-foreground'}`}>{name}</span>
           {badge && <span className="rounded-md bg-accent px-2 py-0.5 text-xs text-muted-foreground">{badge}</span>}
         </div>
         {helperText && <p className="mt-1 text-xs text-muted-foreground">{helperText}</p>}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-shrink-0 items-center gap-2">
         {onAction && actionLabel && (
           <button
             onClick={onAction}
@@ -126,7 +126,7 @@ export default function BranchesView({
         </div>
       </div>
 
-      <div className={`grid gap-4 p-4 ${isMobile ? 'grid-cols-1' : 'grid-cols-2'}`}>
+      <div className="grid grid-cols-1 gap-4 p-4">
         <section className="overflow-hidden rounded-md border border-border/70">
           <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
             <GitBranch className="h-4 w-4 text-muted-foreground" />

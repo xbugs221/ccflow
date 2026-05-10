@@ -92,7 +92,7 @@ export default function WorkspaceDockLayout({
           <>
             <DockResizeHandle
               direction="horizontal"
-              onResize={(delta) => onBottomDockHeightChange(layout.bottomDock.height - delta)}
+              onResize={(delta) => onBottomDockHeightChange(layout.bottomDock.height + delta)}
             />
             <DockPanelFrame
               direction="bottom"
@@ -112,7 +112,7 @@ export default function WorkspaceDockLayout({
         <>
           <DockResizeHandle
             direction="vertical"
-            onResize={(delta) => onRightDockWidthChange(layout.rightDock.width + delta)}
+            onResize={(delta) => onRightDockWidthChange(layout.rightDock.width - delta)}
           />
           <DockPanelFrame
             direction="right"

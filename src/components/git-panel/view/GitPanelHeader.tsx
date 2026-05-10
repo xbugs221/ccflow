@@ -66,15 +66,15 @@ export default function GitPanelHeader({
   }
 
   return (
-    <div className={`flex items-center justify-between border-b border-border/60 ${isMobile ? 'px-3 py-2' : 'px-4 py-3'}`}>
+    <div className={`flex min-w-0 items-center justify-between gap-2 overflow-hidden border-b border-border/60 ${isMobile ? 'px-3 py-2' : 'px-4 py-3'}`}>
       <div className="flex min-w-0 items-center gap-2">
-        <div className="flex items-center gap-2 rounded-md border border-border/70 px-3 py-1.5">
-          <GitBranch className={`${isMobile ? 'h-3 w-3' : 'h-4 w-4'} text-muted-foreground`} />
+        <div className="flex min-w-0 items-center gap-2 rounded-md border border-border/70 px-3 py-1.5">
+          <GitBranch className={`${isMobile ? 'h-3 w-3' : 'h-4 w-4'} flex-shrink-0 text-muted-foreground`} />
           <span className={`truncate font-medium ${isMobile ? 'text-xs' : 'text-sm'}`}>{currentBranch || 'No branch'}</span>
         </div>
 
         {remoteStatus?.hasRemote && (
-          <span className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="flex flex-shrink-0 items-center gap-2 text-xs text-muted-foreground">
             {aheadCount > 0 && <span title={`${aheadCount} ahead`}>{'\u2191'}{aheadCount}</span>}
             {behindCount > 0 && <span title={`${behindCount} behind`}>{'\u2193'}{behindCount}</span>}
             {remoteStatus.isUpToDate && <span title="Up to date">{'\u2713'}</span>}
@@ -82,7 +82,7 @@ export default function GitPanelHeader({
         )}
       </div>
 
-      <div className={`flex items-center ${isMobile ? 'gap-1' : 'gap-2'}`}>
+      <div className={`flex flex-shrink-0 items-center ${isMobile ? 'gap-1' : 'gap-2'}`}>
         {remoteStatus?.hasRemote && !remoteStatus.hasUpstream && (
           <button
             onClick={() => requestConfirmation('publish')}

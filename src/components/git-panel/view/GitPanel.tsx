@@ -73,14 +73,14 @@ export default function GitPanel({ selectedProject, isMobile = false, onFileOpen
 
   if (!selectedProject) {
     return (
-      <div className="h-full flex items-center justify-center text-muted-foreground">
+      <div className="h-full min-w-0 overflow-hidden flex items-center justify-center text-muted-foreground">
         <p>Select a project to view source control</p>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="h-full min-w-0 overflow-hidden flex flex-col bg-background">
       <GitPanelHeader
         isMobile={isMobile}
         currentBranch={currentBranch}
@@ -115,52 +115,54 @@ export default function GitPanel({ selectedProject, isMobile = false, onFileOpen
             onChange={setActiveView}
           />
 
-          {activeView === 'changes' && (
-            <ChangesView
-              isMobile={isMobile}
-              gitStatus={gitStatus}
-              gitDiff={gitDiff}
-              isLoading={isLoading}
-              wrapText={wrapText}
-              isCreatingInitialCommit={isCreatingInitialCommit}
-              onWrapTextChange={setWrapText}
-              onCreateInitialCommit={createInitialCommit}
-              onOpenFile={openFile}
-              onDiscardFile={discardChanges}
-              onDeleteFile={deleteUntrackedFile}
-              onCommitChanges={commitChanges}
-              onGenerateCommitMessage={generateCommitMessage}
-              onRequestConfirmation={setConfirmAction}
-              onExpandedFilesChange={setHasExpandedFiles}
-            />
-          )}
+          <div className="flex-1 min-h-0 min-w-0 overflow-auto">
+            {activeView === 'changes' && (
+              <ChangesView
+                isMobile={isMobile}
+                gitStatus={gitStatus}
+                gitDiff={gitDiff}
+                isLoading={isLoading}
+                wrapText={wrapText}
+                isCreatingInitialCommit={isCreatingInitialCommit}
+                onWrapTextChange={setWrapText}
+                onCreateInitialCommit={createInitialCommit}
+                onOpenFile={openFile}
+                onDiscardFile={discardChanges}
+                onDeleteFile={deleteUntrackedFile}
+                onCommitChanges={commitChanges}
+                onGenerateCommitMessage={generateCommitMessage}
+                onRequestConfirmation={setConfirmAction}
+                onExpandedFilesChange={setHasExpandedFiles}
+              />
+            )}
 
-          {activeView === 'history' && (
-            <HistoryView
-              isMobile={isMobile}
-              isLoading={isLoading}
-              recentCommits={recentCommits}
-              commitDiffs={commitDiffs}
-              wrapText={wrapText}
-              onFetchCommitDiff={fetchCommitDiff}
-            />
-          )}
+            {activeView === 'history' && (
+              <HistoryView
+                isMobile={isMobile}
+                isLoading={isLoading}
+                recentCommits={recentCommits}
+                commitDiffs={commitDiffs}
+                wrapText={wrapText}
+                onFetchCommitDiff={fetchCommitDiff}
+              />
+            )}
 
-          {activeView === 'branches' && (
-            <BranchesView
-              currentBranch={currentBranch}
-              localBranches={localBranches}
-              remoteBranches={remoteBranches}
-              isMobile={isMobile}
-              isLoading={isLoading}
-              isCreatingBranch={isCreatingBranch}
-              onRefresh={refreshAll}
-              onCreateBranch={createBranch}
-              onSwitchBranch={switchBranch}
-              onDeleteBranch={deleteBranch}
-              onRequestConfirmation={setConfirmAction}
-            />
-          )}
+            {activeView === 'branches' && (
+              <BranchesView
+                currentBranch={currentBranch}
+                localBranches={localBranches}
+                remoteBranches={remoteBranches}
+                isMobile={isMobile}
+                isLoading={isLoading}
+                isCreatingBranch={isCreatingBranch}
+                onRefresh={refreshAll}
+                onCreateBranch={createBranch}
+                onSwitchBranch={switchBranch}
+                onDeleteBranch={deleteBranch}
+                onRequestConfirmation={setConfirmAction}
+              />
+            )}
+          </div>
         </>
       )}
 
