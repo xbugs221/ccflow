@@ -80,13 +80,86 @@ interface UseChatRealtimeHandlersArgs {
 }
 
 const isTemporarySessionId = (sessionId?: string | null): boolean =>
-  Boolean(sessionId && (sessionId.startsWith('new-session-') || /^c\d+$/.test(sessionId)));
+  Boolean(sessionId && sessionId.startsWith('new-session-'));
 
 const isCcflowRouteSessionId = (sessionId?: string | null): boolean =>
   Boolean(sessionId && /^c\d+$/.test(sessionId));
 
 const isUnsavedNewSessionId = (sessionId?: string | null): boolean =>
   Boolean(sessionId && sessionId.startsWith('new-session-'));
+
+/**
+ * Build the same durable co message identity used by persisted history loaders.
+ */
+const buildCoRealtimeMessageKey = (latestMessage: LatestChatMessage, providerData: any): string | null => {
+  const explicitMessageKey = providerData?.messageKey
+    || providerData?.message_key
+    || providerData?.message?.messageKey
+    || providerData?.message?.message_key
+    || latestMessage.messageKey
+    || latestMessage.message_key;
+  if (typeof explicitMessageKey === 'string' && explicitMessageKey.trim()) {
+    return explicitMessageKey;
+  }
+
+  const conversationId = latestMessage.ccflowSessionId
+    || latestMessage.ccflow_session_id
+    || latestMessage.conversation_id
+    || latestMessage.conversationId
+    || providerData?.conversation_id;
+  const turnId = latestMessage.turn_id || latestMessage.turnId || providerData?.turn_id || providerData?.turnId;
+  const eventSequence = latestMessage.seq
+    ?? latestMessage.sequence
+    ?? latestMessage.eventSeq
+    ?? providerData?.seq
+    ?? providerData?.sequence
+    ?? providerData?.eventSeq;
+  if (conversationId && turnId && eventSequence !== undefined && eventSequence !== null) {
+    return `co:${conversationId}:${turnId}:event:${eventSequence}`;
+  }
+
+  const eventId = latestMessage.event_id || latestMessage.eventId || providerData?.event_id || providerData?.eventId;
+  if (conversationId && turnId && eventId) {
+    return `co:${conversationId}:${turnId}:event:${eventId}`;
+  }
+
+  return null;
+};
+
+/**
+ * Append a realtime assistant response only when its stable identity is new.
+ */
+const appendRealtimeAssistantMessage = (
+  setChatMessages: Dispatch<SetStateAction<ChatMessage[]>>,
+  latestMessage: LatestChatMessage,
+  providerData: any,
+  source: 'codex-realtime' | 'opencode-realtime',
+) => {
+  const content = providerData?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) {
+    return;
+  }
+
+  const messageKey = buildCoRealtimeMessageKey(latestMessage, providerData);
+  setChatMessages((previous) => {
+    const persistedPrevious = markUserMessagesPersisted(previous);
+    if (messageKey && persistedPrevious.some((message) => message.messageKey === messageKey)) {
+      return persistedPrevious;
+    }
+
+    return [
+      ...persistedPrevious,
+      {
+        type: 'assistant',
+        content,
+        timestamp: new Date(),
+        source,
+        messageKey: messageKey || undefined,
+        clientRequestId: latestMessage.clientRequestId || providerData?.clientRequestId,
+      },
+    ];
+  });
+};
 
 /** 
  * Check whether a provider session-created event belongs to the draft request
@@ -892,21 +965,8 @@ export function useChatRealtimeHandlers({
           console.log('[Codex] Unhandled item type:', codexData.itemType, codexData);
         }
 
-        if (
-          codexData.type === 'item' &&
-          codexData.itemType === 'agent_message' &&
-          typeof codexData.message?.content === 'string' &&
-          codexData.message.content.trim()
-        ) {
-          setChatMessages((previous) => [
-            ...markUserMessagesPersisted(previous),
-            {
-              type: 'assistant',
-              content: codexData.message.content,
-              timestamp: new Date(),
-              source: 'codex-realtime',
-            },
-          ]);
+        if (codexData.type === 'item' && codexData.itemType === 'agent_message') {
+          appendRealtimeAssistantMessage(setChatMessages, latestMessage, codexData, 'codex-realtime');
         }
 
         if (codexData.type === 'turn_complete') {
@@ -1013,21 +1073,8 @@ export function useChatRealtimeHandlers({
           console.log('[OpenCode] Unhandled item type:', opencodeData.itemType, opencodeData);
         }
 
-        if (
-          opencodeData.type === 'item' &&
-          opencodeData.itemType === 'agent_message' &&
-          typeof opencodeData.message?.content === 'string' &&
-          opencodeData.message.content.trim()
-        ) {
-          setChatMessages((previous) => [
-            ...markUserMessagesPersisted(previous),
-            {
-              type: 'assistant',
-              content: opencodeData.message.content,
-              timestamp: new Date(),
-              source: 'opencode-realtime',
-            },
-          ]);
+        if (opencodeData.type === 'item' && opencodeData.itemType === 'agent_message') {
+          appendRealtimeAssistantMessage(setChatMessages, latestMessage, opencodeData, 'opencode-realtime');
         }
 
         if (opencodeData.type === 'turn_complete') {

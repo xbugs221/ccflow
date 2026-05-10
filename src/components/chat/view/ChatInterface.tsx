@@ -30,7 +30,7 @@ const NETWORK_TIMEOUT_MESSAGE =
 const SESSION_STATUS_RECONCILE_INTERVAL_MS = 4_000;
 
 const isTemporarySessionId = (sessionId?: string | null): boolean =>
-  Boolean(sessionId && (sessionId.startsWith('new-session-') || /^c\d+$/.test(sessionId)));
+  Boolean(sessionId && sessionId.startsWith('new-session-'));
 
 const isUnsavedSessionId = (sessionId?: string | null): boolean =>
   Boolean(sessionId && sessionId.startsWith('new-session-'));

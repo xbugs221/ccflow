@@ -47,9 +47,21 @@ Restarting the web service must not stop an already running Codex/OpenCode turn.
 
 - On startup and browser status checks, the web service reads co conversation state by `conversation_id`.
 - A conversation with `active_turn_id` is restored as an active session and the active turn's `events.jsonl` is tailed again.
+- A browser `check-session-status` for an idle co conversation returns `session-status` with `isProcessing=false` and must not replay completed turn history as realtime `codex-response` or `opencode-response` messages.
 - Browser refreshes and reconnects use the stable `conversation_id` route identity, including after the route is finalized to a provider session id.
 - Browser reconnects receive later co events for still-running turns.
 - Terminal turns are removed from the active replay set so reconnecting clients do not receive duplicate completed response events.
+
+### Keep cN route history and realtime events idempotent
+
+Existing manual `cN` routes represent stable ccflow conversations, while `new-session-*` ids represent unsaved draft views.
+
+- The browser treats `cN` route ids as stable conversation views, not as unsaved temporary sessions.
+- Message filtering accepts realtime events addressed by either the `ccflowSessionId`/`conversation_id` route id or the mapped provider session id.
+- Realtime assistant messages from co/Codex/OpenCode use stable identity fields such as conversation id, turn id, event sequence, message key, or client request id before appending to the transcript.
+- When REST history has already loaded a message, replaying the same realtime `agent_message` event must update or ignore the existing row instead of appending a duplicate.
+- Deduplication must not rely on message text alone, because different turns may legitimately produce identical assistant text.
+- Sending multiple follow-up messages in the same `cN` page appends the current turn once and must not reinsert earlier user or assistant rows.
 
 ### Coordinate running-turn intervention through co requests
 
@@ -79,8 +91,11 @@ Tests cover the business behavior, not only component existence.
 - Server tests cover co doctor failure without runner fallback.
 - Server tests cover boolean and object `co doctor` provider schemas.
 - Server tests cover refresh recovery from co conversation state and active turn id propagation.
+- Server tests cover idle `check-session-status` over the real WebSocket and assert completed co history is not replayed as realtime messages.
 - Server tests cover ordered event persistence before completion and non-duplicated provider error events.
 - Browser tests cover Codex/OpenCode co events still rendering after WebSocket reconnect.
+- Browser tests cover REST history plus duplicate realtime replay events rendering one assistant row.
+- Browser tests cover same-page `cN` follow-up sends rendering each user and assistant message once.
 - Browser tests cover provider-unavailable gates before draft creation and immediately before request writes.
 - Browser tests cover page reload while a co turn is running.
 - Browser tests cover two windows sharing one conversation, duplicate request ids, and stale abort protection.

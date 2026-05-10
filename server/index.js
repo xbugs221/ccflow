@@ -658,7 +658,7 @@ async function readCoConversationMessages(conversation, provider, limit = null, 
                     type: 'assistant',
                     provider: event.provider || provider,
                     timestamp: event.created_at || new Date().toISOString(),
-                    messageKey: `co:${conversationId}:${turnId}:event:${event.seq || messages.length}`,
+                    messageKey: `co:${conversationId}:${turnId}:event:${event.seq ?? messages.length}`,
                     message: {
                         role: 'assistant',
                         content: contentText,
@@ -2783,13 +2783,12 @@ function handleChatConnection(ws, request) {
                 const sessionId = data.ccflowSessionId || data.ccflow_session_id || data.sessionId;
                 const conversation = await recoverCoConversation(sessionId, request?.user?.id || null);
                 const isActive = conversation?.status === 'running' || Boolean(conversation?.active_turn_id);
-                if (conversation?.conversation_id && !isActive) {
-                    await replayCoConversationEvents(ws, conversation);
-                }
 
                 writer.send({
                     type: 'session-status',
                     sessionId,
+                    ccflowSessionId: conversation?.conversation_id || sessionId,
+                    ccflow_session_id: conversation?.conversation_id || sessionId,
                     provider,
                     isProcessing: isActive,
                     turnId: conversation?.active_turn_id || '',

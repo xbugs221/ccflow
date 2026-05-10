@@ -262,7 +262,7 @@ interface ScrollRestoreState {
  * Temporary route ids represent an unsaved new-session draft view.
  */
 function isTemporarySessionId(sessionId: string | null | undefined): boolean {
-  return typeof sessionId === 'string' && (sessionId.startsWith('new-session-') || /^c\d+$/.test(sessionId));
+  return typeof sessionId === 'string' && sessionId.startsWith('new-session-');
 }
 
 /**
