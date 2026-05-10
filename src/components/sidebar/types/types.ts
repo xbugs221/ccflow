@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { LoadingProgress, Project, ProjectSession, ProjectWorkflow, SessionProvider } from '../../../types/app';
-import type { NewSessionOptions } from '../../../utils/workflowAutoStart';
+import type { NewSessionHandler } from '../../main-content/types/types';
 
 export type ProjectSortOrder = 'name' | 'date';
 
@@ -32,7 +32,7 @@ export type SidebarProps = {
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
   onWorkflowSelect?: (project: Project, workflow: ProjectWorkflow) => void;
-  onNewSession: (project: Project, provider?: SessionProvider, options?: NewSessionOptions) => void;
+  onNewSession: NewSessionHandler;
   onSessionDelete?: (sessionId: string) => void;
   onProjectDelete?: (projectName: string) => void;
   isLoading: boolean;

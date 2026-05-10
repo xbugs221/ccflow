@@ -70,8 +70,8 @@ import {
     refreshMissingProjectPathCache
 } from './projects.js';
 import {
+    assertCoProviderAvailable,
     buildCoRequest,
-    isCoProviderAvailable,
     readCoConversationState,
     resolveCoHome,
     runCoDoctor,
@@ -228,15 +228,11 @@ function sendMessageAccepted(writer, {
  * a user chat request.
  */
 async function ensureCoAvailable(provider) {
-    if (!coDoctorStatus.ok) {
-        coDoctorStatus = await runCoDoctor();
-    }
+    coDoctorStatus = await runCoDoctor();
     if (!coDoctorStatus.ok) {
         throw new Error(`co is unavailable: ${coDoctorStatus.error || 'doctor failed'}`);
     }
-    if (!isCoProviderAvailable(coDoctorStatus, provider)) {
-        throw new Error(`co provider "${provider}" is unavailable`);
-    }
+    assertCoProviderAvailable(coDoctorStatus, provider);
     return coDoctorStatus;
 }
 
@@ -1116,7 +1112,9 @@ app.get('/api/diagnostics/runtime-dependencies', authenticateToken, async (req, 
             ...diagnostics.commands,
             co: {
                 name: 'co',
-                path: coDoctorStatus.home || resolveCoHome(),
+                command_path: coDoctorStatus.command_path || '',
+                path: coDoctorStatus.command_path || '',
+                home: coDoctorStatus.home || resolveCoHome(),
                 version: {
                     ok: coDoctorStatus.ok,
                     output: coDoctorStatus.version || '',
@@ -1131,6 +1129,7 @@ app.get('/api/diagnostics/runtime-dependencies', authenticateToken, async (req, 
                     missing: coDoctorStatus.ok ? [] : ['co-request-v1'],
                     error: coDoctorStatus.error || '',
                 },
+                providers: coDoctorStatus.providers || {},
             },
         },
     });
@@ -1543,6 +1542,7 @@ app.post('/api/projects/:projectName/manual-sessions', authenticateToken, async 
             return res.status(400).json({ error: 'Session label is required' });
         }
 
+        await ensureCoAvailable(provider);
         const session = await createManualSessionDraft(req.params.projectName, projectPath, provider, label, {
             workflowId,
             stageKey,

@@ -12,7 +12,7 @@ import { createSessionViewModel, getAllSessions, sortSessions } from '../sidebar
 import type { SessionWithProvider } from '../sidebar/types/types';
 import { buildProjectRoute, buildProjectWorkflowRoute } from '../../utils/projectRoute';
 import { isWorkflowOwnedSession } from '../../utils/workflowSessions';
-import type { NewSessionOptions } from '../../utils/workflowAutoStart';
+import type { NewSessionHandler } from '../main-content/types/types';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 
 type ProjectWorkspaceNavProps = {
@@ -21,7 +21,7 @@ type ProjectWorkspaceNavProps = {
   selectedWorkflow: ProjectWorkflow | null;
   onSessionSelect: (session: ProjectSession) => void;
   onWorkflowSelect: (project: Project, workflow: ProjectWorkflow) => void;
-  onNewSession: (project: Project, provider?: SessionProvider, options?: NewSessionOptions) => void;
+  onNewSession: NewSessionHandler;
   onRefresh: () => Promise<void> | void;
 };
 

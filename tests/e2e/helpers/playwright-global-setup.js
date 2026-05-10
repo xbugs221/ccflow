@@ -88,7 +88,9 @@ function ensureWorkflowToolFixtures(cwd) {
     [
       '#!/bin/sh',
       'if [ "$1" = "doctor" ] && [ "$2" = "--json" ]; then',
-      '  printf \'{"ok":true,"contract":"co-request-v1","version":"playwright","home":"%s","providers":{"codex":{"available":true},"opencode":{"available":true}}}\\n\' "${CCFLOW_CO_HOME:-$HOME/.local/state/ccflow/co}"',
+      '  opencode_available="${CCFLOW_FAKE_CO_OPENCODE_AVAILABLE:-true}"',
+      '  if [ -f "${CCFLOW_CO_HOME}/opencode-available" ]; then opencode_available="$(cat "${CCFLOW_CO_HOME}/opencode-available")"; fi',
+      '  printf \'{"ok":true,"contract":"co-request-v1","version":"playwright","home":"%s","providers":{"codex":true,"opencode":%s}}\\n\' "${CCFLOW_CO_HOME:-$HOME/.local/state/ccflow/co}" "$opencode_available"',
       '  exit 0',
       'fi',
       'echo "usage: co doctor --json" >&2',

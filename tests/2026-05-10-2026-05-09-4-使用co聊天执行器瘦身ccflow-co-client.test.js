@@ -8,8 +8,10 @@ import os from 'os';
 import path from 'path';
 
 import {
+  assertCoProviderAvailable,
   buildCoRequest,
   isCoProviderAvailable,
+  normalizeCoProviders,
   readCoConversationState,
   runCoDoctor,
   tailCoEvents,
@@ -147,4 +149,24 @@ test('co doctor provider availability is checked per target provider', () => {
   assert.equal(isCoProviderAvailable(status, 'codex'), true);
   assert.equal(isCoProviderAvailable(status, 'opencode'), false);
   assert.equal(isCoProviderAvailable(status, 'claude'), false);
+});
+
+test('co doctor boolean provider schema is normalized for OpenCode', () => {
+  const normalized = normalizeCoProviders({
+    codex: true,
+    opencode: true,
+  });
+
+  assert.deepEqual(normalized, {
+    codex: { available: true },
+    opencode: { available: true },
+  });
+  assert.equal(isCoProviderAvailable({ providers: { opencode: true } }, 'opencode'), true);
+});
+
+test('provider unavailable error is raised before callers write request files', () => {
+  assert.throws(
+    () => assertCoProviderAvailable({ error: 'doctor says no', providers: { opencode: false } }, 'opencode'),
+    /co provider "opencode" is unavailable: doctor says no/,
+  );
 });

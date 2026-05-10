@@ -5,6 +5,12 @@ import type { SessionWithProvider } from '../../sidebar/types/types';
 import type { NewSessionOptions } from '../../../utils/workflowAutoStart';
 
 export type SessionLifecycleHandler = (sessionId?: string | null) => void;
+export type NewSessionResult = { ok: true } | { ok: false; error: string };
+export type NewSessionHandler = (
+  project: Project,
+  provider?: SessionProvider,
+  options?: NewSessionOptions,
+) => Promise<NewSessionResult | void> | NewSessionResult | void;
 
 export type TaskMasterTask = {
   id: string | number;
@@ -68,7 +74,7 @@ export type MainContentProps = {
   ) => void;
   onSelectSession: (session: ProjectSession) => void;
   onSelectWorkflow: (project: Project, workflow: ProjectWorkflow) => void;
-  onNewSession: (project: Project, provider?: SessionProvider, options?: NewSessionOptions) => void;
+  onNewSession: NewSessionHandler;
   onShowSettings: () => void;
   externalMessageUpdate: number;
   headerLeadingContent?: ReactNode;
@@ -107,7 +113,7 @@ export type ProjectOverviewPanelProps = {
   selectedWorkflow?: ProjectWorkflow | null;
   sessions: SessionWithProvider[];
   displayMode?: 'all' | 'workflows' | 'sessions';
-  onNewSession: (project: Project, provider?: SessionProvider, options?: NewSessionOptions) => void;
+  onNewSession: NewSessionHandler;
   onSelectSession: (session: ProjectSession) => void;
   onSelectWorkflow: (project: Project, workflow: ProjectWorkflow) => void;
 };

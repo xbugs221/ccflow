@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import type { TFunction } from 'i18next';
 import type { LoadingProgress, Project, ProjectSession, ProjectWorkflow, SessionProvider } from '../../../../types/app';
-import type { NewSessionOptions } from '../../../../utils/workflowAutoStart';
+import type { NewSessionHandler } from '../../../main-content/types/types';
 import type {
   LoadingSessionsByProject,
   MCPServerStatus,
@@ -53,7 +53,7 @@ export type SidebarProjectListProps = {
     projectPath?: string,
   ) => void;
   onLoadMoreSessions: (project: Project) => void;
-  onNewSession: (project: Project, provider?: SessionProvider, options?: NewSessionOptions) => void;
+  onNewSession: NewSessionHandler;
   onEditingSessionNameChange: (value: string) => void;
   onStartEditingSession: (sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;

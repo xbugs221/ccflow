@@ -4,7 +4,9 @@ import { api } from '../../../../utils/api';
 
 type RuntimeCommandDiagnostics = {
   name: string;
+  command_path?: string;
   path: string;
+  home?: string;
   version?: { ok: boolean; output: string; error?: string };
   contract?: { ok: boolean; missing?: string[]; capabilities?: string[]; version?: string; error?: string };
 };
@@ -42,7 +44,8 @@ function RuntimeCommandRow({ command }: { command: RuntimeCommandDiagnostics }) 
         <div className="font-medium text-foreground">{command.name}</div>
         <StatusPill ok={Boolean(command.path) && command.version?.ok !== false && command.contract?.ok !== false} />
       </div>
-      <div className="text-sm text-muted-foreground break-all">path: {command.path || 'not found'}</div>
+      <div className="text-sm text-muted-foreground break-all">command_path: {command.command_path || command.path || 'not found'}</div>
+      {command.home && <div className="text-sm text-muted-foreground break-all">home: {command.home}</div>}
       <div className="text-sm text-muted-foreground break-all">version: {versionText}</div>
       {contractText && <div className="text-sm text-muted-foreground break-all">{contractText}</div>}
     </div>

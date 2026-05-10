@@ -3,35 +3,36 @@
  * workflow control plane before the web server starts.
  */
 import { execFileSync, spawnSync } from 'child_process';
+import { resolveExecutablePath } from './executable-resolver.js';
 
 const REQUIRED_COMMANDS = ['oz', 'wo'];
 const RUNNER_CONTRACT_COMMAND = ['contract', '--json'];
 const REQUIRED_RUNNER_CAPABILITIES = ['list-changes', 'run', 'resume', 'status', 'abort'];
 
 /**
- * Return the executable path for one command as seen by the current process.
+ * Build one actionable runtime dependency failure summary.
  */
-function resolveCommandPath(commandName) {
-  const result = process.platform === 'win32'
-    ? spawnSync('where', [commandName], { encoding: 'utf8' })
-    : spawnSync('sh', ['-lc', `command -v ${commandName}`], { encoding: 'utf8' });
-  if (result.status !== 0 || !String(result.stdout || '').trim()) {
-    return '';
-  }
-  return String(result.stdout || '').split(/\r?\n/)[0].trim();
+function formatCommandFailure(commandName, args, detail = '') {
+  const subcommand = [commandName, ...args].join(' ');
+  return [
+    `${subcommand} failed`,
+    detail ? `detail: ${detail}` : '',
+    `PATH=${process.env.PATH || ''}`,
+  ].filter(Boolean).join('; ');
 }
 
 /**
  * Execute a lightweight version command without throwing raw child-process
  * errors into startup logs.
  */
-function readCommandVersion(commandName) {
-  const result = spawnSync(commandName, ['--version'], { encoding: 'utf8' });
+function readCommandVersion(commandName, commandPath) {
+  const result = spawnSync(commandPath || commandName, ['--version'], { encoding: 'utf8' });
   const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+  const detail = result.error ? result.error.message : output || `exit ${result.status}`;
   return {
     ok: result.status === 0,
     output,
-    error: result.error ? result.error.message : '',
+    error: result.status === 0 ? '' : formatCommandFailure(commandName, ['--version'], detail),
   };
 }
 
@@ -39,15 +40,15 @@ function readCommandVersion(commandName) {
  * Check that the Go runner exposes the non-interactive commands required by
  * the web adapter.
  */
-function checkRunnerContract() {
-  const result = spawnSync('wo', RUNNER_CONTRACT_COMMAND, { encoding: 'utf8' });
+function checkRunnerContract(commandPath) {
+  const result = spawnSync(commandPath || 'wo', RUNNER_CONTRACT_COMMAND, { encoding: 'utf8' });
   const output = `${result.stdout || ''}\n${result.stderr || ''}`.trim();
   if (result.error || result.status !== 0) {
     return {
       ok: false,
       required: [`wo ${RUNNER_CONTRACT_COMMAND.join(' ')}`],
       missing: [`wo ${RUNNER_CONTRACT_COMMAND.join(' ')}`],
-      error: result.error ? result.error.message : output,
+      error: formatCommandFailure('wo', RUNNER_CONTRACT_COMMAND, result.error ? result.error.message : output || `exit ${result.status}`),
     };
   }
   let payload;
@@ -58,7 +59,7 @@ function checkRunnerContract() {
       ok: false,
       required: [`wo ${RUNNER_CONTRACT_COMMAND.join(' ')}`],
       missing: ['valid JSON contract output'],
-      error: error.message,
+      error: formatCommandFailure('wo', RUNNER_CONTRACT_COMMAND, `invalid JSON: ${error.message}`),
     };
   }
   const capabilities = Array.isArray(payload.capabilities)
@@ -74,6 +75,7 @@ function checkRunnerContract() {
     missing,
     capabilities,
     version: payload.version || '',
+    error: missing.length === 0 ? '' : formatCommandFailure('wo', RUNNER_CONTRACT_COMMAND, `missing ${missing.join(', ')}`),
   };
 }
 
@@ -83,13 +85,13 @@ function checkRunnerContract() {
 export function checkRequiredRuntimeDependencies() {
   const diagnostics = getRuntimeDependencyDiagnostics();
   const missing = Object.entries(diagnostics.commands)
-    .filter(([, command]) => !command.path)
+    .filter(([, command]) => !command.command_path)
     .map(([name]) => name);
   const incompatible = [];
-  if (diagnostics.commands.oz.path && !diagnostics.commands.oz.version.ok) {
+  if (diagnostics.commands.oz.command_path && !diagnostics.commands.oz.version.ok) {
     incompatible.push('oz --version');
   }
-  if (diagnostics.commands.wo.path && !diagnostics.commands.wo.contract.ok) {
+  if (diagnostics.commands.wo.command_path && !diagnostics.commands.wo.contract.ok) {
     incompatible.push(`wo contract: ${diagnostics.commands.wo.contract.missing.join(', ')}`);
   }
   if (missing.length > 0 || incompatible.length > 0) {
@@ -111,18 +113,19 @@ export function checkRequiredRuntimeDependencies() {
 export function getRuntimeDependencyDiagnostics() {
   const commands = {};
   for (const commandName of REQUIRED_COMMANDS) {
-    const commandPath = resolveCommandPath(commandName);
+    const commandPath = resolveExecutablePath(commandName);
     commands[commandName] = {
       name: commandName,
+      command_path: commandPath,
       path: commandPath,
-      version: commandPath ? readCommandVersion(commandName) : { ok: false, output: '', error: 'not found in PATH' },
+      version: commandPath ? readCommandVersion(commandName, commandPath) : { ok: false, output: '', error: `${commandName} not found in PATH: ${process.env.PATH || ''}` },
     };
   }
-  commands.wo.contract = commands.wo.path
-    ? checkRunnerContract()
-    : { ok: false, required: [`wo ${RUNNER_CONTRACT_COMMAND.join(' ')}`], missing: ['wo'] };
+  commands.wo.contract = commands.wo.command_path
+    ? checkRunnerContract(commands.wo.command_path)
+    : { ok: false, required: [`wo ${RUNNER_CONTRACT_COMMAND.join(' ')}`], missing: ['wo'], error: `wo not found in PATH: ${process.env.PATH || ''}` };
   return {
-    ok: REQUIRED_COMMANDS.every((commandName) => Boolean(commands[commandName].path))
+    ok: REQUIRED_COMMANDS.every((commandName) => Boolean(commands[commandName].command_path))
       && commands.oz.version.ok
       && commands.wo.contract.ok,
     commands,

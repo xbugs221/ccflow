@@ -6,6 +6,7 @@ import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import { promises as fsPromises } from 'fs';
+import { resolveExecutablePath } from './executable-resolver.js';
 
 export const CO_REQUEST_CONTRACT = 'co-request-v1';
 export const CO_CONVERSATION_CONTRACT = 'co-conversation-v1';
@@ -28,6 +29,17 @@ const REQUEST_OPS = new Set(['message', 'abort']);
 const PROVIDERS = new Set(['codex', 'opencode']);
 
 /**
+ * Build one actionable co doctor failure summary for diagnostics and send gates.
+ */
+function formatCoDoctorFailure(detail = '') {
+    return [
+        'co doctor --json failed',
+        detail ? `detail: ${detail}` : '',
+        `PATH=${process.env.PATH || ''}`,
+    ].filter(Boolean).join('; ');
+}
+
+/**
  * Return the shared co home used for request submission and read-model recovery.
  */
 export function resolveCoHome(env = process.env) {
@@ -35,19 +47,43 @@ export function resolveCoHome(env = process.env) {
 }
 
 /**
+ * Normalize the provider section returned by co doctor into ccflow's internal shape.
+ */
+export function normalizeCoProviders(providers = {}) {
+    /**
+     * co has emitted both boolean and object provider schemas; only the
+     * availability bit is intentionally normalized here.
+     */
+    const normalized = {};
+    for (const provider of PROVIDERS) {
+        const value = providers?.[provider];
+        if (typeof value === 'boolean') {
+            normalized[provider] = { available: value };
+        } else if (value && typeof value === 'object') {
+            normalized[provider] = { ...value, available: value.available === true };
+        } else {
+            normalized[provider] = { available: false };
+        }
+    }
+    return normalized;
+}
+
+/**
  * Execute `co doctor --json` and normalize startup diagnostics for UI and send gating.
  */
 export async function runCoDoctor({ command = 'co', timeoutMs = 5000 } = {}) {
     return new Promise((resolve) => {
-        const child = spawn(command, ['doctor', '--json'], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const commandPath = resolveExecutablePath(command) || command;
+        const child = spawn(commandPath, ['doctor', '--json'], { stdio: ['ignore', 'pipe', 'pipe'] });
         let stdout = '';
         let stderr = '';
         const timer = setTimeout(() => {
             child.kill('SIGTERM');
             resolve({
                 ok: false,
+                command_path: commandPath === command ? '' : commandPath,
                 contract: '',
-                error: 'co doctor timed out',
+                error: formatCoDoctorFailure(`timed out for ${command}`),
                 stderr,
             });
         }, timeoutMs);
@@ -60,21 +96,25 @@ export async function runCoDoctor({ command = 'co', timeoutMs = 5000 } = {}) {
         });
         child.on('error', (error) => {
             clearTimeout(timer);
-            resolve({ ok: false, contract: '', error: error.message, stderr });
+            resolve({ ok: false, command_path: commandPath === command ? '' : commandPath, contract: '', providers: normalizeCoProviders(), error: formatCoDoctorFailure(error.message), stderr });
         });
         child.on('close', (code) => {
             clearTimeout(timer);
             try {
                 const parsed = JSON.parse(stdout || '{}');
                 const ok = code === 0 && parsed?.ok === true && parsed?.contract === CO_REQUEST_CONTRACT;
+                const providers = normalizeCoProviders(parsed?.providers || {});
                 resolve({
                     ...parsed,
+                    command_path: commandPath === command ? '' : commandPath,
+                    providers,
                     ok,
-                    error: ok ? '' : (parsed?.error || stderr.trim() || `co doctor exited with ${code}`),
+                    error: ok ? '' : formatCoDoctorFailure(parsed?.error || stderr.trim() || `exit ${code}`),
                     stderr,
                 });
             } catch (error) {
-                resolve({ ok: false, contract: '', error: `invalid co doctor JSON: ${error.message}`, stderr });
+                const detail = [stderr.trim(), `invalid JSON: ${error.message}`].filter(Boolean).join('; ');
+                resolve({ ok: false, command_path: commandPath === command ? '' : commandPath, contract: '', providers: normalizeCoProviders(), error: formatCoDoctorFailure(detail), stderr });
             }
         });
     });
@@ -84,7 +124,17 @@ export async function runCoDoctor({ command = 'co', timeoutMs = 5000 } = {}) {
  * Check whether a doctor result explicitly marks a chat provider as usable.
  */
 export function isCoProviderAvailable(status, provider) {
-    return PROVIDERS.has(provider) && status?.providers?.[provider]?.available === true;
+    return PROVIDERS.has(provider) && normalizeCoProviders(status?.providers || {})[provider]?.available === true;
+}
+
+/**
+ * Raise a user-facing error before ccflow writes a co request for an unavailable provider.
+ */
+export function assertCoProviderAvailable(status, provider) {
+    if (!isCoProviderAvailable(status, provider)) {
+        const doctorError = status?.error || 'provider not available';
+        throw new Error(`co provider "${provider}" is unavailable: ${doctorError}; PATH=${process.env.PATH || ''}`);
+    }
 }
 
 /**

@@ -10,12 +10,12 @@ import { promises as fs } from 'fs';
 import {
   checkRequiredRuntimeDependencies,
   getRuntimeDependencyDiagnostics,
-} from '../../server/runtime-dependencies.js';
+} from '../server/runtime-dependencies.js';
 import {
   assertCoProviderAvailable,
   isCoProviderAvailable,
   runCoDoctor,
-} from '../../server/co-client.js';
+} from '../server/co-client.js';
 
 /**
  * Create one executable fake CLI in a temporary PATH directory.

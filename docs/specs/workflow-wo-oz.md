@@ -6,11 +6,16 @@
 
 ccflow uses `oz` to discover and manage change artifacts, and `wo` to run sealed workflow automation.
 
+- The `oz` and `wo` executables are resolved from the current web service `PATH`; source code must not depend on user-specific absolute paths.
 - Active changes are discovered with `oz list --json`.
 - Starting a workflow runs `wo run --change <change> --json` and reads `run_id`.
 - Resuming a workflow runs `wo resume --run-id <run-id> --json`.
 - Aborting a workflow runs `wo abort --run-id <run-id> --json`.
 - Runtime dependency diagnostics require `oz` and `wo`; old `ox` and `mc` commands are not fallback paths.
+- Runtime dependency diagnostics expose each resolved executable as `command_path`.
+- `oz` availability is validated with `oz --version`.
+- `wo` availability is validated with `wo contract --json` and the required workflow capabilities: `list-changes`, `run`, `resume`, `status`, and `abort`.
+- Missing commands or failed contract/version checks report the command name, failed subcommand, stderr or parse summary, and the current service `PATH`.
 
 ### Read only .wo run state
 
@@ -52,6 +57,7 @@ Display-line jsonl labels are resolved against workflow child sessions.
 Tests cover the new command contract and browser behavior.
 
 - Fake PATH tests provide only `oz` and `wo` and verify old `mc` / `ox` commands are not required.
+- Runtime diagnostics tests provide fake `oz`, `wo`, and `co` only through PATH and verify resolved `command_path` values.
 - Fake `wo run --json` writes `.wo/runs/<run-id>/state.json`, and ccflow binds the returned `run_id`.
 - Read-model tests cover happened display lines, unmatched jsonl warnings, arbitrary review/repair rounds, `workflow_display.lines` precedence, and terminal `done` metadata.
 - Browser/e2e tests verify wo display lines are visible, jsonl session links navigate to workflow child sessions, and project navigation does not show multiple indistinguishable `001` entries.

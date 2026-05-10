@@ -879,15 +879,22 @@ export function useProjectsState({
             label: sessionSummary,
             projectPath: project.fullPath || project.path || '',
           });
-          const payload = response.ok ? await response.json() : null;
+          const payload = await response.json().catch(() => null);
+          if (!response.ok) {
+            const message = typeof payload?.error === 'string' && payload.error
+              ? payload.error
+              : `Failed to create manual session draft (${response.status})`;
+            throw new Error(message);
+          }
           const createdSession = payload?.session;
           if (typeof createdSession?.id !== 'string' || !createdSession.id) {
             throw new Error('Manual session draft did not return a valid id');
           }
           draftSession = createdSession;
         } catch (error) {
+          const message = error instanceof Error ? error.message : 'Error creating manual session draft';
           console.error('Error creating manual session draft:', error);
-          return;
+          return { ok: false as const, error: message };
         }
       }
 
@@ -963,6 +970,7 @@ export function useProjectsState({
       if (isMobile) {
         setSidebarOpen(false);
       }
+      return { ok: true as const };
     },
     [isMobile, navigate, projects],
   );

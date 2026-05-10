@@ -193,6 +193,7 @@ export default function ProjectOverviewPanel({
   const [isLoadingOpenSpecChanges, setIsLoadingOpenSpecChanges] = useState(false);
   const [isCreatingWorkflow, setIsCreatingWorkflow] = useState(false);
   const [workflowComposerError, setWorkflowComposerError] = useState('');
+  const [sessionCreateError, setSessionCreateError] = useState('');
   const [actionMenu, setActionMenu] = useState<OverviewActionMenuState>({ isOpen: false, x: 0, y: 0 });
   const [isSessionSelectionMode, setSessionSelectionMode] = useState(false);
   const [selectedSessionKeys, setSelectedSessionKeys] = useState<Set<string>>(() => new Set());
@@ -420,13 +421,18 @@ export default function ProjectOverviewPanel({
     });
   };
 
-  const handleCreateSession = (provider: SessionProvider) => {
+  const handleCreateSession = async (provider: SessionProvider) => {
     /**
      * Ask the shared session launcher to create a manual draft after the user
      * picks the provider for the new conversation.
      */
+    setSessionCreateError('');
     setProviderPickerOpen(false);
-    onNewSession(project, provider);
+    const result = await Promise.resolve(onNewSession(project, provider));
+    if (result && result.ok === false) {
+      setSessionCreateError(result.error);
+      setProviderPickerOpen(true);
+    }
   };
 
   const openWorkflowComposer = async () => {
@@ -877,7 +883,13 @@ export default function ProjectOverviewPanel({
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
-                <Button className="h-9 gap-2 self-start" onClick={() => setProviderPickerOpen((value) => !value)}>
+                <Button
+                  className="h-9 gap-2 self-start"
+                  onClick={() => {
+                    setSessionCreateError('');
+                    setProviderPickerOpen((value) => !value);
+                  }}
+                >
                   <MessageSquarePlus className="h-4 w-4" />
                   {t('sessions.newSession')}
                 </Button>
@@ -923,6 +935,14 @@ export default function ProjectOverviewPanel({
                   >
                     取消
                   </Button>
+                </div>
+              )}
+              {sessionCreateError && (
+                <div
+                  data-testid="project-new-session-error"
+                  className="max-w-xl rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive break-words"
+                >
+                  {sessionCreateError}
                 </div>
               )}
             </div>
