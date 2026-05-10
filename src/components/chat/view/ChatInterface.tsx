@@ -62,6 +62,10 @@ const resolveProjectSessionProvider = (
     return 'codex';
   }
 
+  if ((selectedProject.opencodeSessions || []).some((session) => session.id === sessionId)) {
+    return 'opencode';
+  }
+
   return null;
 };
 

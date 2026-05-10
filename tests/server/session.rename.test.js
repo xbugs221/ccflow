@@ -19,6 +19,7 @@ import {
   finalizeManualSessionDraft,
   getManualSessionDraftRuntime,
   getCodexSessions,
+  getOpencodeSessions,
   getSessions,
   loadProjectConfig,
   renameCodexSession,
@@ -364,6 +365,28 @@ test('manual Codex draft sessions are visible before the first provider message'
     assert.equal(sessions[0].id, draftSession.id);
     assert.equal(sessions[0].summary, '会话2');
     assert.equal(sessions[0].status, 'draft');
+  });
+});
+
+test('manual OpenCode draft sessions are visible before the first provider message', { concurrency: false }, async () => {
+  await withTemporaryHome(async (tempHome) => {
+    const projectPath = path.join(tempHome, 'workspace', 'opencode-manual-draft');
+    await fs.mkdir(projectPath, { recursive: true });
+
+    const project = await addProjectManually(projectPath, 'OpenCode Draft Demo');
+    const draftSession = await createManualSessionDraft(project.name, projectPath, 'opencode', '会话2');
+
+    assert.equal(draftSession.projectPath, projectPath);
+    assert.equal(draftSession.provider, 'opencode');
+
+    const sessions = await getOpencodeSessions(projectPath, { limit: 0, includeHidden: true });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].id, draftSession.id);
+    assert.equal(sessions[0].summary, '会话2');
+    assert.equal(sessions[0].status, 'draft');
+    assert.equal(sessions[0].provider, 'opencode');
+    assert.equal(sessions[0].__provider, 'opencode');
+    assert.equal(sessions[0].projectPath, projectPath);
   });
 });
 

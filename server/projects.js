@@ -1526,6 +1526,7 @@ function buildManualDraftSession(draft) {
     : '新会话';
   const createdAt = draft?.createdAt || new Date().toISOString();
   const updatedAt = draft?.updatedAt || createdAt;
+  const provider = draft?.provider === 'opencode' ? 'opencode' : 'codex';
 
   return {
     id: draft.id,
@@ -1538,6 +1539,8 @@ function buildManualDraftSession(draft) {
     lastActivity: updatedAt,
     messageCount: 0,
     projectPath: draft.projectPath || '',
+    provider,
+    __provider: provider,
     status: 'draft',
     providerSessionId: typeof draft?.pendingProviderSessionId === 'string' ? draft.pendingProviderSessionId : undefined,
     workflowId: typeof draft?.workflowId === 'string' ? draft.workflowId : undefined,
@@ -3208,19 +3211,20 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'co
 
   const workflowId = typeof options?.workflowId === 'string' ? options.workflowId.trim() : '';
   const stageKey = typeof options?.stageKey === 'string' ? options.stageKey.trim() : '';
+  const resolvedProjectPath = projectPath || await extractProjectDirectory(projectName);
 
-  let config = await loadProjectConfig(projectPath);
+  let config = await loadProjectConfig(resolvedProjectPath);
   let currentStandaloneSessionCount = null;
   if (!workflowId) {
     let providerSessions = [];
     if (provider === 'codex') {
-      providerSessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true, excludeWorkflowChildSessions: true });
+      providerSessions = await getCodexSessions(resolvedProjectPath, { limit: 0, includeHidden: true, excludeWorkflowChildSessions: true });
     } else if (provider === 'opencode') {
-      providerSessions = await getOpencodeSessions(projectPath, { limit: 0, includeHidden: true, excludeWorkflowChildSessions: true });
+      providerSessions = await getOpencodeSessions(resolvedProjectPath, { limit: 0, includeHidden: true, excludeWorkflowChildSessions: true });
     } else {
       throw new Error('provider must be "codex" or "opencode"');
     }
-    config = await loadProjectConfig(projectPath);
+    config = await loadProjectConfig(resolvedProjectPath);
     const otherProviderDraftCount = Object.values(getManualSessionDraftMap(config)).filter((draft) => (
       draft?.provider !== provider && !isWorkflowOwnedDraft(draft)
     )).length;
@@ -3230,7 +3234,7 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'co
   const nextRouteIndex = workflowId
     ? undefined
     : Number.isInteger(currentStandaloneSessionCount)
-      ? getNextManualSessionRouteIndex(config, projectPath, currentStandaloneSessionCount)
+      ? getNextManualSessionRouteIndex(config, resolvedProjectPath, currentStandaloneSessionCount)
       : undefined;
   const existingDraftIds = new Set(Object.values(getManualSessionDraftMap(config)).map((draft) => draft?.id).filter(Boolean));
   let draftRouteIndex = nextRouteIndex;
@@ -3242,6 +3246,8 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'co
     [draftId]: {
       provider,
       label: trimmedLabel,
+      projectName,
+      projectPath: resolvedProjectPath,
       createdAt,
       updatedAt: createdAt,
       workflowId: workflowId || undefined,
@@ -3251,9 +3257,9 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'co
 
   config[MANUAL_SESSION_DRAFTS_KEY] = manualDraftMap;
   if (!workflowId) {
-    writeManualSessionRouteCounter(config, projectPath, nextRouteIndex);
+    writeManualSessionRouteCounter(config, resolvedProjectPath, nextRouteIndex);
   }
-  await saveProjectConfig(config, projectPath);
+  await saveProjectConfig(config, resolvedProjectPath);
   return buildManualDraftSession({
     ...manualDraftMap[draftId],
     id: draftId,
@@ -4057,7 +4063,16 @@ async function getCachedOpencodeSessionsIndex() {
  * Get OpenCode sessions for a project from the shared CLI-backed index.
  */
 async function getOpencodeSessions(projectPath, options = {}) {
-  const { indexRef = null } = options;
+  const {
+    indexRef = null,
+    limit = PROJECT_OVERVIEW_SESSION_LIMIT,
+    includeHidden = false,
+    excludeWorkflowChildSessions = false,
+  } = options;
+  const config = await loadProjectConfig(projectPath);
+  const summaryOverrideById = getSessionSummaryOverrideMap(config);
+  const workflowMetadataById = getSessionWorkflowMetadataMap(config);
+  const modelStateById = getSessionModelStateMap(config);
   const normalizedProjectPath = normalizeComparablePath(projectPath);
   if (!normalizedProjectPath) {
     return [];
@@ -4068,7 +4083,62 @@ async function getOpencodeSessions(projectPath, options = {}) {
   }
 
   const sessionsByProject = indexRef?.sessionsByProject || await getCachedOpencodeSessionsIndex();
-  return [...(sessionsByProject.get(normalizedProjectPath) || [])];
+  const sessions = [...(sessionsByProject.get(normalizedProjectPath) || [])]
+    .map((session) => applySessionMetadataOverrides(session, summaryOverrideById, workflowMetadataById, 'opencode'))
+    .map((session) => applySessionModelState(session, modelStateById));
+  const manualDraftRecords = getManualDraftSessionsForProject(config, {
+    projectName: null,
+    projectPath,
+    provider: 'opencode',
+  });
+  const boundProviderSessionIds = new Set();
+  manualDraftRecords
+    .map((session) => session.providerSessionId)
+    .filter((sessionId) => typeof sessionId === 'string' && sessionId)
+    .forEach((sessionId) => boundProviderSessionIds.add(sessionId));
+
+  let standaloneSessions = sessions;
+  if (excludeWorkflowChildSessions) {
+    const workflows = await listProjectWorkflows(projectPath);
+    const workflowOpencodeSessionIds = new Set(
+      workflows.flatMap((workflow) => (workflow.childSessions || []))
+        .filter((session) => session?.provider === 'opencode' && session?.id)
+        .map((session) => session.id),
+    );
+    standaloneSessions = sessions.filter((session) => (
+      !workflowOpencodeSessionIds.has(session.id)
+      && !isWorkflowOwnedSession(session, workflowMetadataById)
+      && !isLikelyWorkflowAutoSession(session, workflows, 'opencode')
+    ));
+  }
+
+  const routeVisibleStandaloneSessions = standaloneSessions
+    .filter((session) => !boundProviderSessionIds.has(session.id));
+  const sessionsWithDrafts = Array.from(
+    new Map([...routeVisibleStandaloneSessions, ...manualDraftRecords].map((session) => [session?.id, session])).values(),
+  )
+    .sort((sessionA, sessionB) => new Date(sessionB.lastActivity || 0) - new Date(sessionA.lastActivity || 0));
+  const annotatedSessions = await annotateSessionCollectionVisibility(sessionsWithDrafts, projectPath);
+  const sessionsWithUiState = annotatedSessions.map((session) => applySessionUiState(
+    session,
+    projectPath,
+    'opencode',
+    config,
+  ));
+  const visibleSessions = includeHidden
+    ? sessionsWithUiState
+    : filterHiddenArchivedSessions(sessionsWithUiState);
+  const indexedVisibleSessions = attachSessionRouteIndices(
+    config,
+    projectPath,
+    'opencode',
+    visibleSessions,
+  );
+  if (indexedVisibleSessions.changed) {
+    await saveProjectConfig(config, projectPath);
+  }
+
+  return limit > 0 ? indexedVisibleSessions.sessions.slice(0, limit) : [...indexedVisibleSessions.sessions];
 }
 
 /**
@@ -5121,6 +5191,7 @@ export {
   clearProjectDirectoryCache,
   refreshMissingProjectPathCache,
   getCodexSessions,
+  getOpencodeSessions,
   getCodexSessionMessages,
   searchChatHistory,
   deleteCodexSession,

@@ -603,6 +603,168 @@ async function replayCoConversationEvents(ws, conversation) {
 }
 
 /**
+ * Read durable co history into the same raw message shape used by chat history loaders.
+ */
+async function readCoConversationMessages(conversation, provider, limit = null, offset = 0) {
+    const conversationId = conversation?.conversation_id || '';
+    const turns = Array.isArray(conversation?.turns) ? conversation.turns : [];
+    if (!conversationId || turns.length === 0) {
+        return { messages: [], total: 0, hasMore: false };
+    }
+
+    const requests = await readCoConversationRequests(conversationId);
+    const messages = [];
+    for (const [turnIndex, turnId] of turns.entries()) {
+        const request = requests[turnIndex] || null;
+        if (request?.text) {
+            messages.push({
+                type: 'user',
+                timestamp: request.created_at || new Date().toISOString(),
+                requestId: request.request_id || request.id || '',
+                messageKey: `co:${conversationId}:${turnId}:user`,
+                message: {
+                    role: 'user',
+                    content: request.text,
+                },
+            });
+        }
+
+        const eventsPath = path.join(resolveCoHome(), 'turns', turnId, 'events.jsonl');
+        let content = '';
+        try {
+            content = await fsPromises.readFile(eventsPath, 'utf8');
+        } catch (error) {
+            if (error?.code !== 'ENOENT') {
+                console.warn('[co] Failed to read conversation history event file:', error.message);
+            }
+            continue;
+        }
+
+        for (const line of content.split('\n')) {
+            if (!line.trim()) {
+                continue;
+            }
+            try {
+                const event = normalizeCoEventPayload(JSON.parse(line));
+                const contentText = typeof event?.data?.message?.content === 'string'
+                    ? event.data.message.content
+                    : typeof event?.data?.raw?.part?.text === 'string'
+                        ? event.data.raw.part.text
+                        : '';
+                if (!contentText.trim()) {
+                    continue;
+                }
+                messages.push({
+                    type: 'assistant',
+                    provider: event.provider || provider,
+                    timestamp: event.created_at || new Date().toISOString(),
+                    messageKey: `co:${conversationId}:${turnId}:event:${event.seq || messages.length}`,
+                    message: {
+                        role: 'assistant',
+                        content: contentText,
+                        phase: 'final_answer',
+                    },
+                });
+            } catch (error) {
+                console.warn('[co] Failed to parse conversation history event:', error.message);
+            }
+        }
+    }
+
+    const normalizedOffset = Number.isInteger(Number(offset)) && Number(offset) > 0 ? Number(offset) : 0;
+    const normalizedLimit = Number.isInteger(Number(limit)) && Number(limit) > 0 ? Number(limit) : null;
+    const pagedMessages = normalizedLimit
+        ? messages.slice(normalizedOffset, normalizedOffset + normalizedLimit)
+        : messages.slice(normalizedOffset);
+
+    return {
+        messages: pagedMessages,
+        total: messages.length,
+        hasMore: normalizedLimit ? messages.length > normalizedOffset + normalizedLimit : false,
+    };
+}
+
+/**
+ * Find a co conversation either by its route id or by the provider session id.
+ */
+async function findCoConversationForSession(sessionId) {
+    if (!sessionId) {
+        return null;
+    }
+    if (isCcflowRouteSessionId(sessionId)) {
+        return readCoConversationState(sessionId).catch(() => null);
+    }
+
+    const conversationsDir = path.join(resolveCoHome(), 'conversations');
+    let entries = [];
+    try {
+        entries = await fsPromises.readdir(conversationsDir, { withFileTypes: true });
+    } catch (error) {
+        if (error?.code !== 'ENOENT') {
+            console.warn('[co] Failed to list conversations:', error.message);
+        }
+        return null;
+    }
+
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+        const statePath = path.join(conversationsDir, entry.name, 'state.json');
+        try {
+            const state = JSON.parse(await fsPromises.readFile(statePath, 'utf8'));
+            if (state?.provider_session_id === sessionId || state?.conversation_id === sessionId) {
+                return state;
+            }
+        } catch (error) {
+            if (error?.code !== 'ENOENT') {
+                console.warn('[co] Failed to read conversation state:', error.message);
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Read chat requests for one co conversation in creation order.
+ */
+async function readCoConversationRequests(conversationId) {
+    const records = [];
+    for (const bucket of ['done', 'running', 'pending']) {
+        const bucketDir = path.join(resolveCoHome(), 'requests', bucket);
+        let entries = [];
+        try {
+            entries = await fsPromises.readdir(bucketDir, { withFileTypes: true });
+        } catch (error) {
+            if (error?.code !== 'ENOENT') {
+                console.warn('[co] Failed to list request bucket:', error.message);
+            }
+            continue;
+        }
+
+        for (const entry of entries) {
+            if (!entry.isFile() || !entry.name.endsWith('.json')) {
+                continue;
+            }
+            const requestPath = path.join(bucketDir, entry.name);
+            try {
+                const request = JSON.parse(await fsPromises.readFile(requestPath, 'utf8'));
+                if (request?.conversation_id === conversationId) {
+                    records.push(request);
+                }
+            } catch (error) {
+                console.warn('[co] Failed to parse request record:', error.message);
+            }
+        }
+    }
+
+    return records.sort((left, right) => (
+        new Date(left.created_at || 0).getTime() - new Date(right.created_at || 0).getTime()
+    ));
+}
+
+/**
  * Recover a running co conversation and start tailing its active turn.
  */
 async function recoverCoConversation(conversationId, sourceUserId = null) {
@@ -1393,7 +1555,12 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
                 const indexedProvider = runtimeContext.provider === 'opencode' ? 'opencode' : 'codex';
                 const nativeResult = (resolvedProvider || indexedProvider) === 'codex'
                     ? await getCodexSessionMessages(providerSessionId, parsedLimit, parsedOffset, parsedAfterLine)
-                    : { messages: [] };
+                    : await readCoConversationMessages(
+                        await findCoConversationForSession(sessionId),
+                        'opencode',
+                        parsedLimit,
+                        parsedOffset,
+                    );
                 return res.json(nativeResult);
             }
         }
@@ -1414,7 +1581,12 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
 
         const result = resolvedProvider === 'codex'
             ? await getCodexSessionMessages(sessionId, parsedLimit, parsedOffset, parsedAfterLine)
-            : { messages: [] };
+            : await readCoConversationMessages(
+                await findCoConversationForSession(sessionId),
+                'opencode',
+                parsedLimit,
+                parsedOffset,
+            );
 
         // Handle both old and new response formats
         if (Array.isArray(result)) {
