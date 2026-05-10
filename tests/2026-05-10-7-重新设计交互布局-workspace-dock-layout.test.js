@@ -1,0 +1,285 @@
+/**
+ * PURPOSE: Verify workspace dock layout behavior.
+ * Tests default layout, tab clicks, collapse/resize/fullscreen, and persistence.
+ */
+import { test, expect } from '@playwright/test';
+import path from 'node:path';
+
+process.env.DATABASE_PATH = path.join(process.env.HOME || '', '.ccflow', 'auth.db');
+
+const [{ generateToken }, { userDb }] = await Promise.all([
+  import('../server/middleware/auth.js'),
+  import('../server/database/db.js'),
+]);
+
+function createLocalAuthToken() {
+  const user = userDb.getFirstUser();
+  if (!user) {
+    throw new Error('No active user found for Playwright authentication');
+  }
+  return generateToken(user);
+}
+
+const AUTH_TOKEN = createLocalAuthToken();
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript((token) => {
+    window.localStorage.setItem('auth-token', token);
+  }, AUTH_TOKEN);
+});
+
+async function openTestProject(page) {
+  await page.goto('/workspace/fixture-project', { waitUntil: 'networkidle' });
+  // Wait for project to load
+  await expect(page.locator('[data-testid^="tab-"]').first()).toBeVisible({ timeout: 10_000 });
+
+  // Click on a session to enter the chat workspace with dock layout
+  const sessionButton = page.locator('button', { hasText: /fixture-project manual-only session/ }).first();
+  if (await sessionButton.isVisible().catch(() => false)) {
+    await sessionButton.click();
+    // Wait for chat workspace to load
+    await page.waitForTimeout(500);
+  }
+}
+
+async function clickTab(page, tabName) {
+  const tab = page.locator(`[data-testid="tab-${tabName}"]`);
+  await tab.click();
+  return tab;
+}
+
+test.describe('workspace dock layout', () => {
+  test('default layout shows right and bottom docks', async ({ page }) => {
+    await openTestProject(page);
+
+    // Right dock should show files by default
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+
+    // Bottom dock should show terminal by default
+    await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+  });
+
+  test('clicking files toggles right dock with files active', async ({ page }) => {
+    await openTestProject(page);
+
+    await clickTab(page, 'files');
+
+    // Right dock should be visible with files active
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+    await expect(page.locator('[data-testid="tab-files"]')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('clicking git toggles right dock with git active', async ({ page }) => {
+    await openTestProject(page);
+
+    await clickTab(page, 'git');
+
+    // Right dock should be visible with git active
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+    await expect(page.locator('[data-testid="tab-git"]')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('files and git are mutually exclusive in right dock', async ({ page }) => {
+    await openTestProject(page);
+
+    // Click files first
+    await clickTab(page, 'files');
+    await expect(page.locator('[data-testid="tab-files"]')).toHaveAttribute('aria-pressed', 'true');
+
+    // Click git
+    await clickTab(page, 'git');
+    await expect(page.locator('[data-testid="tab-git"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-testid="tab-files"]')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('clicking terminal toggles bottom dock collapse', async ({ page }) => {
+    await openTestProject(page);
+
+    // Bottom dock should be visible by default
+    await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+
+    // First click shell: activeTab changes from 'chat' to 'shell', dock expands (already visible)
+    await clickTab(page, 'shell');
+    await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+
+    // Second click shell: activeTab is already 'shell', so toggle collapse
+    await clickTab(page, 'shell');
+
+    // Bottom dock should be collapsed (not visible)
+    await expect(page.locator('[data-testid="dock-panel-bottom"]')).not.toBeVisible();
+
+    // Third click shell: expand again
+    await clickTab(page, 'shell');
+
+    // Bottom dock should be visible again
+    await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+  });
+
+  test('resize handles are present and interactive', async ({ page }) => {
+    await openTestProject(page);
+
+    const rightHandle = page.locator('[data-testid="resize-handle-vertical"]');
+    const bottomHandle = page.locator('[data-testid="resize-handle-horizontal"]');
+
+    await expect(rightHandle).toBeVisible();
+    await expect(bottomHandle).toBeVisible();
+  });
+
+  test('layout persists after page refresh', async ({ page }) => {
+    await openTestProject(page);
+
+    // Collapse right dock by clicking collapse button
+    const rightDock = page.locator('[data-testid="dock-panel-right"]');
+    await expect(rightDock).toBeVisible();
+
+    // Find and click collapse button (first button in the dock panel)
+    const collapseButton = rightDock.locator('button').first();
+    await collapseButton.click();
+
+    // Wait a moment for state to update
+    await page.waitForTimeout(300);
+
+    // Refresh page
+    await page.reload({ waitUntil: 'networkidle' });
+    await expect(page.locator('[data-testid^="tab-"]').first()).toBeVisible({ timeout: 10_000 });
+
+    // Right dock should still be collapsed (not visible)
+    await expect(page.locator('[data-testid="dock-panel-right"]')).not.toBeVisible();
+  });
+
+  test('corrupted layout state falls back to default', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem('ccflow:workspace-layout:v1', 'invalid-json{{');
+    });
+
+    await openTestProject(page);
+
+    // Should show default layout: right dock visible with files, bottom dock visible with terminal
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+    await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+  });
+
+  test('old activeTab state is migrated to dock layout', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem('activeTab', 'files');
+      window.localStorage.removeItem('ccflow:workspace-layout:v1');
+    });
+
+    await openTestProject(page);
+
+    // Should show files in right dock
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+    await expect(page.locator('[data-testid="tab-files"]')).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+test.describe('mobile workspace layout', () => {
+  test.use({ viewport: { width: 375, height: 667 } });
+
+  test('mobile shows overlay for files', async ({ page }) => {
+    await openTestProject(page);
+
+    // Click files
+    await clickTab(page, 'files');
+
+    // Should show overlay with close button
+    await expect(page.locator('[data-testid="mobile-overlay-close"]')).toBeVisible();
+
+    // Close overlay
+    await page.locator('[data-testid="mobile-overlay-close"]').click();
+
+    // Should be back to normal view
+    await expect(page.locator('[data-testid="mobile-overlay-close"]')).not.toBeVisible();
+  });
+
+  test('mobile shows overlay for terminal', async ({ page }) => {
+    await openTestProject(page);
+
+    // Click terminal
+    await clickTab(page, 'shell');
+
+    // Should show overlay with close button
+    await expect(page.locator('[data-testid="mobile-overlay-close"]')).toBeVisible();
+
+    // Close overlay
+    await page.locator('[data-testid="mobile-overlay-close"]').click();
+
+    // Should be back to normal view
+    await expect(page.locator('[data-testid="mobile-overlay-close"]')).not.toBeVisible();
+  });
+});
+
+test.describe('workspace dock fullscreen and terminal move', () => {
+  test('right dock fullscreen toggle', async ({ page }) => {
+    await openTestProject(page);
+
+    // Right dock should be visible
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+
+    // Click fullscreen button on right dock
+    const fullscreenButton = page.locator('[data-testid="dock-panel-right"] button[title="全屏"]').first();
+    await fullscreenButton.click();
+
+    // After fullscreen, the dock panel should occupy the whole area
+    // The original right dock structure won't be present; instead we see fullscreen view
+    await expect(page.locator('[data-testid="dock-panel-right"]')).not.toBeVisible();
+
+    // Exit fullscreen
+    const exitFullscreenButton = page.locator('button[aria-label="退出全屏"]').first();
+    await exitFullscreenButton.click();
+
+    // Right dock should be back
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+  });
+
+  test('bottom dock fullscreen toggle', async ({ page }) => {
+    await openTestProject(page);
+
+    // Bottom dock should be visible
+    await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+
+    // Click fullscreen button on bottom dock
+    const fullscreenButton = page.locator('[data-testid="dock-panel-bottom"] button[title="全屏"]').first();
+    await fullscreenButton.click();
+
+    // After fullscreen, the dock panel should occupy the whole area
+    await expect(page.locator('[data-testid="dock-panel-bottom"]')).not.toBeVisible();
+
+    // Exit fullscreen
+    const exitFullscreenButton = page.locator('button[aria-label="退出全屏"]').first();
+    await exitFullscreenButton.click();
+
+    // Bottom dock should be back
+    await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+  });
+
+  test('terminal move between bottom and right split', async ({ page }) => {
+    await openTestProject(page);
+
+    // Bottom dock should be visible by default
+    await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+
+    // Right dock should also be visible
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+
+    // Click "move terminal to right" button on bottom dock
+    const moveToRightButton = page.locator('[data-testid="dock-panel-bottom"] button[title="移动终端"]').first();
+    await moveToRightButton.click();
+
+    // Bottom dock should disappear
+    await expect(page.locator('[data-testid="dock-panel-bottom"]')).not.toBeVisible();
+
+    // Right dock should still be visible (now with split)
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+
+    // Click "move terminal to bottom" button on right dock
+    const moveToBottomButton = page.locator('[data-testid="dock-panel-right"] button[title="移动终端"]').first();
+    await moveToBottomButton.click();
+
+    // Bottom dock should reappear
+    await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+
+    // Right dock should still be visible
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+  });
+});

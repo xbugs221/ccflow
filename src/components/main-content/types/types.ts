@@ -80,6 +80,13 @@ export type MainContentProps = {
   headerLeadingContent?: ReactNode;
 };
 
+export type DockLayoutControl = {
+  rightDockActive: 'files' | 'git' | null;
+  rightDockCollapsed: boolean;
+  bottomDockActive: 'terminal' | null;
+  bottomDockCollapsed: boolean;
+};
+
 export type MainContentHeaderProps = {
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
@@ -90,6 +97,7 @@ export type MainContentHeaderProps = {
   isMobile: boolean;
   onMenuClick: () => void;
   leadingContent?: ReactNode;
+  dockLayout?: DockLayoutControl;
 };
 
 export type MainContentStateViewProps = {

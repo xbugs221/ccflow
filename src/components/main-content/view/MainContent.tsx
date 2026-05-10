@@ -1,9 +1,9 @@
 /**
- * Main content switcher.
- * Routes the selected project/session into chat, files, shell, git, tasks, and editor panels.
+ * PURPOSE: Main content area with dock-based workspace layout.
+ * Center always shows chat; files/git are in right dock; terminal is in bottom dock.
  */
 import React, { useEffect } from 'react';
-import { ChevronsLeft, ChevronsRight, Move } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Move, X } from 'lucide-react';
 
 import ChatInterface from '../../chat/view/ChatInterface';
 import FileTree from '../../file-tree/view/FileTree';
@@ -15,14 +15,16 @@ import MainContentHeader from './subcomponents/MainContentHeader';
 import MainContentStateView from './subcomponents/MainContentStateView';
 import TaskMasterPanel from './subcomponents/TaskMasterPanel';
 import ProjectOverviewPanel from './subcomponents/ProjectOverviewPanel';
+import WorkspaceDockLayout from './subcomponents/WorkspaceDockLayout';
 import type { MainContentProps } from '../types/types';
+import { useWorkspaceLayoutState } from '../hooks/useWorkspaceLayoutState';
 
 import { useTaskMaster } from '../../../contexts/TaskMasterContext';
 import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import EditorSidebar from '../../code-editor/view/EditorSidebar';
-import type { Project } from '../../../types/app';
+import type { AppTab, Project } from '../../../types/app';
 import WorkflowDetailView from './subcomponents/WorkflowDetailView';
 import { getAllSessions } from '../../sidebar/utils/utils';
 
@@ -44,9 +46,6 @@ type WorkflowMiniMapPosition = {
 
 const WORKFLOW_MINIMAP_MARGIN = 16;
 
-/**
- * PURPOSE: Keep the workflow minimap inside the visible main-content panel while users drag it.
- */
 function clampWorkflowMiniMapPosition(
   position: WorkflowMiniMapPosition,
   containerRect: DOMRect,
@@ -61,9 +60,6 @@ function clampWorkflowMiniMapPosition(
   };
 }
 
-/**
- * PURPOSE: Convert the default top-right workflow minimap placement into draggable coordinates.
- */
 function getDefaultWorkflowMiniMapPosition(containerRect: DOMRect, panelRect: DOMRect): WorkflowMiniMapPosition {
   return clampWorkflowMiniMapPosition(
     {
@@ -147,10 +143,26 @@ function MainContent({
     isMobile,
   });
 
+  // Workspace layout state for dock-based layout
+  const {
+    layout,
+    setRightDock,
+    setBottomDock,
+    toggleRightDockCollapse,
+    toggleBottomDockCollapse,
+    setRightDockWidth,
+    setBottomDockHeight,
+    toggleRightDockFullscreen,
+    toggleBottomDockFullscreen,
+    moveTerminalToRightSplit,
+    moveTerminalToBottom,
+    setRightDockSplitRatio,
+  } = useWorkspaceLayoutState(isMobile);
+
+  // Mobile overlay state for files/git/terminal panels
+  const [mobileOverlay, setMobileOverlay] = React.useState<'files' | 'git' | 'terminal' | null>(null);
+
   const resolveWorkflowMiniMapPosition = React.useCallback(() => {
-    /**
-     * Read live DOM sizes so drag math follows collapse/expand and responsive layout changes.
-     */
     const container = workflowMiniMapContainerRef.current;
     const panel = workflowMiniMapPanelRef.current;
     if (!container || !panel) {
@@ -164,9 +176,6 @@ function MainContent({
   }, [workflowMiniMapPosition]);
 
   const handleWorkflowMiniMapDragStart = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    /**
-     * Start a pointer-captured drag from the visible minimap handle.
-     */
     const origin = resolveWorkflowMiniMapPosition();
     if (!origin) {
       return;
@@ -183,9 +192,6 @@ function MainContent({
   }, [resolveWorkflowMiniMapPosition]);
 
   const handleWorkflowMiniMapDragMove = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    /**
-     * Move the minimap by pointer delta and clamp it inside the main-content viewport.
-     */
     const drag = workflowMiniMapDragRef.current;
     const container = workflowMiniMapContainerRef.current;
     const panel = workflowMiniMapPanelRef.current;
@@ -205,9 +211,6 @@ function MainContent({
   }, []);
 
   const handleWorkflowMiniMapDragEnd = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    /**
-     * Release pointer capture once the user stops repositioning the minimap.
-     */
     if (workflowMiniMapDragRef.current?.pointerId !== event.pointerId) {
       return;
     }
@@ -216,9 +219,6 @@ function MainContent({
   }, []);
 
   React.useLayoutEffect(() => {
-    /**
-     * Keep a dragged minimap visible when the panel resizes or the tree is collapsed.
-     */
     if (!workflowMiniMapPosition) {
       return;
     }
@@ -240,6 +240,41 @@ function MainContent({
     }
   }, [shouldShowTasksTab, activeTab, setActiveTab]);
 
+  // Wrap setActiveTab to handle dock toggle on user clicks without useEffect loops
+  const handleSetActiveTab = React.useCallback(
+    (value: React.SetStateAction<AppTab>) => {
+      const nextTab = typeof value === 'function' ? value(activeTab) : value;
+
+      if (isMobile && selectedProject) {
+        if (nextTab === 'files' || nextTab === 'git' || nextTab === 'shell') {
+          setMobileOverlay(nextTab === 'shell' ? 'terminal' : nextTab);
+        }
+      } else if (nextTab === 'files') {
+        // Only toggle collapse when clicking the same tab again
+        if (activeTab === 'files' && layout.rightDock.activePanel === 'files' && !layout.rightDock.collapsed) {
+          setRightDock({ collapsed: true });
+        } else {
+          setRightDock({ activePanel: 'files', collapsed: false });
+        }
+      } else if (nextTab === 'git') {
+        if (activeTab === 'git' && layout.rightDock.activePanel === 'git' && !layout.rightDock.collapsed) {
+          setRightDock({ collapsed: true });
+        } else {
+          setRightDock({ activePanel: 'git', collapsed: false });
+        }
+      } else if (nextTab === 'shell') {
+        if (activeTab === 'shell' && layout.bottomDock.activePanel === 'terminal' && !layout.bottomDock.collapsed) {
+          setBottomDock({ collapsed: true });
+        } else {
+          setBottomDock({ activePanel: 'terminal', collapsed: false });
+        }
+      }
+
+      setActiveTab(nextTab);
+    },
+    [activeTab, isMobile, selectedProject, layout.rightDock.activePanel, layout.rightDock.collapsed, layout.bottomDock.activePanel, layout.bottomDock.collapsed, setRightDock, setBottomDock, setMobileOverlay, setActiveTab],
+  );
+
   if (isLoading) {
     return <MainContentStateView mode="loading" isMobile={isMobile} onMenuClick={onMenuClick} />;
   }
@@ -253,7 +288,7 @@ function MainContent({
       <div className="h-full flex flex-col">
         <MainContentHeader
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={handleSetActiveTab}
           selectedProject={selectedProject}
           selectedSession={selectedSession}
           selectedWorkflow={selectedWorkflow}
@@ -261,6 +296,12 @@ function MainContent({
           isMobile={isMobile}
           onMenuClick={onMenuClick}
           leadingContent={headerLeadingContent}
+          dockLayout={{
+            rightDockActive: layout.rightDock.activePanel,
+            rightDockCollapsed: layout.rightDock.collapsed,
+            bottomDockActive: layout.bottomDock.activePanel,
+            bottomDockCollapsed: layout.bottomDock.collapsed,
+          }}
         />
 
         <div className="flex-1 min-h-0 overflow-hidden">
@@ -297,12 +338,62 @@ function MainContent({
     );
   }
 
-  if (selectedWorkflow && !selectedSession && activeTab === 'chat') {
+  if (selectedWorkflow && !selectedSession) {
+    // Workflow detail page with dock layout
+    const workflowCenterContent = (
+      <>
+        <div className={`flex flex-col min-h-0 min-w-0 overflow-hidden flex-1 ${editorExpanded ? 'hidden' : ''}`}>
+          <WorkflowDetailView
+            project={selectedProject}
+            workflow={selectedWorkflow}
+            onNavigateToSession={onNavigateToSession}
+            onOpenArtifactFile={handleFileOpen}
+            onOpenArtifactDirectory={(directoryPath) => {
+              setActiveTab('files');
+              setRevealDirectoryRequest({ path: directoryPath, requestId: Date.now() });
+            }}
+          />
+        </div>
+        <EditorSidebar
+          editingFile={editingFile}
+          isMobile={isMobile}
+          editorExpanded={editorExpanded}
+          editorWidth={editorWidth}
+          hasManualWidth={hasManualWidth}
+          resizeHandleRef={resizeHandleRef}
+          onResizeStart={handleResizeStart}
+          onCloseEditor={handleCloseEditor}
+          onToggleEditorExpand={handleToggleEditorExpand}
+          projectPath={selectedProject.path}
+        />
+      </>
+    );
+
+    const workflowRightDockContent = layout.rightDock.activePanel === 'files' ? (
+      <FileTree
+        selectedProject={selectedProject}
+        onFileOpen={handleFileOpen}
+        revealDirectoryRequest={revealDirectoryRequest}
+      />
+    ) : layout.rightDock.activePanel === 'git' ? (
+      <GitPanel selectedProject={selectedProject} isMobile={isMobile} onFileOpen={handleFileOpen} />
+    ) : null;
+
+    const workflowBottomDockContent = layout.bottomDock.activePanel === 'terminal' ? (
+      <StandaloneShell
+        key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
+        project={selectedProject}
+        command={null}
+        isPlainShell
+        showHeader={false}
+      />
+    ) : null;
+
     return (
       <div className="h-full flex flex-col">
         <MainContentHeader
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={handleSetActiveTab}
           selectedProject={selectedProject}
           selectedSession={selectedSession}
           selectedWorkflow={selectedWorkflow}
@@ -310,32 +401,153 @@ function MainContent({
           isMobile={isMobile}
           onMenuClick={onMenuClick}
           leadingContent={headerLeadingContent}
+          dockLayout={{
+            rightDockActive: layout.rightDock.activePanel,
+            rightDockCollapsed: layout.rightDock.collapsed,
+            bottomDockActive: layout.bottomDock.activePanel,
+            bottomDockCollapsed: layout.bottomDock.collapsed,
+          }}
         />
-        <div className="flex-1 flex min-h-0 overflow-hidden">
-          <div className={`flex min-w-0 flex-1 flex-col overflow-hidden ${editorExpanded ? 'hidden' : ''}`}>
-            <WorkflowDetailView
-              project={selectedProject}
-              workflow={selectedWorkflow}
-              onNavigateToSession={onNavigateToSession}
-              onOpenArtifactFile={handleFileOpen}
-              onOpenArtifactDirectory={(directoryPath) => {
-                setActiveTab('files');
-                setRevealDirectoryRequest({ path: directoryPath, requestId: Date.now() });
-              }}
-            />
-          </div>
-          <EditorSidebar
-            editingFile={editingFile}
+        <div ref={workflowMiniMapContainerRef} className="relative flex-1 flex min-h-0 overflow-hidden">
+          {workflowSessionWorkflow && (
+            <div
+              ref={workflowMiniMapPanelRef}
+              className={[
+                'pointer-events-none absolute z-20 hidden xl:block',
+                isWorkflowMiniMapCollapsed ? 'w-auto' : 'w-[22rem]',
+              ].join(' ')}
+              style={workflowMiniMapPosition
+                ? { left: `${workflowMiniMapPosition.x}px`, top: `${workflowMiniMapPosition.y}px` }
+                : { right: `${WORKFLOW_MINIMAP_MARGIN}px`, top: `${WORKFLOW_MINIMAP_MARGIN}px` }}
+              data-testid="workflow-minimap"
+            >
+              {isWorkflowMiniMapCollapsed ? (
+                <button
+                  type="button"
+                  className="pointer-events-auto inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2.5 py-2 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur-sm hover:bg-muted/70"
+                  title="展开流程图"
+                  aria-label="展开流程图"
+                  onClick={() => setIsWorkflowMiniMapCollapsed(false)}
+                >
+                  <ChevronsLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                  流程
+                </button>
+              ) : (
+                <div className="pointer-events-auto space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div
+                      className="inline-flex cursor-move touch-none select-none items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm"
+                      title="拖动流程图"
+                      aria-label="拖动流程图"
+                      data-testid="workflow-minimap-drag-handle"
+                      onPointerDown={handleWorkflowMiniMapDragStart}
+                      onPointerMove={handleWorkflowMiniMapDragMove}
+                      onPointerUp={handleWorkflowMiniMapDragEnd}
+                      onPointerCancel={handleWorkflowMiniMapDragEnd}
+                    >
+                      <Move className="h-3.5 w-3.5" aria-hidden="true" />
+                      流程图
+                    </div>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm hover:bg-muted/70"
+                      title="收起流程图"
+                      aria-label="收起流程图"
+                      onClick={() => setIsWorkflowMiniMapCollapsed(true)}
+                    >
+                      <ChevronsRight className="h-3.5 w-3.5" aria-hidden="true" />
+                      收起
+                    </button>
+                  </div>
+                  <WorkflowDetailView
+                    project={selectedProject}
+                    workflow={workflowSessionWorkflow}
+                    treeOnly
+                    onNavigateToSession={onNavigateToSession}
+                    onOpenArtifactFile={handleFileOpen}
+                    onOpenArtifactDirectory={(directoryPath) => {
+                      setActiveTab('files');
+                      setRevealDirectoryRequest({ path: directoryPath, requestId: Date.now() });
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          <WorkspaceDockLayout
+            layout={layout}
             isMobile={isMobile}
-            editorExpanded={editorExpanded}
-            editorWidth={editorWidth}
-            hasManualWidth={hasManualWidth}
-            resizeHandleRef={resizeHandleRef}
-            onResizeStart={handleResizeStart}
-            onCloseEditor={handleCloseEditor}
-            onToggleEditorExpand={handleToggleEditorExpand}
-            projectPath={selectedProject.path}
+            centerContent={workflowCenterContent}
+            rightDockContent={workflowRightDockContent}
+            bottomDockContent={workflowBottomDockContent}
+            onRightDockWidthChange={setRightDockWidth}
+            onBottomDockHeightChange={setBottomDockHeight}
+            onRightDockCollapseToggle={toggleRightDockCollapse}
+            onBottomDockCollapseToggle={toggleBottomDockCollapse}
+            onRightDockFullscreenToggle={toggleRightDockFullscreen}
+            onBottomDockFullscreenToggle={toggleBottomDockFullscreen}
+            onMoveTerminalToRightSplit={moveTerminalToRightSplit}
+            onMoveTerminalToBottom={moveTerminalToBottom}
+            onRightDockSplitRatioChange={setRightDockSplitRatio}
           />
+
+          {/* Mobile overlay for files/git/terminal */}
+          {isMobile && mobileOverlay && selectedProject && (
+            <div className="absolute inset-0 z-40 flex flex-col bg-background">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
+                <span className="text-sm font-medium">
+                  {mobileOverlay === 'files' && '文件'}
+                  {mobileOverlay === 'git' && '源代码管理'}
+                  {mobileOverlay === 'terminal' && '终端'}
+                </span>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                  onClick={() => {
+                    setMobileOverlay(null);
+                    setActiveTab('chat');
+                  }}
+                  aria-label="关闭"
+                  data-testid="mobile-overlay-close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {mobileOverlay === 'files' && (
+                  <FileTree
+                    selectedProject={selectedProject}
+                    onFileOpen={(path) => {
+                      handleFileOpen(path);
+                      setMobileOverlay(null);
+                      setActiveTab('chat');
+                    }}
+                    revealDirectoryRequest={revealDirectoryRequest}
+                  />
+                )}
+                {mobileOverlay === 'git' && (
+                  <GitPanel
+                    selectedProject={selectedProject}
+                    isMobile={isMobile}
+                    onFileOpen={(path) => {
+                      handleFileOpen(path);
+                      setMobileOverlay(null);
+                      setActiveTab('chat');
+                    }}
+                  />
+                )}
+                {mobileOverlay === 'terminal' && (
+                  <StandaloneShell
+                    key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
+                    project={selectedProject}
+                    command={null}
+                    isPlainShell
+                    showHeader={false}
+                  />
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -343,24 +555,13 @@ function MainContent({
 
   if (
     selectedProject
-    && activeTab === 'chat'
     && !selectedSession
     && !selectedWorkflow
   ) {
-    return (
-      <div className="h-full flex flex-col">
-        <MainContentHeader
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          selectedProject={selectedProject}
-          selectedSession={selectedSession}
-          selectedWorkflow={selectedWorkflow}
-          shouldShowTasksTab={shouldShowTasksTab}
-          isMobile={isMobile}
-          onMenuClick={onMenuClick}
-          leadingContent={headerLeadingContent}
-        />
-        <div className="flex-1 min-h-0 overflow-hidden">
+    // Project overview page with dock layout for files/git/shell access
+    const overviewCenterContent = (
+      <>
+        <div className={`flex flex-col min-h-0 min-w-0 overflow-hidden flex-1`}>
           <ProjectOverviewPanel
             project={selectedProject}
             selectedSession={selectedSession}
@@ -371,15 +572,287 @@ function MainContent({
             onSelectWorkflow={onSelectWorkflow}
           />
         </div>
+        <EditorSidebar
+          editingFile={editingFile}
+          isMobile={isMobile}
+          editorExpanded={editorExpanded}
+          editorWidth={editorWidth}
+          hasManualWidth={hasManualWidth}
+          resizeHandleRef={resizeHandleRef}
+          onResizeStart={handleResizeStart}
+          onCloseEditor={handleCloseEditor}
+          onToggleEditorExpand={handleToggleEditorExpand}
+          projectPath={selectedProject.path}
+          fillSpace={layout.rightDock.activePanel === 'files'}
+        />
+      </>
+    );
+
+    const overviewRightDockContent = layout.rightDock.activePanel === 'files' ? (
+      <FileTree
+        selectedProject={selectedProject}
+        onFileOpen={handleFileOpen}
+        revealDirectoryRequest={revealDirectoryRequest}
+      />
+    ) : layout.rightDock.activePanel === 'git' ? (
+      <GitPanel selectedProject={selectedProject} isMobile={isMobile} onFileOpen={handleFileOpen} />
+    ) : null;
+
+    const overviewBottomDockContent = layout.bottomDock.activePanel === 'terminal' ? (
+      <StandaloneShell
+        key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
+        project={selectedProject}
+        command={null}
+        isPlainShell
+        showHeader={false}
+      />
+    ) : null;
+
+    return (
+      <div className="h-full flex flex-col">
+        <MainContentHeader
+          activeTab={activeTab}
+          setActiveTab={handleSetActiveTab}
+          selectedProject={selectedProject}
+          selectedSession={selectedSession}
+          selectedWorkflow={selectedWorkflow}
+          shouldShowTasksTab={shouldShowTasksTab}
+          isMobile={isMobile}
+          onMenuClick={onMenuClick}
+          leadingContent={headerLeadingContent}
+          dockLayout={{
+            rightDockActive: layout.rightDock.activePanel,
+            rightDockCollapsed: layout.rightDock.collapsed,
+            bottomDockActive: layout.bottomDock.activePanel,
+            bottomDockCollapsed: layout.bottomDock.collapsed,
+          }}
+        />
+        <div ref={workflowMiniMapContainerRef} className="relative flex-1 flex min-h-0 overflow-hidden">
+          {workflowSessionWorkflow && (
+            <div
+              ref={workflowMiniMapPanelRef}
+              className={[
+                'pointer-events-none absolute z-20 hidden xl:block',
+                isWorkflowMiniMapCollapsed ? 'w-auto' : 'w-[22rem]',
+              ].join(' ')}
+              style={workflowMiniMapPosition
+                ? { left: `${workflowMiniMapPosition.x}px`, top: `${workflowMiniMapPosition.y}px` }
+                : { right: `${WORKFLOW_MINIMAP_MARGIN}px`, top: `${WORKFLOW_MINIMAP_MARGIN}px` }}
+              data-testid="workflow-minimap"
+            >
+              {isWorkflowMiniMapCollapsed ? (
+                <button
+                  type="button"
+                  className="pointer-events-auto inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2.5 py-2 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur-sm hover:bg-muted/70"
+                  title="展开流程图"
+                  aria-label="展开流程图"
+                  onClick={() => setIsWorkflowMiniMapCollapsed(false)}
+                >
+                  <ChevronsLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                  流程
+                </button>
+              ) : (
+                <div className="pointer-events-auto space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div
+                      className="inline-flex cursor-move touch-none select-none items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm"
+                      title="拖动流程图"
+                      aria-label="拖动流程图"
+                      data-testid="workflow-minimap-drag-handle"
+                      onPointerDown={handleWorkflowMiniMapDragStart}
+                      onPointerMove={handleWorkflowMiniMapDragMove}
+                      onPointerUp={handleWorkflowMiniMapDragEnd}
+                      onPointerCancel={handleWorkflowMiniMapDragEnd}
+                    >
+                      <Move className="h-3.5 w-3.5" aria-hidden="true" />
+                      流程图
+                    </div>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm hover:bg-muted/70"
+                      title="收起流程图"
+                      aria-label="收起流程图"
+                      onClick={() => setIsWorkflowMiniMapCollapsed(true)}
+                    >
+                      <ChevronsRight className="h-3.5 w-3.5" aria-hidden="true" />
+                      收起
+                    </button>
+                  </div>
+                  <WorkflowDetailView
+                    project={selectedProject}
+                    workflow={workflowSessionWorkflow}
+                    treeOnly
+                    onNavigateToSession={onNavigateToSession}
+                    onOpenArtifactFile={handleFileOpen}
+                    onOpenArtifactDirectory={(directoryPath) => {
+                      setActiveTab('files');
+                      setRevealDirectoryRequest({ path: directoryPath, requestId: Date.now() });
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          <WorkspaceDockLayout
+            layout={layout}
+            isMobile={isMobile}
+            centerContent={overviewCenterContent}
+            rightDockContent={overviewRightDockContent}
+            bottomDockContent={overviewBottomDockContent}
+            onRightDockWidthChange={setRightDockWidth}
+            onBottomDockHeightChange={setBottomDockHeight}
+            onRightDockCollapseToggle={toggleRightDockCollapse}
+            onBottomDockCollapseToggle={toggleBottomDockCollapse}
+            onRightDockFullscreenToggle={toggleRightDockFullscreen}
+            onBottomDockFullscreenToggle={toggleBottomDockFullscreen}
+            onMoveTerminalToRightSplit={moveTerminalToRightSplit}
+            onMoveTerminalToBottom={moveTerminalToBottom}
+            onRightDockSplitRatioChange={setRightDockSplitRatio}
+          />
+
+          {/* Mobile overlay for files/git/terminal */}
+          {isMobile && mobileOverlay && selectedProject && (
+            <div className="absolute inset-0 z-40 flex flex-col bg-background">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
+                <span className="text-sm font-medium">
+                  {mobileOverlay === 'files' && '文件'}
+                  {mobileOverlay === 'git' && '源代码管理'}
+                  {mobileOverlay === 'terminal' && '终端'}
+                </span>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                  onClick={() => {
+                    setMobileOverlay(null);
+                    setActiveTab('chat');
+                  }}
+                  aria-label="关闭"
+                  data-testid="mobile-overlay-close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {mobileOverlay === 'files' && (
+                  <FileTree
+                    selectedProject={selectedProject}
+                    onFileOpen={(path) => {
+                      handleFileOpen(path);
+                      setMobileOverlay(null);
+                      setActiveTab('chat');
+                    }}
+                    revealDirectoryRequest={revealDirectoryRequest}
+                  />
+                )}
+                {mobileOverlay === 'git' && (
+                  <GitPanel
+                    selectedProject={selectedProject}
+                    isMobile={isMobile}
+                    onFileOpen={(path) => {
+                      handleFileOpen(path);
+                      setMobileOverlay(null);
+                      setActiveTab('chat');
+                    }}
+                  />
+                )}
+                {mobileOverlay === 'terminal' && (
+                  <StandaloneShell
+                    key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
+                    project={selectedProject}
+                    command={null}
+                    isPlainShell
+                    showHeader={false}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
+
+  // Main workspace with dock layout
+  const centerContent = (
+    <>
+      <div className={`flex flex-col min-h-0 min-w-0 overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
+        <div className={`flex-1 min-h-0 overflow-hidden ${activeTab === 'chat' ? 'flex flex-col' : 'hidden'}`}>
+          <ErrorBoundary showDetails>
+            <ChatInterface
+              selectedProject={selectedProject}
+              selectedSession={selectedSession}
+              ws={ws}
+              sendMessage={sendMessage}
+              latestMessage={latestMessage}
+              messageHistory={messageHistory}
+              onFileOpen={handleFileOpen}
+              onInputFocusChange={onInputFocusChange}
+              onSessionActive={onSessionActive}
+              onSessionInactive={onSessionInactive}
+              onSessionProcessing={onSessionProcessing}
+              onSessionNotProcessing={onSessionNotProcessing}
+              processingSessions={processingSessions}
+              onReplaceTemporarySession={onReplaceTemporarySession}
+              onNavigateToSession={onNavigateToSession}
+              onNewSession={onNewSession}
+              onShowSettings={onShowSettings}
+              autoExpandTools={autoExpandTools}
+              showRawParameters={showRawParameters}
+              showThinking={showThinking}
+              autoScrollToBottom={autoScrollToBottom}
+              sendByCtrlEnter={sendByCtrlEnter}
+              externalMessageUpdate={externalMessageUpdate}
+              onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
+            />
+          </ErrorBoundary>
+        </div>
+
+        {shouldShowTasksTab && <TaskMasterPanel isVisible={activeTab === 'tasks'} />}
+
+        <div className={`h-full overflow-hidden ${activeTab === 'preview' ? 'block' : 'hidden'}`} />
+      </div>
+
+      <EditorSidebar
+        editingFile={editingFile}
+        isMobile={isMobile}
+        editorExpanded={editorExpanded}
+        editorWidth={editorWidth}
+        hasManualWidth={hasManualWidth}
+        resizeHandleRef={resizeHandleRef}
+        onResizeStart={handleResizeStart}
+        onCloseEditor={handleCloseEditor}
+        onToggleEditorExpand={handleToggleEditorExpand}
+        projectPath={selectedProject.path}
+        fillSpace={layout.rightDock.activePanel === 'files'}
+      />
+    </>
+  );
+
+  const rightDockContent = layout.rightDock.activePanel === 'files' ? (
+    <FileTree
+      selectedProject={selectedProject}
+      onFileOpen={handleFileOpen}
+      revealDirectoryRequest={revealDirectoryRequest}
+    />
+  ) : layout.rightDock.activePanel === 'git' ? (
+    <GitPanel selectedProject={selectedProject} isMobile={isMobile} onFileOpen={handleFileOpen} />
+  ) : null;
+
+  const bottomDockContent = layout.bottomDock.activePanel === 'terminal' ? (
+    <StandaloneShell
+      key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
+      project={selectedProject}
+      command={null}
+      isPlainShell
+      showHeader={false}
+    />
+  ) : null;
 
   return (
     <div className="h-full flex flex-col">
       <MainContentHeader
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleSetActiveTab}
         selectedProject={selectedProject}
         selectedSession={selectedSession}
         selectedWorkflow={selectedWorkflow}
@@ -387,6 +860,12 @@ function MainContent({
         isMobile={isMobile}
         onMenuClick={onMenuClick}
         leadingContent={headerLeadingContent}
+        dockLayout={{
+          rightDockActive: layout.rightDock.activePanel,
+          rightDockCollapsed: layout.rightDock.collapsed,
+          bottomDockActive: layout.bottomDock.activePanel,
+          bottomDockCollapsed: layout.bottomDock.collapsed,
+        }}
       />
 
       <div ref={workflowMiniMapContainerRef} className="relative flex-1 flex min-h-0 overflow-hidden">
@@ -455,84 +934,80 @@ function MainContent({
             )}
           </div>
         )}
-        <div className={`flex flex-col min-h-0 min-w-0 overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
-          <div className={`flex-1 min-h-0 overflow-hidden ${activeTab === 'chat' ? 'flex flex-col' : 'hidden'}`}>
-            <ErrorBoundary showDetails>
-              <ChatInterface
-                selectedProject={selectedProject}
-                selectedSession={selectedSession}
-                ws={ws}
-                sendMessage={sendMessage}
-                latestMessage={latestMessage}
-                messageHistory={messageHistory}
-                onFileOpen={handleFileOpen}
-                onInputFocusChange={onInputFocusChange}
-                onSessionActive={onSessionActive}
-                onSessionInactive={onSessionInactive}
-                onSessionProcessing={onSessionProcessing}
-                onSessionNotProcessing={onSessionNotProcessing}
-                processingSessions={processingSessions}
-                onReplaceTemporarySession={onReplaceTemporarySession}
-                onNavigateToSession={onNavigateToSession}
-                onNewSession={onNewSession}
-                onShowSettings={onShowSettings}
-                autoExpandTools={autoExpandTools}
-                showRawParameters={showRawParameters}
-                showThinking={showThinking}
-                autoScrollToBottom={autoScrollToBottom}
-                sendByCtrlEnter={sendByCtrlEnter}
-                externalMessageUpdate={externalMessageUpdate}
-                onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
-              />
-            </ErrorBoundary>
-          </div>
-
-          {activeTab === 'files' && (
-            <div className="h-full overflow-hidden">
-              <FileTree
-                selectedProject={selectedProject}
-                onFileOpen={handleFileOpen}
-                revealDirectoryRequest={revealDirectoryRequest}
-              />
-            </div>
-          )}
-
-          {activeTab === 'shell' && (
-            <div className="h-full w-full overflow-hidden">
-              <StandaloneShell
-                key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
-                project={selectedProject}
-                command={null}
-                isPlainShell
-                showHeader={false}
-              />
-            </div>
-          )}
-
-          {activeTab === 'git' && (
-            <div className="h-full overflow-hidden">
-              <GitPanel selectedProject={selectedProject} isMobile={isMobile} onFileOpen={handleFileOpen} />
-            </div>
-          )}
-
-          {shouldShowTasksTab && <TaskMasterPanel isVisible={activeTab === 'tasks'} />}
-
-          <div className={`h-full overflow-hidden ${activeTab === 'preview' ? 'block' : 'hidden'}`} />
-        </div>
-
-        <EditorSidebar
-          editingFile={editingFile}
+        <WorkspaceDockLayout
+          layout={layout}
           isMobile={isMobile}
-          editorExpanded={editorExpanded}
-          editorWidth={editorWidth}
-          hasManualWidth={hasManualWidth}
-          resizeHandleRef={resizeHandleRef}
-          onResizeStart={handleResizeStart}
-          onCloseEditor={handleCloseEditor}
-          onToggleEditorExpand={handleToggleEditorExpand}
-          projectPath={selectedProject.path}
-          fillSpace={activeTab === 'files'}
+          centerContent={centerContent}
+          rightDockContent={rightDockContent}
+          bottomDockContent={bottomDockContent}
+          onRightDockWidthChange={setRightDockWidth}
+          onBottomDockHeightChange={setBottomDockHeight}
+          onRightDockCollapseToggle={toggleRightDockCollapse}
+          onBottomDockCollapseToggle={toggleBottomDockCollapse}
+          onRightDockFullscreenToggle={toggleRightDockFullscreen}
+          onBottomDockFullscreenToggle={toggleBottomDockFullscreen}
+          onMoveTerminalToRightSplit={moveTerminalToRightSplit}
+          onMoveTerminalToBottom={moveTerminalToBottom}
+          onRightDockSplitRatioChange={setRightDockSplitRatio}
         />
+
+        {/* Mobile overlay for files/git/terminal */}
+        {isMobile && mobileOverlay && selectedProject && (
+          <div className="absolute inset-0 z-40 flex flex-col bg-background">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
+              <span className="text-sm font-medium">
+                {mobileOverlay === 'files' && '文件'}
+                {mobileOverlay === 'git' && '源代码管理'}
+                {mobileOverlay === 'terminal' && '终端'}
+              </span>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                onClick={() => {
+                  setMobileOverlay(null);
+                  setActiveTab('chat');
+                }}
+                aria-label="关闭"
+                data-testid="mobile-overlay-close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {mobileOverlay === 'files' && (
+                <FileTree
+                  selectedProject={selectedProject}
+                  onFileOpen={(path) => {
+                    handleFileOpen(path);
+                    setMobileOverlay(null);
+                    setActiveTab('chat');
+                  }}
+                  revealDirectoryRequest={revealDirectoryRequest}
+                />
+              )}
+              {mobileOverlay === 'git' && (
+                <GitPanel
+                  selectedProject={selectedProject}
+                  isMobile={isMobile}
+                  onFileOpen={(path) => {
+                    handleFileOpen(path);
+                    setMobileOverlay(null);
+                    setActiveTab('chat');
+                  }}
+                />
+              )}
+              {mobileOverlay === 'terminal' && (
+                <StandaloneShell
+                  key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
+                  project={selectedProject}
+                  command={null}
+                  isPlainShell
+                  showHeader={false}
+                />
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -13,5 +13,6 @@ export default {
   testMatch: [
     'spec/**/*.spec.js',
     '2026-05-10-6-精简设置页和侧边栏导航-settings-sidebar-simplification.test.js',
+    '2026-05-10-7-重新设计交互布局-workspace-dock-layout.test.js',
   ],
 };

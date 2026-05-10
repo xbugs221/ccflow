@@ -13,6 +13,7 @@ export default function MainContentHeader({
   isMobile,
   onMenuClick,
   leadingContent,
+  dockLayout,
 }: MainContentHeaderProps) {
   return (
     <div className="sticky top-0 z-30 flex-shrink-0 border-b border-border/60 bg-background/95 px-3 py-1.5 backdrop-blur-sm pwa-header-safe sm:px-4 sm:py-2">
@@ -41,6 +42,7 @@ export default function MainContentHeader({
             setActiveTab={setActiveTab}
             shouldShowTasksTab={shouldShowTasksTab}
             compact={isMobile}
+            dockLayout={dockLayout}
           />
         </div>
       </div>
