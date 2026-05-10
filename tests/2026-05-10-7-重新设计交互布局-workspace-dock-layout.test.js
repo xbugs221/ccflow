@@ -128,13 +128,12 @@ test.describe('workspace dock layout', () => {
   test('layout persists after page refresh', async ({ page }) => {
     await openTestProject(page);
 
-    // Collapse right dock by clicking collapse button
+    // Collapse right dock by clicking the active files tab.
     const rightDock = page.locator('[data-testid="dock-panel-right"]');
     await expect(rightDock).toBeVisible();
 
-    // Find and click collapse button (first button in the dock panel)
-    const collapseButton = rightDock.locator('button').first();
-    await collapseButton.click();
+    await page.locator('[data-testid="tab-files"]').click();
+    await page.locator('[data-testid="tab-files"]').click();
 
     // Wait a moment for state to update
     await page.waitForTimeout(300);

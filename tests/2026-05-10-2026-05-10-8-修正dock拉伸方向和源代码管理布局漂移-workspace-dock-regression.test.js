@@ -162,7 +162,7 @@ test('bottom terminal fullscreen still exits back to bottom dock', async ({ page
   const bottomDock = page.locator('[data-testid="dock-panel-bottom"]');
   await expect(bottomDock).toBeVisible();
 
-  await bottomDock.locator('button[title="全屏"]').first().click();
+  await bottomDock.locator('[data-testid="dock-panel-header"] button[title="全屏"]').first().click();
   await expect(bottomDock).not.toBeVisible();
 
   await page.locator('button[aria-label="退出全屏"]').first().click();

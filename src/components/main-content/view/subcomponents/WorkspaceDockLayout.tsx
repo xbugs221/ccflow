@@ -1,9 +1,9 @@
 /**
  * PURPOSE: Workspace dock layout shell.
- * Renders center chat area with optional right dock and bottom dock.
+ * Renders center chat area with scroll-safe docks and top-aligned pane controls.
  */
 import React from 'react';
-import { Maximize2, Minimize2, PanelLeft, PanelBottom, Move } from 'lucide-react';
+import { Maximize2, Minimize2, Move } from 'lucide-react';
 import type { WorkspaceLayoutState } from '../../hooks/useWorkspaceLayoutState';
 
 export type WorkspaceDockLayoutProps = {
@@ -47,7 +47,6 @@ export default function WorkspaceDockLayout({
       <div className="flex flex-col h-full">
         <DockPanelHeader
           title={rightDock.activePanel === 'files' ? '文件' : '源代码管理'}
-          onCollapseToggle={onRightDockCollapseToggle}
           onFullscreenToggle={onRightDockFullscreenToggle}
           isFullscreen
         />
@@ -61,7 +60,6 @@ export default function WorkspaceDockLayout({
       <div className="flex flex-col h-full">
         <DockPanelHeader
           title="终端"
-          onCollapseToggle={onBottomDockCollapseToggle}
           onFullscreenToggle={onBottomDockFullscreenToggle}
           isFullscreen
         />
@@ -85,7 +83,7 @@ export default function WorkspaceDockLayout({
     <div className="flex h-full overflow-hidden">
       {/* Center area */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        <div className="flex-1 min-h-0 overflow-hidden">{centerContent}</div>
+        <div className="flex min-h-0 flex-1 overflow-hidden">{centerContent}</div>
 
         {/* Bottom dock */}
         {effectiveShowBottomDock && (
@@ -97,7 +95,7 @@ export default function WorkspaceDockLayout({
             <DockPanelFrame
               direction="bottom"
               size={layout.bottomDock.height}
-              onCollapseToggle={onBottomDockCollapseToggle}
+              title="终端"
               onFullscreenToggle={onBottomDockFullscreenToggle}
               onMoveTerminal={onMoveTerminalToRightSplit}
             >
@@ -117,7 +115,7 @@ export default function WorkspaceDockLayout({
           <DockPanelFrame
             direction="right"
             size={layout.rightDock.width}
-            onCollapseToggle={onRightDockCollapseToggle}
+            title={showRightSplit ? '文件 / 终端' : rightDock.activePanel === 'files' ? '文件' : '源代码管理'}
             onFullscreenToggle={onRightDockFullscreenToggle}
             onMoveTerminal={onMoveTerminalToBottom}
           >
@@ -143,28 +141,30 @@ export default function WorkspaceDockLayout({
  */
 function DockPanelHeader({
   title,
-  onCollapseToggle,
   onFullscreenToggle,
+  onMoveTerminal,
   isFullscreen,
 }: {
   title: string;
-  onCollapseToggle: () => void;
   onFullscreenToggle: () => void;
+  onMoveTerminal?: () => void;
   isFullscreen: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between px-3 py-2 border-b border-border/60 bg-background">
+    <div className="flex flex-shrink-0 items-center justify-between px-3 py-2 border-b border-border/60 bg-background" data-testid="dock-panel-header">
       <span className="text-sm font-medium text-foreground">{title}</span>
       <div className="flex items-center gap-1">
-        <button
-          type="button"
-          className="inline-flex items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-          onClick={onCollapseToggle}
-          aria-label="折叠"
-          title="折叠"
-        >
-          <PanelLeft className="h-3.5 w-3.5" />
-        </button>
+        {onMoveTerminal && (
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+            onClick={onMoveTerminal}
+            aria-label="移动终端"
+            title="移动终端"
+          >
+            <Move className="h-3.5 w-3.5" />
+          </button>
+        )}
         <button
           type="button"
           className="inline-flex items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground"
@@ -242,93 +242,33 @@ function DockResizeHandle({
 function DockPanelFrame({
   direction,
   size,
+  title,
   children,
-  onCollapseToggle,
   onFullscreenToggle,
   onMoveTerminal,
 }: {
   direction: 'right' | 'bottom';
   size: number;
+  title: string;
   children: React.ReactNode;
-  onCollapseToggle: () => void;
   onFullscreenToggle: () => void;
   onMoveTerminal?: () => void;
 }) {
   return (
     <div
-      className={`flex-shrink-0 flex ${direction === 'right' ? 'flex-row' : 'flex-col'} overflow-hidden bg-background border-border/40 ${
+      className={`flex-shrink-0 flex flex-col overflow-hidden bg-background border-border/40 ${
         direction === 'right' ? 'border-l' : 'border-t'
       }`}
       style={direction === 'right' ? { width: size } : { height: size }}
       data-testid={`dock-panel-${direction}`}
     >
-      {direction === 'right' && (
-        <div className="flex flex-col items-center gap-1 px-1 py-2 border-r border-border/40 bg-muted/30">
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-            onClick={onCollapseToggle}
-            aria-label="折叠侧边栏"
-            title="折叠"
-          >
-            <PanelLeft className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-            onClick={onFullscreenToggle}
-            aria-label="全屏"
-            title="全屏"
-          >
-            <Maximize2 className="h-3.5 w-3.5" />
-          </button>
-          {onMoveTerminal && (
-            <button
-              type="button"
-              className="inline-flex items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-              onClick={onMoveTerminal}
-              aria-label="移动终端到此处"
-              title="移动终端"
-            >
-              <Move className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      )}
+      <DockPanelHeader
+        title={title}
+        onFullscreenToggle={onFullscreenToggle}
+        onMoveTerminal={onMoveTerminal}
+        isFullscreen={false}
+      />
       <div className="flex-1 min-h-0 min-w-0 overflow-hidden">{children}</div>
-      {direction === 'bottom' && (
-        <div className="flex items-center gap-1 px-2 py-1 border-t border-border/40 bg-muted/30">
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-            onClick={onCollapseToggle}
-            aria-label="折叠底部面板"
-            title="折叠"
-          >
-            <PanelBottom className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-            onClick={onFullscreenToggle}
-            aria-label="全屏"
-            title="全屏"
-          >
-            <Maximize2 className="h-3.5 w-3.5" />
-          </button>
-          {onMoveTerminal && (
-            <button
-              type="button"
-              className="inline-flex items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-              onClick={onMoveTerminal}
-              aria-label="移动终端到此处"
-              title="移动终端"
-            >
-              <Move className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

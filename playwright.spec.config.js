@@ -15,5 +15,6 @@ export default {
     '2026-05-10-6-精简设置页和侧边栏导航-settings-sidebar-simplification.test.js',
     '2026-05-10-7-重新设计交互布局-workspace-dock-layout.test.js',
     '2026-05-10-2026-05-10-8-修正dock拉伸方向和源代码管理布局漂移-workspace-dock-regression.test.js',
+    '2026-05-10-9-修复工作区滚动和dock面板控制-workspace-scroll-and-pane-controls.test.js',
   ],
 };

@@ -561,7 +561,7 @@ function MainContent({
     // Project overview page with dock layout for files/git/shell access
     const overviewCenterContent = (
       <>
-        <div className={`flex flex-col min-h-0 min-w-0 overflow-hidden flex-1`}>
+        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ProjectOverviewPanel
             project={selectedProject}
             selectedSession={selectedSession}

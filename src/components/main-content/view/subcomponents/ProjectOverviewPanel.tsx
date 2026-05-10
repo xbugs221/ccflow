@@ -694,7 +694,7 @@ export default function ProjectOverviewPanel({
   const showSessionSection = displayMode === 'all' || displayMode === 'sessions';
 
   return (
-    <div data-testid="project-workspace-overview" className="h-full overflow-y-auto">
+    <div data-testid="project-workspace-overview" className="h-full min-h-0 overflow-y-auto">
       <div className="flex w-full min-w-0 flex-col p-3 sm:p-4 md:p-6">
         {showWorkflowSection && (
         <section
