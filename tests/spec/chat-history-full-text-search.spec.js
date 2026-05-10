@@ -489,7 +489,8 @@ test('JSONL file name search opens Codex rollout thread without message targetin
   await threadResults.first().click();
   await expect(page).toHaveURL(/\/workspace\/fixture-project\/c\d+$/);
   await expect(page).not.toHaveURL(/messageKey=/);
-  await expect(page.getByText(`codex --dangerously-bypass-approvals-and-sandbox resume ${thread}`)).toBeVisible();
+  await expect(page.getByText(thread, { exact: true })).toBeVisible();
+  await expect(page.getByText('codex --dangerously-bypass-approvals-and-sandbox')).toHaveCount(0);
 });
 
 test('content search does not match Codex rollout thread when only the file name contains it', async ({ page }) => {

@@ -17,5 +17,7 @@ export default {
     '2026-05-10-2026-05-10-8-修正dock拉伸方向和源代码管理布局漂移-workspace-dock-regression.test.js',
     '2026-05-10-9-修复工作区滚动和dock面板控制-workspace-scroll-and-pane-controls.test.js',
     '2026-05-10-10-修复桌面dock工作区宽度收缩-workspace-dock-width-regression.test.js',
+    '2026-05-10-12-区分移动端单视图和精简会话标题-12-main-content-title-resume-id.test.js',
+    '2026-05-10-12-区分移动端单视图和精简会话标题-12-mobile-single-view-workspace.test.js',
   ],
 };

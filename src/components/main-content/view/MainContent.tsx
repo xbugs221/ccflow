@@ -1,9 +1,8 @@
 /**
- * PURPOSE: Main content area with dock-based workspace layout.
- * Center always shows chat; files/git are in right dock; terminal is in bottom dock.
+ * PURPOSE: Main content area with separate desktop dock and mobile single-view workspace layouts.
  */
 import React, { useEffect } from 'react';
-import { ChevronsLeft, ChevronsRight, Move, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Move } from 'lucide-react';
 
 import ChatInterface from '../../chat/view/ChatInterface';
 import FileTree from '../../file-tree/view/FileTree';
@@ -159,9 +158,6 @@ function MainContent({
     setRightDockSplitRatio,
   } = useWorkspaceLayoutState(isMobile);
 
-  // Mobile overlay state for files/git/terminal panels
-  const [mobileOverlay, setMobileOverlay] = React.useState<'files' | 'git' | 'terminal' | null>(null);
-
   const resolveWorkflowMiniMapPosition = React.useCallback(() => {
     const container = workflowMiniMapContainerRef.current;
     const panel = workflowMiniMapPanelRef.current;
@@ -245,11 +241,12 @@ function MainContent({
     (value: React.SetStateAction<AppTab>) => {
       const nextTab = typeof value === 'function' ? value(activeTab) : value;
 
-      if (isMobile && selectedProject) {
-        if (nextTab === 'files' || nextTab === 'git' || nextTab === 'shell') {
-          setMobileOverlay(nextTab === 'shell' ? 'terminal' : nextTab);
-        }
-      } else if (nextTab === 'files') {
+      if (isMobile) {
+        setActiveTab(nextTab);
+        return;
+      }
+
+      if (nextTab === 'files') {
         // Only toggle collapse when clicking the same tab again
         if (activeTab === 'files' && layout.rightDock.activePanel === 'files' && !layout.rightDock.collapsed) {
           setRightDock({ collapsed: true });
@@ -272,7 +269,88 @@ function MainContent({
 
       setActiveTab(nextTab);
     },
-    [activeTab, isMobile, selectedProject, layout.rightDock.activePanel, layout.rightDock.collapsed, layout.bottomDock.activePanel, layout.bottomDock.collapsed, setRightDock, setBottomDock, setMobileOverlay, setActiveTab],
+    [activeTab, isMobile, layout.rightDock.activePanel, layout.rightDock.collapsed, layout.bottomDock.activePanel, layout.bottomDock.collapsed, setRightDock, setBottomDock, setActiveTab],
+  );
+
+  const renderHeader = (headerActiveTab: AppTab = activeTab) => (
+    <MainContentHeader
+      activeTab={headerActiveTab}
+      setActiveTab={handleSetActiveTab}
+      selectedProject={selectedProject}
+      selectedSession={selectedSession}
+      selectedWorkflow={selectedWorkflow}
+      shouldShowTasksTab={shouldShowTasksTab}
+      isMobile={isMobile}
+      onMenuClick={onMenuClick}
+      leadingContent={headerLeadingContent}
+      dockLayout={isMobile ? undefined : {
+        rightDockActive: layout.rightDock.activePanel,
+        rightDockCollapsed: layout.rightDock.collapsed,
+        bottomDockActive: layout.bottomDock.activePanel,
+        bottomDockCollapsed: layout.bottomDock.collapsed,
+      }}
+    />
+  );
+
+  const renderMobileEditor = () => (
+    <EditorSidebar
+      editingFile={editingFile}
+      isMobile={isMobile}
+      editorExpanded={editorExpanded}
+      editorWidth={editorWidth}
+      hasManualWidth={hasManualWidth}
+      resizeHandleRef={resizeHandleRef}
+      onResizeStart={handleResizeStart}
+      onCloseEditor={handleCloseEditor}
+      onToggleEditorExpand={handleToggleEditorExpand}
+      projectPath={selectedProject?.path}
+    />
+  );
+
+  const renderMobileWorkspace = (chatContent: React.ReactNode) => {
+    /**
+     * Render the mobile workspace as one full-screen task view selected by activeTab.
+     */
+    if (!selectedProject) {
+      return chatContent;
+    }
+
+    if (activeTab === 'files') {
+      return editingFile ? renderMobileEditor() : (
+        <FileTree
+          selectedProject={selectedProject}
+          onFileOpen={handleFileOpen}
+          revealDirectoryRequest={revealDirectoryRequest}
+        />
+      );
+    }
+
+    if (activeTab === 'git') {
+      return <GitPanel selectedProject={selectedProject} isMobile={isMobile} onFileOpen={handleFileOpen} />;
+    }
+
+    if (activeTab === 'shell') {
+      return (
+        <StandaloneShell
+          key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
+          project={selectedProject}
+          command={null}
+          isPlainShell
+          showHeader={false}
+        />
+      );
+    }
+
+    return chatContent;
+  };
+
+  const renderMobileShell = (chatContent: React.ReactNode) => (
+    <div className="h-full flex flex-col">
+      {renderHeader()}
+      <div className="flex-1 min-h-0 overflow-hidden" data-testid={`mobile-workspace-${activeTab}`}>
+        {renderMobileWorkspace(chatContent)}
+      </div>
+    </div>
   );
 
   if (isLoading) {
@@ -368,6 +446,10 @@ function MainContent({
         />
       </>
     );
+
+    if (isMobile) {
+      return renderMobileShell(workflowCenterContent);
+    }
 
     const workflowRightDockContent = layout.rightDock.activePanel === 'files' ? (
       <FileTree
@@ -491,63 +573,6 @@ function MainContent({
             onRightDockSplitRatioChange={setRightDockSplitRatio}
           />
 
-          {/* Mobile overlay for files/git/terminal */}
-          {isMobile && mobileOverlay && selectedProject && (
-            <div className="absolute inset-0 z-40 flex flex-col bg-background">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
-                <span className="text-sm font-medium">
-                  {mobileOverlay === 'files' && '文件'}
-                  {mobileOverlay === 'git' && '源代码管理'}
-                  {mobileOverlay === 'terminal' && '终端'}
-                </span>
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                  onClick={() => {
-                    setMobileOverlay(null);
-                    setActiveTab('chat');
-                  }}
-                  aria-label="关闭"
-                  data-testid="mobile-overlay-close"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="flex-1 min-h-0 overflow-hidden">
-                {mobileOverlay === 'files' && (
-                  <FileTree
-                    selectedProject={selectedProject}
-                    onFileOpen={(path) => {
-                      handleFileOpen(path);
-                      setMobileOverlay(null);
-                      setActiveTab('chat');
-                    }}
-                    revealDirectoryRequest={revealDirectoryRequest}
-                  />
-                )}
-                {mobileOverlay === 'git' && (
-                  <GitPanel
-                    selectedProject={selectedProject}
-                    isMobile={isMobile}
-                    onFileOpen={(path) => {
-                      handleFileOpen(path);
-                      setMobileOverlay(null);
-                      setActiveTab('chat');
-                    }}
-                  />
-                )}
-                {mobileOverlay === 'terminal' && (
-                  <StandaloneShell
-                    key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
-                    project={selectedProject}
-                    command={null}
-                    isPlainShell
-                    showHeader={false}
-                  />
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     );
@@ -587,6 +612,10 @@ function MainContent({
         />
       </>
     );
+
+    if (isMobile) {
+      return renderMobileShell(overviewCenterContent);
+    }
 
     const overviewRightDockContent = layout.rightDock.activePanel === 'files' ? (
       <FileTree
@@ -710,63 +739,6 @@ function MainContent({
             onRightDockSplitRatioChange={setRightDockSplitRatio}
           />
 
-          {/* Mobile overlay for files/git/terminal */}
-          {isMobile && mobileOverlay && selectedProject && (
-            <div className="absolute inset-0 z-40 flex flex-col bg-background">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
-                <span className="text-sm font-medium">
-                  {mobileOverlay === 'files' && '文件'}
-                  {mobileOverlay === 'git' && '源代码管理'}
-                  {mobileOverlay === 'terminal' && '终端'}
-                </span>
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                  onClick={() => {
-                    setMobileOverlay(null);
-                    setActiveTab('chat');
-                  }}
-                  aria-label="关闭"
-                  data-testid="mobile-overlay-close"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="flex-1 min-h-0 overflow-hidden">
-                {mobileOverlay === 'files' && (
-                  <FileTree
-                    selectedProject={selectedProject}
-                    onFileOpen={(path) => {
-                      handleFileOpen(path);
-                      setMobileOverlay(null);
-                      setActiveTab('chat');
-                    }}
-                    revealDirectoryRequest={revealDirectoryRequest}
-                  />
-                )}
-                {mobileOverlay === 'git' && (
-                  <GitPanel
-                    selectedProject={selectedProject}
-                    isMobile={isMobile}
-                    onFileOpen={(path) => {
-                      handleFileOpen(path);
-                      setMobileOverlay(null);
-                      setActiveTab('chat');
-                    }}
-                  />
-                )}
-                {mobileOverlay === 'terminal' && (
-                  <StandaloneShell
-                    key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
-                    project={selectedProject}
-                    command={null}
-                    isPlainShell
-                    showHeader={false}
-                  />
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     );
@@ -847,6 +819,10 @@ function MainContent({
       showHeader={false}
     />
   ) : null;
+
+  if (isMobile) {
+    return renderMobileShell(centerContent);
+  }
 
   return (
     <div className="h-full flex flex-col">
@@ -951,63 +927,6 @@ function MainContent({
           onRightDockSplitRatioChange={setRightDockSplitRatio}
         />
 
-        {/* Mobile overlay for files/git/terminal */}
-        {isMobile && mobileOverlay && selectedProject && (
-          <div className="absolute inset-0 z-40 flex flex-col bg-background">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
-              <span className="text-sm font-medium">
-                {mobileOverlay === 'files' && '文件'}
-                {mobileOverlay === 'git' && '源代码管理'}
-                {mobileOverlay === 'terminal' && '终端'}
-              </span>
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                onClick={() => {
-                  setMobileOverlay(null);
-                  setActiveTab('chat');
-                }}
-                aria-label="关闭"
-                data-testid="mobile-overlay-close"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="flex-1 min-h-0 overflow-hidden">
-              {mobileOverlay === 'files' && (
-                <FileTree
-                  selectedProject={selectedProject}
-                  onFileOpen={(path) => {
-                    handleFileOpen(path);
-                    setMobileOverlay(null);
-                    setActiveTab('chat');
-                  }}
-                  revealDirectoryRequest={revealDirectoryRequest}
-                />
-              )}
-              {mobileOverlay === 'git' && (
-                <GitPanel
-                  selectedProject={selectedProject}
-                  isMobile={isMobile}
-                  onFileOpen={(path) => {
-                    handleFileOpen(path);
-                    setMobileOverlay(null);
-                    setActiveTab('chat');
-                  }}
-                />
-              )}
-              {mobileOverlay === 'terminal' && (
-                <StandaloneShell
-                  key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
-                  project={selectedProject}
-                  command={null}
-                  isPlainShell
-                  showHeader={false}
-                />
-              )}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

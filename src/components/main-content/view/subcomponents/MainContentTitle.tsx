@@ -4,7 +4,7 @@
  * from the real provider state during session creation and first message send.
  */
 import { useTranslation } from 'react-i18next';
-import type { AppTab, Project, ProjectSession, ProjectWorkflow, SessionProvider } from '../../../../types/app';
+import type { AppTab, Project, ProjectSession, ProjectWorkflow } from '../../../../types/app';
 
 type MainContentTitleProps = {
   activeTab: AppTab;
@@ -38,48 +38,42 @@ function getSessionTitle(session: ProjectSession): string {
   return (session.summary as string) || (session.name as string) || 'New Session';
 }
 
-function getSupportedProvider(session: ProjectSession): SessionProvider | null {
+function isTemporaryOrRouteSessionId(sessionId: string): boolean {
   /**
-   * Normalize session metadata before rendering provider-specific resume commands.
+   * Reject ccflow-only session identifiers that cannot be passed to provider resume commands.
    */
-  if (session.__provider === 'codex' || session.provider === 'codex') {
-    return 'codex';
-  }
-
-  if (session.__provider === 'opencode' || session.provider === 'opencode') {
-    return 'opencode';
-  }
-
-  return null;
+  return /^(c\d+|new-session-)/.test(sessionId);
 }
 
-function getSessionResumeCommand(session: ProjectSession | null): string {
+function hasProviderResumeIdentity(session: ProjectSession): boolean {
   /**
-   * Build the interactive CLI resume command for the selected provider session.
+   * Only provider-backed sessions should render a resume identifier in the title.
+   */
+  return session.__provider === 'codex'
+    || session.__provider === 'opencode'
+    || session.provider === 'codex'
+    || session.provider === 'opencode';
+}
+
+function getSessionResumeId(session: ProjectSession | null): string {
+  /**
+   * Return the provider resume id without provider CLI prefixes or flags.
    */
   if (!session) {
     return '';
   }
 
   const providerSessionId = typeof session.providerSessionId === 'string' ? session.providerSessionId.trim() : '';
-  const directSessionId = typeof session.id === 'string' && !/^(c\d+|new-session-)/.test(session.id)
-    ? session.id.trim()
-    : '';
-  const resumeSessionId = providerSessionId || directSessionId;
-  if (!resumeSessionId) {
+  if (providerSessionId) {
+    return providerSessionId;
+  }
+
+  const directSessionId = typeof session.id === 'string' ? session.id.trim() : '';
+  if (!directSessionId || isTemporaryOrRouteSessionId(directSessionId) || !hasProviderResumeIdentity(session)) {
     return '';
   }
 
-  const provider = getSupportedProvider(session);
-  if (provider === 'codex') {
-    return `codex --dangerously-bypass-approvals-and-sandbox resume ${resumeSessionId}`;
-  }
-
-  if (provider === 'opencode') {
-    return `opencode --session ${resumeSessionId}`;
-  }
-
-  return '';
+  return directSessionId;
 }
 
 export default function MainContentTitle({
@@ -91,7 +85,7 @@ export default function MainContentTitle({
 }: MainContentTitleProps) {
   const { t } = useTranslation();
   const showMessagePlaceholder = activeTab === 'chat' && !selectedSession && !selectedWorkflow;
-  const resumeCommand = getSessionResumeCommand(selectedSession);
+  const resumeId = getSessionResumeId(selectedSession);
 
   return (
     <div className="min-w-0 flex items-center gap-2 flex-1 overflow-x-auto scrollbar-hide">
@@ -106,9 +100,9 @@ export default function MainContentTitle({
                 {selectedProject.displayName || selectedProject.name}
               </div>
             )}
-            {resumeCommand && (
+            {resumeId && (
               <div className="mt-1 overflow-x-auto scrollbar-hide text-[11px] leading-tight text-muted-foreground">
-                <code className="whitespace-nowrap font-mono">{resumeCommand}</code>
+                <code className="whitespace-nowrap font-mono">{resumeId}</code>
               </div>
             )}
           </>
