@@ -17,7 +17,6 @@ import type {
   SessionWithProvider,
 } from '../types/types';
 import {
-  filterProjects,
   getAllSessions,
   readProjectSortOrder,
   sortProjects,
@@ -87,7 +86,6 @@ export function useSidebarController({
   const [projectHasMoreOverrides, setProjectHasMoreOverrides] = useState<Record<string, boolean>>({});
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editingSessionName, setEditingSessionName] = useState('');
-  const [searchFilter, setSearchFilter] = useState('');
   const [deletingProjects, setDeletingProjects] = useState<Set<string>>(new Set());
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteProjectConfirmation | null>(null);
   const [sessionDeleteConfirmation, setSessionDeleteConfirmation] = useState<SessionDeleteConfirmation | null>(null);
@@ -292,10 +290,7 @@ export function useSidebarController({
     [additionalSessions, projectSortOrder, projectsWithSessionMeta],
   );
 
-  const filteredProjects = useMemo(
-    () => filterProjects(sortedProjects, searchFilter),
-    [searchFilter, sortedProjects],
-  );
+  const filteredProjects = sortedProjects;
 
   const startEditing = useCallback((project: Project) => {
     setEditingProject(project.name);
@@ -533,7 +528,6 @@ export function useSidebarController({
     isRefreshing,
     editingSession,
     editingSessionName,
-    searchFilter,
     deletingProjects,
     deleteConfirmation,
     sessionDeleteConfirmation,
@@ -565,7 +559,6 @@ export function useSidebarController({
     setEditingName,
     setEditingSession,
     setEditingSessionName,
-    setSearchFilter,
     setDeleteConfirmation,
     setSessionDeleteConfirmation,
     setShowVersionModal,

@@ -1150,7 +1150,7 @@ app.use('/api/cli/opencode', authenticateToken, opencodeRoutes);
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
 
-// Serve public files (like api-docs.html)
+// Serve static public assets.
 app.use(express.static(path.join(__dirname, '../public')));
 
 // Static files served after API routes

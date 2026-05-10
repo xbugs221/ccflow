@@ -1,8 +1,7 @@
-// PURPOSE: Render provider-specific agent account and MCP settings.
+// PURPOSE: Render provider-specific agent account and connection settings.
 import { useMemo, useState } from 'react';
-import type { AgentCategory, AgentProvider } from '../../../types/types';
+import type { AgentProvider } from '../../../types/types';
 import AgentCategoryContentSection from './sections/AgentCategoryContentSection';
-import AgentCategoryTabsSection from './sections/AgentCategoryTabsSection';
 import AgentSelectorSection from './sections/AgentSelectorSection';
 import type { AgentContext, AgentsSettingsTabProps } from './types';
 
@@ -15,13 +14,8 @@ export default function AgentsSettingsTab({
   opencodeAuthStatus,
   onCodexLogin,
   onOpencodeLogin,
-  codexMcpServers,
-  deleteError,
-  onOpenCodexMcpForm,
-  onDeleteCodexMcpServer,
 }: AgentsSettingsTabProps) {
   const [selectedAgent, setSelectedAgent] = useState<AgentProvider>('codex');
-  const [selectedCategory, setSelectedCategory] = useState<AgentCategory>('account');
 
   const agentContextById = useMemo<Record<AgentProvider, AgentContext>>(() => ({
     codex: {
@@ -49,20 +43,10 @@ export default function AgentsSettingsTab({
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">
-          <AgentCategoryTabsSection
-            selectedCategory={selectedCategory}
-            onSelectCategory={setSelectedCategory}
-          />
-
           <AgentCategoryContentSection
             usageEnabled={usageEnabled}
             selectedAgent={selectedAgent}
-            selectedCategory={selectedCategory}
             agentContextById={agentContextById}
-            codexMcpServers={codexMcpServers}
-            deleteError={deleteError}
-            onOpenCodexMcpForm={onOpenCodexMcpForm}
-            onDeleteCodexMcpServer={onDeleteCodexMcpServer}
           />
         </div>
       </div>

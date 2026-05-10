@@ -1,8 +1,6 @@
 import type {
   AgentProvider,
   AuthStatus,
-  AgentCategory,
-  McpServer,
 } from '../../../types/types';
 
 export type AgentContext = {
@@ -18,15 +16,6 @@ export type AgentsSettingsTabProps = {
   opencodeAuthStatus: AuthStatus;
   onCodexLogin: () => void;
   onOpencodeLogin: () => void;
-  codexMcpServers: McpServer[];
-  deleteError: string | null;
-  onOpenCodexMcpForm: (server?: McpServer) => void;
-  onDeleteCodexMcpServer: (serverId: string) => void;
-};
-
-export type AgentCategoryTabsSectionProps = {
-  selectedCategory: AgentCategory;
-  onSelectCategory: (category: AgentCategory) => void;
 };
 
 export type AgentSelectorSectionProps = {
@@ -38,10 +27,5 @@ export type AgentSelectorSectionProps = {
 export type AgentCategoryContentSectionProps = {
   usageEnabled?: boolean;
   selectedAgent: AgentProvider;
-  selectedCategory: AgentCategory;
   agentContextById: AgentContextByProvider;
-  codexMcpServers: McpServer[];
-  deleteError: string | null;
-  onOpenCodexMcpForm: (server?: McpServer) => void;
-  onDeleteCodexMcpServer: (serverId: string) => void;
 };

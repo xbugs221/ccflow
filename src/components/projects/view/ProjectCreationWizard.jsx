@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, FolderPlus, GitBranch, Key, ChevronRight, ChevronLeft, Check, Loader2, AlertCircle, FolderOpen, Eye, EyeOff, Plus } from 'lucide-react';
+import { X, FolderPlus, GitBranch, Key, ChevronRight, ChevronLeft, Check, AlertCircle, FolderOpen, Eye, EyeOff, Plus } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { api } from '../../../utils/api';
@@ -14,15 +14,12 @@ const ProjectCreationWizard = ({ onClose, onProjectCreated }) => {
   // Form state
   const [workspacePath, setWorkspacePath] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
-  const [selectedGithubToken, setSelectedGithubToken] = useState('');
-  const [tokenMode, setTokenMode] = useState('stored'); // 'stored' | 'new' | 'none'
+  const [tokenMode, setTokenMode] = useState('none'); // 'new' | 'none'
   const [newGithubToken, setNewGithubToken] = useState('');
 
   // UI state
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState(null);
-  const [availableTokens, setAvailableTokens] = useState([]);
-  const [loadingTokens, setLoadingTokens] = useState(false);
   const [pathSuggestions, setPathSuggestions] = useState([]);
   const [showPathDropdown, setShowPathDropdown] = useState(false);
   const [showFolderBrowser, setShowFolderBrowser] = useState(false);
@@ -35,13 +32,6 @@ const ProjectCreationWizard = ({ onClose, onProjectCreated }) => {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [cloneProgress, setCloneProgress] = useState('');
 
-  // Load available GitHub tokens when needed
-  useEffect(() => {
-    if (step === 2 && workspaceType === 'new' && githubUrl) {
-      loadGithubTokens();
-    }
-  }, [step, workspaceType, githubUrl]);
-
   // Load path suggestions
   useEffect(() => {
     if (workspacePath.length > 2) {
@@ -51,26 +41,6 @@ const ProjectCreationWizard = ({ onClose, onProjectCreated }) => {
       setShowPathDropdown(false);
     }
   }, [workspacePath]);
-
-  const loadGithubTokens = async () => {
-    try {
-      setLoadingTokens(true);
-      const response = await api.get('/settings/credentials?type=github_token');
-      const data = await response.json();
-
-      const activeTokens = (data.credentials || []).filter(t => t.is_active);
-      setAvailableTokens(activeTokens);
-
-      // Auto-select first token if available
-      if (activeTokens.length > 0 && !selectedGithubToken) {
-        setSelectedGithubToken(activeTokens[0].id.toString());
-      }
-    } catch (error) {
-      console.error('Error loading GitHub tokens:', error);
-    } finally {
-      setLoadingTokens(false);
-    }
-  };
 
   const loadPathSuggestions = async (inputPath) => {
     try {
@@ -132,9 +102,7 @@ const ProjectCreationWizard = ({ onClose, onProjectCreated }) => {
           githubUrl: githubUrl.trim(),
         });
 
-        if (tokenMode === 'stored' && selectedGithubToken) {
-          params.append('githubTokenId', selectedGithubToken);
-        } else if (tokenMode === 'new' && newGithubToken) {
+        if (tokenMode === 'new' && newGithubToken) {
           params.append('newGithubToken', newGithubToken.trim());
         }
 
@@ -468,110 +436,47 @@ const ProjectCreationWizard = ({ onClose, onProjectCreated }) => {
                         </div>
                       </div>
 
-                      {loadingTokens ? (
-                        <div className="flex items-center gap-2 text-sm text-gray-500">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          {t('projectWizard.step2.loadingTokens')}
-                        </div>
-                      ) : availableTokens.length > 0 ? (
-                        <>
-                          {/* Token Selection Tabs */}
-                          <div className="grid grid-cols-3 gap-2 mb-4">
-                            <button
-                              onClick={() => setTokenMode('stored')}
-                              className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                                tokenMode === 'stored'
-                                  ? 'bg-blue-500 text-white'
-                                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                              }`}
-                            >
-                              {t('projectWizard.step2.storedToken')}
-                            </button>
-                            <button
-                              onClick={() => setTokenMode('new')}
-                              className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                                tokenMode === 'new'
-                                  ? 'bg-blue-500 text-white'
-                                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                              }`}
-                            >
-                              {t('projectWizard.step2.newToken')}
-                            </button>
-                            <button
-                              onClick={() => {
-                                setTokenMode('none');
-                                setSelectedGithubToken('');
-                                setNewGithubToken('');
-                              }}
-                              className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                                tokenMode === 'none'
-                                  ? 'bg-green-500 text-white'
-                                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                              }`}
-                            >
-                              {t('projectWizard.step2.nonePublic')}
-                            </button>
-                          </div>
+                      <div className="grid grid-cols-2 gap-2 mb-4">
+                        <button
+                          onClick={() => setTokenMode('new')}
+                          className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                            tokenMode === 'new'
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                          }`}
+                        >
+                          {t('projectWizard.step2.newToken')}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setTokenMode('none');
+                            setNewGithubToken('');
+                          }}
+                          className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                            tokenMode === 'none'
+                              ? 'bg-green-500 text-white'
+                              : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                          }`}
+                        >
+                          {t('projectWizard.step2.nonePublic')}
+                        </button>
+                      </div>
 
-                          {tokenMode === 'stored' ? (
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                {t('projectWizard.step2.selectToken')}
-                              </label>
-                              <select
-                                value={selectedGithubToken}
-                                onChange={(e) => setSelectedGithubToken(e.target.value)}
-                                className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
-                              >
-                                <option value="">{t('projectWizard.step2.selectTokenPlaceholder')}</option>
-                                {availableTokens.map((token) => (
-                                  <option key={token.id} value={token.id}>
-                                    {token.credential_name}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          ) : tokenMode === 'new' ? (
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                {t('projectWizard.step2.newToken')}
-                              </label>
-                              <Input
-                                type="password"
-                                value={newGithubToken}
-                                onChange={(e) => setNewGithubToken(e.target.value)}
-                                placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                                className="w-full"
-                              />
-                              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                {t('projectWizard.step2.tokenHelp')}
-                              </p>
-                            </div>
-                          ) : null}
-                        </>
-                      ) : (
-                        <div className="space-y-4">
-                          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
-                            <p className="text-sm text-blue-800 dark:text-blue-200">
-                              {t('projectWizard.step2.publicRepoInfo')}
-                            </p>
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                              {t('projectWizard.step2.optionalTokenPublic')}
-                            </label>
-                            <Input
-                              type="password"
-                              value={newGithubToken}
-                              onChange={(e) => setNewGithubToken(e.target.value)}
-                              placeholder={t('projectWizard.step2.tokenPublicPlaceholder')}
-                              className="w-full"
-                            />
-                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                              {t('projectWizard.step2.noTokensHelp')}
-                            </p>
-                          </div>
+                      {tokenMode === 'new' && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            {t('projectWizard.step2.optionalTokenPublic')}
+                          </label>
+                          <Input
+                            type="password"
+                            value={newGithubToken}
+                            onChange={(e) => setNewGithubToken(e.target.value)}
+                            placeholder={t('projectWizard.step2.tokenPublicPlaceholder')}
+                            className="w-full"
+                          />
+                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            {t('projectWizard.step2.tokenHelp')}
+                          </p>
                         </div>
                       )}
                     </div>
@@ -612,9 +517,7 @@ const ProjectCreationWizard = ({ onClose, onProjectCreated }) => {
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600 dark:text-gray-400">{t('projectWizard.step3.authentication')}</span>
                         <span className="text-xs text-gray-900 dark:text-white">
-                          {tokenMode === 'stored' && selectedGithubToken
-                            ? `${t('projectWizard.step3.usingStoredToken')} ${availableTokens.find(t => t.id.toString() === selectedGithubToken)?.credential_name || 'Unknown'}`
-                            : tokenMode === 'new' && newGithubToken
+                          {tokenMode === 'new' && newGithubToken
                             ? t('projectWizard.step3.usingProvidedToken')
                             : (githubUrl.startsWith('git@') || githubUrl.startsWith('ssh://'))
                             ? t('projectWizard.step3.sshKey', 'SSH Key')

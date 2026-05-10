@@ -7,6 +7,7 @@ import type { TFunction } from 'i18next';
 import type { Project } from '../../../../types/app';
 import { useResizableWidth } from '../../../../hooks/useResizableWidth';
 import SidebarHeader from './SidebarHeader';
+import SidebarFooter from './SidebarFooter';
 import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
 
 type SidebarContentProps = {
@@ -14,9 +15,6 @@ type SidebarContentProps = {
   isMobile: boolean;
   isLoading: boolean;
   projects: Project[];
-  searchFilter: string;
-  onSearchFilterChange: (value: string) => void;
-  onClearSearchFilter: () => void;
   onRefresh: () => void;
   isRefreshing: boolean;
   onCreateProject: () => void;
@@ -32,9 +30,6 @@ export default function SidebarContent({
   isMobile,
   isLoading,
   projects,
-  searchFilter,
-  onSearchFilterChange,
-  onClearSearchFilter,
   onRefresh,
   isRefreshing,
   onCreateProject,
@@ -63,11 +58,15 @@ export default function SidebarContent({
       <SidebarHeader
         isPWA={isPWA}
         isMobile={isMobile}
-        isLoading={isLoading}
         projectsCount={projects.length}
-        searchFilter={searchFilter}
-        onSearchFilterChange={onSearchFilterChange}
-        onClearSearchFilter={onClearSearchFilter}
+        t={t}
+      />
+
+      <ScrollArea className="flex-1 md:px-1.5 md:py-2 overflow-y-auto overscroll-contain">
+        <SidebarProjectList {...projectListProps} />
+      </ScrollArea>
+      <SidebarFooter
+        isMobile={isMobile}
         onRefresh={onRefresh}
         isRefreshing={isRefreshing}
         onCreateProject={onCreateProject}
@@ -76,10 +75,6 @@ export default function SidebarContent({
         onOpenChatHistorySearch={onOpenChatHistorySearch}
         t={t}
       />
-
-      <ScrollArea className="flex-1 md:px-1.5 md:py-2 overflow-y-auto overscroll-contain">
-        <SidebarProjectList {...projectListProps} />
-      </ScrollArea>
       {!isMobile && (
         <button
           type="button"

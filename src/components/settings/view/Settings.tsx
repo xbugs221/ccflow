@@ -3,12 +3,9 @@ import { Settings as SettingsIcon, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import LoginModal from '../../auth/LoginModal';
 import { Button } from '../../ui/button';
-import CodexMcpFormModal from '../view/modals/CodexMcpFormModal';
 import SettingsMainTabs from '../view/SettingsMainTabs';
 import AgentsSettingsTab from '../view/tabs/agents-settings/AgentsSettingsTab';
 import AppearanceSettingsTab from '../view/tabs/AppearanceSettingsTab';
-import CredentialsSettingsTab from '../view/tabs/api-settings/CredentialsSettingsTab';
-import GitSettingsTab from '../view/tabs/git-settings/GitSettingsTab';
 import RuntimeDiagnosticsTab from '../view/tabs/RuntimeDiagnosticsTab';
 import { useSettingsController } from '../hooks/useSettingsController';
 import type { AgentProvider, SettingsProject, SettingsProps } from '../types/types';
@@ -34,21 +31,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
     setActiveTab,
     isSaving,
     saveStatus,
-    deleteError,
-    projectSortOrder,
-    setProjectSortOrder,
-    codeEditorSettings,
-    updateCodeEditorSetting,
-    codexPermissionMode,
-    setCodexPermissionMode,
-    codexMcpServers,
-    showCodexMcpForm,
-    editingCodexMcpServer,
-    openCodexMcpForm,
-    closeCodexMcpForm,
-    submitCodexMcpForm,
-    handleCodexMcpDelete,
     codexAuthStatus,
+    opencodeAuthStatus,
     openLoginForProvider,
     showLoginModal,
     setShowLoginModal,
@@ -94,19 +78,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
 
           <div className="p-4 md:p-6 space-y-6 md:space-y-8 pb-safe-area-inset-bottom">
             {activeTab === 'appearance' && (
-              <AppearanceSettingsTab
-                projectSortOrder={projectSortOrder}
-                onProjectSortOrderChange={setProjectSortOrder}
-                codeEditorSettings={codeEditorSettings}
-                onCodeEditorThemeChange={(value) => updateCodeEditorSetting('theme', value)}
-                onCodeEditorWordWrapChange={(value) => updateCodeEditorSetting('wordWrap', value)}
-                onCodeEditorShowMinimapChange={(value) => updateCodeEditorSetting('showMinimap', value)}
-                onCodeEditorLineNumbersChange={(value) => updateCodeEditorSetting('lineNumbers', value)}
-                onCodeEditorFontSizeChange={(value) => updateCodeEditorSetting('fontSize', value)}
-              />
+              <AppearanceSettingsTab />
             )}
-
-            {activeTab === 'git' && <GitSettingsTab />}
 
             {activeTab === 'diagnostics' && <RuntimeDiagnosticsTab />}
 
@@ -114,25 +87,10 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
               <AgentsSettingsTab
                 usageEnabled={activeTab === 'agents'}
                 codexAuthStatus={codexAuthStatus}
-                opencodeAuthStatus={{
-                  authenticated: false,
-                  email: null,
-                  loading: false,
-                  error: null,
-                }}
+                opencodeAuthStatus={opencodeAuthStatus}
                 onCodexLogin={() => openLoginForProvider('codex')}
                 onOpencodeLogin={() => openLoginForProvider('opencode')}
-                codexMcpServers={codexMcpServers}
-                onOpenCodexMcpForm={openCodexMcpForm}
-                onDeleteCodexMcpServer={handleCodexMcpDelete}
-                deleteError={deleteError}
               />
-            )}
-
-            {activeTab === 'api' && (
-              <div className="space-y-6 md:space-y-8">
-                <CredentialsSettingsTab />
-              </div>
             )}
           </div>
         </div>
@@ -193,12 +151,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
         isAuthenticated={isAuthenticated}
       />
 
-      <CodexMcpFormModal
-        isOpen={showCodexMcpForm}
-        editingServer={editingCodexMcpServer}
-        onClose={closeCodexMcpForm}
-        onSubmit={submitCodexMcpForm}
-      />
     </div>
   );
 }

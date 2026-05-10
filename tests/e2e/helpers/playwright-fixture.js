@@ -267,6 +267,8 @@ export function ensurePlaywrightFixture(options = {}) {
     fs.rmSync(FIXTURE_ROOT, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   }
   fs.mkdirSync(FIXTURE_ROOT, { recursive: true });
+  fs.writeFileSync(path.join(FIXTURE_ROOT, '.bashrc'), '# Playwright fixture shell startup\n', 'utf8');
+  fs.writeFileSync(path.join(FIXTURE_ROOT, '.zshrc'), '# Playwright fixture shell startup\n', 'utf8');
 
   for (const project of FIXTURE_PROJECTS) {
     fs.mkdirSync(project.path, { recursive: true });

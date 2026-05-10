@@ -9,6 +9,9 @@ process.env.CCFLOW_FAKE_RUNNER_DELAY_MS = process.env.CCFLOW_FAKE_RUNNER_DELAY_M
 
 export default {
   ...baseConfig,
-  testDir: './tests/spec',
-  testMatch: '**/*.spec.js',
+  testDir: './tests',
+  testMatch: [
+    'spec/**/*.spec.js',
+    '2026-05-10-6-精简设置页和侧边栏导航-settings-sidebar-simplification.test.js',
+  ],
 };

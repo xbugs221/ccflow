@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, ChevronLeft, Check, GitBranch, User, Mail, LogIn, Loader2 } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Check, LogIn, Loader2 } from 'lucide-react';
 import SessionProviderLogo from '../llm-logo-provider/SessionProviderLogo';
 import LoginModal from './LoginModal';
 import { authenticatedFetch } from '../../utils/api';
@@ -7,8 +7,6 @@ import { IS_PLATFORM } from '../../constants/config';
 
 const Onboarding = ({ onComplete }) => {
   const [currentStep, setCurrentStep] = useState(0);
-  const [gitName, setGitName] = useState('');
-  const [gitEmail, setGitEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -23,23 +21,6 @@ const Onboarding = ({ onComplete }) => {
   });
 
   const prevActiveLoginProviderRef = useRef(undefined);
-
-  useEffect(() => {
-    loadGitConfig();
-  }, []);
-
-  const loadGitConfig = async () => {
-    try {
-      const response = await authenticatedFetch('/api/user/git-config');
-      if (response.ok) {
-        const data = await response.json();
-        if (data.gitName) setGitName(data.gitName);
-        if (data.gitEmail) setGitEmail(data.gitEmail);
-      }
-    } catch (error) {
-      console.error('Error loading git config:', error);
-    }
-  };
 
   useEffect(() => {
     const prevProvider = prevActiveLoginProviderRef.current;
@@ -98,43 +79,6 @@ const Onboarding = ({ onComplete }) => {
   const handleNextStep = async () => {
     setError('');
 
-    // Step 0: Git config validation and submission
-    if (currentStep === 0) {
-      if (!gitName.trim() || !gitEmail.trim()) {
-        setError('Both git name and email are required');
-        return;
-      }
-
-      // Validate email format
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(gitEmail)) {
-        setError('Please enter a valid email address');
-        return;
-      }
-
-      setIsSubmitting(true);
-      try {
-        // Save git config to backend (which will also apply git config --global)
-        const response = await authenticatedFetch('/api/user/git-config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ gitName, gitEmail })
-        });
-
-        if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || 'Failed to save git configuration');
-        }
-
-        setCurrentStep(currentStep + 1);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
-    }
-
     setCurrentStep(currentStep + 1);
   };
 
@@ -169,12 +113,6 @@ const Onboarding = ({ onComplete }) => {
 
   const steps = [
     {
-      title: 'Git Configuration',
-      description: 'Set up your git identity for commits',
-      icon: GitBranch,
-      required: true
-    },
-    {
       title: 'Connect Agents',
       description: 'Connect your AI coding assistants',
       icon: LogIn,
@@ -185,63 +123,6 @@ const Onboarding = ({ onComplete }) => {
   const renderStepContent = () => {
     switch (currentStep) {
       case 0:
-        return (
-          <div className="space-y-6">
-            <div className="text-center mb-8">
-              <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-                <GitBranch className="w-8 h-8 text-blue-600 dark:text-blue-400" />
-              </div>
-              <h2 className="text-2xl font-bold text-foreground mb-2">Git Configuration</h2>
-              <p className="text-muted-foreground">
-                Configure your git identity to ensure proper attribution for your commits
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label htmlFor="gitName" className="flex items-center gap-2 text-sm font-medium text-foreground mb-2">
-                  <User className="w-4 h-4" />
-                  Git Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  id="gitName"
-                  value={gitName}
-                  onChange={(e) => setGitName(e.target.value)}
-                  className="w-full px-4 py-3 border border-border rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="John Doe"
-                  required
-                  disabled={isSubmitting}
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  This will be used as: git config --global user.name
-                </p>
-              </div>
-
-              <div>
-                <label htmlFor="gitEmail" className="flex items-center gap-2 text-sm font-medium text-foreground mb-2">
-                  <Mail className="w-4 h-4" />
-                  Git Email <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  id="gitEmail"
-                  value={gitEmail}
-                  onChange={(e) => setGitEmail(e.target.value)}
-                  className="w-full px-4 py-3 border border-border rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="john@example.com"
-                  required
-                  disabled={isSubmitting}
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  This will be used as: git config --global user.email
-                </p>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 1:
         return (
           <div className="space-y-6">
             <div className="text-center mb-6">
@@ -300,8 +181,6 @@ const Onboarding = ({ onComplete }) => {
   const isStepValid = () => {
     switch (currentStep) {
       case 0:
-        return gitName.trim() && gitEmail.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gitEmail);
-      case 1:
         return true;
       default:
         return false;

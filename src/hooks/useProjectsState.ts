@@ -104,6 +104,23 @@ const getProjectSessions = (project: Project): ProjectSession[] => {
   });
 };
 
+const findProjectSessionById = (
+  projects: Project[],
+  sessionId: string,
+  provider: SessionProvider,
+): { project: Project; session: ProjectSession } | null => {
+  for (const project of projects) {
+    const session = getProjectSessions(project).find(
+      (entry) => entry.id === sessionId && (entry.__provider || provider) === provider,
+    );
+    if (session) {
+      return { project, session };
+    }
+  }
+
+  return null;
+};
+
 /**
  * PURPOSE: Resolve the freshest workflow snapshot available for child-session
  * navigation so newly created workflows do not fall back to plain `/cN` routes.
@@ -675,9 +692,13 @@ export function useProjectsState({
       const matchedProject = projects.find((project) => (
         normalizeComparablePath(project.fullPath || project.path || '') === normalizeComparablePath(hintedProjectPath)
       )) || null;
+      const matchedSession = decodedSessionId && !matchedProject
+        ? findProjectSessionById(projects, decodedSessionId, hintedProvider)
+        : null;
+      const resolvedProject = matchedProject || matchedSession?.project || null;
 
-      if (matchedProject && decodedSessionId) {
-        const existingSession = getProjectSessions(matchedProject).find(
+      if (resolvedProject && decodedSessionId) {
+        const existingSession = matchedSession?.session || getProjectSessions(resolvedProject).find(
           (entry) => entry.id === decodedSessionId && (entry.__provider || hintedProvider) === hintedProvider,
         );
         const fallbackSession = {
@@ -688,12 +709,12 @@ export function useProjectsState({
         } as ProjectSession;
         const nextSession = withSessionProjectMetadata(
           existingSession || fallbackSession,
-          matchedProject,
+          resolvedProject,
           hintedProvider,
         );
 
-        if (serialize(selectedProject) !== serialize(matchedProject)) {
-          setSelectedProject(matchedProject);
+        if (serialize(selectedProject) !== serialize(resolvedProject)) {
+          setSelectedProject(resolvedProject);
         }
         if (
           selectedSession?.id !== nextSession.id

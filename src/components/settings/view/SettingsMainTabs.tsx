@@ -1,4 +1,4 @@
-import { Activity, GitBranch, Key } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { SettingsMainTab } from '../types/types';
 
@@ -11,13 +11,11 @@ type MainTabConfig = {
   id: SettingsMainTab;
   labelKey: string;
   defaultLabel: string;
-  icon?: typeof GitBranch;
+  icon?: typeof Activity;
 };
 
 const TAB_CONFIG: MainTabConfig[] = [
   { id: 'appearance', labelKey: 'mainTabs.appearance', defaultLabel: 'Appearance' },
-  { id: 'git', labelKey: 'mainTabs.git', defaultLabel: 'Git', icon: GitBranch },
-  { id: 'api', labelKey: 'mainTabs.apiTokens', defaultLabel: 'API Keys', icon: Key },
   { id: 'agents', labelKey: 'mainTabs.agents', defaultLabel: 'Agents' },
   { id: 'diagnostics', labelKey: 'mainTabs.diagnostics', defaultLabel: 'Diagnostics', icon: Activity },
 ];

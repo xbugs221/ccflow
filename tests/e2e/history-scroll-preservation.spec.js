@@ -20,9 +20,19 @@ const [{ generateToken }, { userDb }] = await Promise.all([
   import('../../server/database/db.js'),
 ]);
 
-const HISTORY_SCROLL_PROJECT_INDEX = 4;
+const HISTORY_SCROLL_PROJECT_INDEX = 5;
 const HISTORY_SCROLL_SESSION_ID = PLAYWRIGHT_FIXTURE_SESSION_IDS[HISTORY_SCROLL_PROJECT_INDEX];
 const HISTORY_SCROLL_PROJECT_PATH = PLAYWRIGHT_FIXTURE_PROJECT_PATHS[HISTORY_SCROLL_PROJECT_INDEX];
+
+/**
+ * Encode a project path the same way project API routes address project roots.
+ *
+ * @param {string} projectPath
+ * @returns {string}
+ */
+function encodeClaudeProjectName(projectPath) {
+  return projectPath.replace(/\//g, '-');
+}
 
 /**
  * Build a valid local auth token for the first active user.
@@ -89,7 +99,7 @@ test('opening a history session starts at the latest messages', async ({ page })
 
 test('opening a long history session does not silently load the full transcript', async ({ page }) => {
   const messageRequests = [];
-  await page.route('**/api/projects/**/sessions/**/messages**', async (route) => {
+  await page.route(/\/api\/(?:projects\/.*\/sessions|codex\/sessions)\/.*\/messages.*/, async (route) => {
     messageRequests.push(route.request().url());
     await route.continue();
   });

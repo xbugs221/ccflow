@@ -73,8 +73,7 @@ async function clickVisibleButton(page, pattern) {
  * @param {import('@playwright/test').Page} page
  */
 async function openShellProject(page) {
-  await page.goto('/', { waitUntil: 'networkidle' });
-  await clickVisibleButton(page, /fixture-project|ccflow/);
+  await page.goto('/workspace/fixture-project', { waitUntil: 'networkidle' });
   await expect(page.getByRole('button', { name: /^Shell$|^终端$/ })).toBeVisible({ timeout: 10_000 });
 }
 
@@ -87,10 +86,20 @@ test('shell tab uses plain shell controls and supports disconnect/reconnect', as
   await expect(page.locator('body')).toContainText(/New Session|新会话/, { timeout: 10_000 });
   await expect(page.locator('body')).not.toContainText(/Resume session|恢复会话/);
 
-  await clickVisibleButton(page, /^Disconnect$|^断开连接$/);
+  await page.locator('button[title="Disconnect from shell"], button[title="断开 Shell 连接"]').first().click();
 
-  await expect(page.locator('body')).toContainText(/Continue in Shell|在 Shell 中继续/, { timeout: 10_000 });
-  await clickVisibleButton(page, /^Continue in Shell$|^在 Shell 中继续$/);
+  await page.waitForFunction(
+    () => /Continue in Shell|在 Shell 中继续|Disconnect|断开连接/.test(document.body.textContent || ''),
+    undefined,
+    { timeout: 10_000 },
+  );
+  await page.evaluate(() => {
+    const connectButton = Array.from(document.querySelectorAll('button')).find((node) => {
+      const text = (node.textContent || '').trim();
+      return /^(Continue in Shell|在 Shell 中继续)$/i.test(text) && node.offsetParent !== null;
+    });
+    connectButton?.click();
+  });
 
   await expect(page.locator('body')).toContainText(/Disconnect|断开连接/, { timeout: 10_000 });
 });

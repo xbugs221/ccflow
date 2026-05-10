@@ -1,32 +1,17 @@
 import type {
-  AgentCategory,
   AgentProvider,
   AuthStatus,
-  CodexMcpFormState,
-  CodeEditorSettingsState,
-  ProjectSortOrder,
   SettingsMainTab,
 } from '../types/types';
 
 export const SETTINGS_MAIN_TABS: SettingsMainTab[] = [
   'appearance',
-  'git',
-  'api',
   'agents',
+  'diagnostics',
 ];
 
 export const AGENT_PROVIDERS: AgentProvider[] = ['codex', 'opencode'];
-export const AGENT_CATEGORIES: AgentCategory[] = ['account', 'mcp'];
-
-export const DEFAULT_PROJECT_SORT_ORDER: ProjectSortOrder = 'name';
 export const DEFAULT_SAVE_STATUS = null;
-export const DEFAULT_CODE_EDITOR_SETTINGS: CodeEditorSettingsState = {
-  theme: 'dark',
-  wordWrap: false,
-  showMinimap: true,
-  lineNumbers: true,
-  fontSize: '14',
-};
 
 export const DEFAULT_AUTH_STATUS: AuthStatus = {
   authenticated: false,
@@ -35,16 +20,6 @@ export const DEFAULT_AUTH_STATUS: AuthStatus = {
   error: null,
   provider: null,
   baseUrl: null,
-};
-
-export const DEFAULT_CODEX_MCP_FORM: CodexMcpFormState = {
-  name: '',
-  type: 'stdio',
-  config: {
-    command: '',
-    args: [],
-    env: {},
-  },
 };
 
 export const AUTH_STATUS_ENDPOINTS: Partial<Record<AgentProvider, string>> = {

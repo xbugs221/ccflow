@@ -1,12 +1,9 @@
 // PURPOSE: Centralize provider-neutral browser settings persistence.
-import type { ProjectSortOrder as SettingsProjectSortOrder } from '../components/settings/types/types';
-
 export const CCFLOW_SETTINGS_KEY = 'ccflow-settings';
 
 const LEGACY_PROVIDER_SETTINGS_KEY = ['claude', 'settings'].join('-');
 
 type StoredSettings = {
-  projectSortOrder?: SettingsProjectSortOrder;
   lastUpdated?: string;
   [key: string]: unknown;
 };
@@ -42,25 +39,4 @@ export const readCcflowSettings = (): StoredSettings => {
   } catch {
     return {};
   }
-};
-
-/**
- * Read the saved project ordering preference.
- */
-export const readProjectSortOrderSetting = (): SettingsProjectSortOrder => {
-  const settings = readCcflowSettings();
-  return settings.projectSortOrder === 'date' ? 'date' : 'name';
-};
-
-/**
- * Persist the project ordering preference under the provider-neutral key.
- */
-export const writeProjectSortOrderSetting = (
-  projectSortOrder: SettingsProjectSortOrder,
-  updatedAt: string = new Date().toISOString(),
-) => {
-  localStorage.setItem(CCFLOW_SETTINGS_KEY, JSON.stringify({
-    projectSortOrder,
-    lastUpdated: updatedAt,
-  }));
 };

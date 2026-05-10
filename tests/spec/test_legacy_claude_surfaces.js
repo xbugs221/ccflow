@@ -141,12 +141,6 @@ test('active frontend empty and tool states do not show Claude copy', async () =
     readSource('src/i18n/locales/zh-CN/sidebar.json'),
     readSource('src/i18n/locales/zh-CN/common.json'),
     readSource('src/i18n/locales/zh-CN/chat.json'),
-    readSource('src/i18n/locales/ja/sidebar.json'),
-    readSource('src/i18n/locales/ja/common.json'),
-    readSource('src/i18n/locales/ja/chat.json'),
-    readSource('src/i18n/locales/ko/sidebar.json'),
-    readSource('src/i18n/locales/ko/common.json'),
-    readSource('src/i18n/locales/ko/chat.json'),
   ]);
 
   for (const source of activeSources) {
@@ -159,8 +153,6 @@ test('settings locale copy does not expose legacy Claude provider entries', asyn
   const settingsLocales = await Promise.all([
     readSource('src/i18n/locales/en/settings.json'),
     readSource('src/i18n/locales/zh-CN/settings.json'),
-    readSource('src/i18n/locales/ja/settings.json'),
-    readSource('src/i18n/locales/ko/settings.json'),
   ]);
 
   for (const source of settingsLocales) {

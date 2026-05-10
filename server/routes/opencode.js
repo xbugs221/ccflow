@@ -33,6 +33,103 @@ function spawnOpencodeCli(args) {
   return { proc, cliPath };
 }
 
+function normalizeProviderStatus(rawProviders = {}) {
+  /**
+   * Convert OpenCode status shapes into the settings-page provider list.
+   */
+  if (Array.isArray(rawProviders)) {
+    return rawProviders
+      .map((provider) => ({
+        name: String(provider.name || provider.id || '').trim(),
+        connected: Boolean(provider.connected ?? provider.available ?? provider.authenticated),
+        source: provider.source || 'opencode',
+      }))
+      .filter((provider) => provider.name);
+  }
+
+  return Object.entries(rawProviders)
+    .map(([name, value]) => {
+      const detail = value && typeof value === 'object' ? value : {};
+      return {
+        name,
+        connected: typeof value === 'boolean' ? value : Boolean(detail.connected ?? detail.available ?? detail.authenticated),
+        source: detail.source || 'opencode',
+      };
+    })
+    .filter((provider) => provider.name);
+}
+
+router.get('/status', async (_req, res) => {
+  try {
+    const respond = createCliResponder(res);
+    const { proc, cliPath } = spawnOpencodeCli(['auth', 'list', '--json']);
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout?.on('data', (data) => { stdout += data.toString(); });
+    proc.stderr?.on('data', (data) => { stderr += data.toString(); });
+
+    proc.on('close', (code) => {
+      let providers = [];
+      if (stdout.trim()) {
+        try {
+          const parsed = JSON.parse(stdout);
+          providers = normalizeProviderStatus(parsed.providers || parsed);
+        } catch {
+          providers = stdout
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((name) => ({ name, connected: true, source: 'opencode' }));
+        }
+      }
+
+      if (code === 0) {
+        respond(200, {
+          authenticated: providers.some((provider) => provider.connected),
+          email: null,
+          provider: providers.find((provider) => provider.connected)?.name || null,
+          baseUrl: null,
+          providers,
+        });
+        return;
+      }
+
+      respond(200, {
+        authenticated: false,
+        email: null,
+        provider: null,
+        baseUrl: null,
+        providers,
+        error: stderr.trim() || `OpenCode status exited with code ${code}`,
+      });
+    });
+
+    proc.on('error', (error) => {
+      const isMissing = error?.code === 'ENOENT';
+      respond(isMissing ? 503 : 500, {
+        authenticated: false,
+        email: null,
+        provider: null,
+        baseUrl: null,
+        providers: [],
+        error: isMissing ? formatOpencodeCliNotFoundMessage(cliPath) : error.message,
+        code: error.code,
+      });
+    });
+  } catch (error) {
+    res.status(500).json({
+      authenticated: false,
+      email: null,
+      provider: null,
+      baseUrl: null,
+      providers: [],
+      error: error.message,
+    });
+  }
+});
+
 router.get('/models', async (_req, res) => {
   try {
     const respond = createCliResponder(res);

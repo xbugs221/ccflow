@@ -71,7 +71,7 @@ test('projects api exposes both fixture project roots', async ({ page }) => {
   expect(payload.status).toBe(200);
   expect(payload.projectPaths).toContain(PLAYWRIGHT_FIXTURE_PROJECT_PATHS[0]);
   expect(payload.projectPaths).toContain(PLAYWRIGHT_FIXTURE_PROJECT_PATHS[1]);
-  expect(payload.fixtureProject?.sessions?.map((session) => session.summary)).toEqual([
+  expect(payload.fixtureProject?.codexSessions?.map((session) => session.summary)).toEqual([
     'fixture-project manual-only session',
   ]);
 });
@@ -96,10 +96,10 @@ test('mobile project selection opens session and workflow list in main content',
 
   await page.getByRole('button', { name: 'Open menu' }).click();
   await page.getByText('fixture-project', { exact: true }).first().click();
-  await expect(page).toHaveURL(/\/project\//);
-  await expect(page.getByRole('heading', { name: '手动会话' })).toBeVisible();
+  await expect(page).toHaveURL(/\/workspace\//);
+  await expect(page.locator('[data-testid="project-overview-manual-sessions"]').getByRole('heading', { name: '手动会话' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '自动工作流' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /fixture-project session/ }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /fixture-project manual-only session/ }).first()).toBeVisible();
 
   const manualSessionPanelOverflow = await page.locator('[data-testid="project-overview-manual-sessions"]').evaluate((element) => ({
     clientWidth: element.clientWidth,
@@ -111,11 +111,12 @@ test('mobile project selection opens session and workflow list in main content',
 test('manual session order stays pinned to creation time after an older session gets new messages', async ({ page }) => {
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /^fixture-project\b/i }).first().click();
-  await page.getByRole('button', { name: /手动会话/ }).click();
 
-  const manualSessions = page.locator('[data-testid="project-overview-manual-sessions"] .mt-3 > button');
-  await expect(manualSessions.nth(0)).toContainText('fixture-project session');
-  await expect(manualSessions.nth(1)).toContainText('fixture-project execution fixture session');
+  const manualSessions = page.locator('[data-testid="project-overview-manual-sessions"] button').filter({
+    hasText: /fixture-project/,
+  });
+  await expect(manualSessions).toHaveCount(1);
+  await expect(manualSessions.nth(0)).toContainText('fixture-project manual-only session');
 
   const executionSessionPath = path.join(
     PLAYWRIGHT_FIXTURE_HOME,
@@ -143,10 +144,9 @@ test('manual session order stays pinned to creation time after an older session 
 
   await page.reload({ waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /^fixture-project\b/i }).first().click();
-  await page.getByRole('button', { name: /手动会话/ }).click();
 
-  await expect(manualSessions.nth(0)).toContainText('fixture-project session');
-  await expect(manualSessions.nth(1)).toContainText('fixture-project execution fixture session');
+  await expect(manualSessions).toHaveCount(1);
+  await expect(manualSessions.nth(0)).toContainText('fixture-project manual-only session');
 });
 
 test('creating a manual session updates the sidebar immediately without a browser reload', async ({ page }) => {
@@ -160,13 +160,14 @@ test('creating a manual session updates the sidebar immediately without a browse
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /^fixture-project\b/i }).first().click();
 
-  const manualSessionGroup = page.locator('[data-testid="manual-session-group"]').first();
+  const manualSessionGroup = page.locator('[data-testid="project-overview-manual-sessions"]').first();
   await expect(manualSessionGroup).toBeVisible();
 
-  await manualSessionGroup.getByRole('button', { name: /新建/ }).click();
+  await manualSessionGroup.getByRole('button', { name: /新建|New Session/ }).click();
+  await page.getByTestId('project-new-session-provider-codex').click();
 
   await expect(page).toHaveURL(/\/workspace\/.*\/c\d+$/);
-  await expect(manualSessionGroup.getByRole('button', { name: new RegExp(sessionLabel) }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: new RegExp(sessionLabel) }).first()).toBeVisible();
 });
 
 test('creating a manual session keeps the default label number aligned with the route number', async ({ page }) => {
@@ -181,17 +182,18 @@ test('creating a manual session keeps the default label number aligned with the 
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /^fixture-project\b/i }).first().click();
 
-  const manualSessionGroup = page.locator('[data-testid="manual-session-group"]').first();
+  const manualSessionGroup = page.locator('[data-testid="project-overview-manual-sessions"]').first();
   await expect(manualSessionGroup).toBeVisible();
 
-  await manualSessionGroup.getByRole('button', { name: /新建/ }).click();
+  await manualSessionGroup.getByRole('button', { name: /新建|New Session/ }).click();
+  await page.getByTestId('project-new-session-provider-codex').click();
 
   await expect(page).toHaveURL(/\/workspace\/.*\/c\d+$/);
 
   const routeMatch = page.url().match(/\/c(\d+)$/);
   expect(routeMatch).not.toBeNull();
-  const expectedLabel = `会话${routeMatch[1]}`;
+  const expectedLabelPattern = new RegExp(`(会话|Session )${routeMatch[1]}`);
 
-  await expect(manualSessionGroup.locator('button').filter({ hasText: expectedLabel }).first()).toBeVisible();
-  await expect.poll(async () => page.evaluate(() => window.__lastManualSessionPromptDefault)).toBe(expectedLabel);
+  await expect(page.getByRole('button', { name: expectedLabelPattern }).first()).toBeVisible();
+  await expect.poll(async () => page.evaluate(() => window.__lastManualSessionPromptDefault)).toMatch(expectedLabelPattern);
 });

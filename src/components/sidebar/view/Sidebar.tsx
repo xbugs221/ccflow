@@ -58,7 +58,6 @@ function Sidebar({
     isRefreshing,
     editingSession,
     editingSessionName,
-    searchFilter,
     deletingProjects,
     deleteConfirmation,
     sessionDeleteConfirmation,
@@ -90,7 +89,6 @@ function Sidebar({
     setEditingName,
     setEditingSession,
     setEditingSessionName,
-    setSearchFilter,
     setDeleteConfirmation,
     setSessionDeleteConfirmation,
     setShowVersionModal,
@@ -223,9 +221,6 @@ function Sidebar({
             isMobile={isMobile}
             isLoading={isLoading}
             projects={projects}
-            searchFilter={searchFilter}
-            onSearchFilterChange={setSearchFilter}
-            onClearSearchFilter={() => setSearchFilter('')}
             onRefresh={() => {
               void refreshProjects();
             }}

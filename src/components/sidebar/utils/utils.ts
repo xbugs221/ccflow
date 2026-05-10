@@ -1,7 +1,6 @@
 // PURPOSE: Provide sidebar project/session formatting, filtering, and stable ordering helpers.
 import type { TFunction } from 'i18next';
 import type { Project } from '../../../types/app';
-import { readProjectSortOrderSetting } from '../../../utils/settingsStorage';
 import type {
   AdditionalSessionsByProject,
   ProjectSortOrder,
@@ -19,7 +18,7 @@ type SessionUiState = {
 export type SessionCardSortMode = 'created' | 'updated' | 'title' | 'provider';
 
 export const readProjectSortOrder = (): ProjectSortOrder => {
-  return readProjectSortOrderSetting();
+  return 'name';
 };
 
 export const getSessionDate = (session: SessionWithProvider): Date => {
@@ -259,19 +258,6 @@ export const sortProjects = (
   });
 
   return sorted;
-};
-
-export const filterProjects = (projects: Project[], searchFilter: string): Project[] => {
-  const normalizedSearch = searchFilter.trim().toLowerCase();
-  if (!normalizedSearch) {
-    return projects;
-  }
-
-  return projects.filter((project) => {
-    const displayName = (project.displayName || project.name).toLowerCase();
-    const projectName = project.name.toLowerCase();
-    return displayName.includes(normalizedSearch) || projectName.includes(normalizedSearch);
-  });
 };
 
 export const getTaskIndicatorStatus = (

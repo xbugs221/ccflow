@@ -1,5 +1,6 @@
 // PURPOSE: Render account connection details and provider-scoped quota for one agent.
 import { LogIn } from 'lucide-react';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '../../../../../../ui/badge';
 import { Button } from '../../../../../../ui/button';
@@ -50,6 +51,42 @@ function getConnectionLabel(agent: AgentProvider, authStatus: AuthStatus, fallba
   return authStatus.email || fallbackLabel;
 }
 
+function getConnectedProviderNames(authStatus: AuthStatus) {
+  /**
+   * Derive the provider names OpenCode reported as connected.
+   */
+  return (authStatus.providers || [])
+    .filter((provider) => provider.connected)
+    .map((provider) => provider.name)
+    .filter(Boolean);
+}
+
+function getOpenCodeProviderSummary(authStatus: AuthStatus, connectedProviders: string[], t: TFunction) {
+  /**
+   * Prioritize failure diagnostics over the "available without provider" state.
+   */
+  if (connectedProviders.length > 0) {
+    return t('agents.account.opencode.connectedProviders', { providers: connectedProviders.join(', ') });
+  }
+  if (authStatus.error) {
+    return t('agents.error', { error: authStatus.error });
+  }
+  return t('agents.account.opencode.noProviders');
+}
+
+function getOpenCodeProviderHeadline(authStatus: AuthStatus, connectedProviders: string[], t: TFunction) {
+  /**
+   * Separate OpenCode CLI failure from the valid no-provider connection state.
+   */
+  if (authStatus.error) {
+    return t('agents.authStatus.disconnected');
+  }
+  if (connectedProviders.length > 0) {
+    return t('agents.authStatus.connected');
+  }
+  return t('agents.account.opencode.available');
+}
+
 /**
  * Render the selected provider's account status and usage quota together.
  */
@@ -61,6 +98,9 @@ export default function AccountContent({
 }: AccountContentProps) {
   const { t } = useTranslation('settings');
   const config = agentConfig[agent];
+  const connectedProviders = getConnectedProviderNames(authStatus);
+  const opencodeProviderSummary = getOpenCodeProviderSummary(authStatus, connectedProviders, t);
+  const opencodeProviderHeadline = getOpenCodeProviderHeadline(authStatus, connectedProviders, t);
 
   return (
     <div className="space-y-6">
@@ -112,10 +152,10 @@ export default function AccountContent({
             {agent === 'opencode' ? (
               <div>
                 <div className={`font-medium ${config.textClass}`}>
-                  {t('agents.authStatus.connected')}
+                  {opencodeProviderHeadline}
                 </div>
                 <div className={`text-sm ${config.subtextClass}`}>
-                  {t('agents.account.opencode.description')}
+                  {opencodeProviderSummary}
                 </div>
               </div>
             ) : (

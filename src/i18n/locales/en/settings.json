@@ -3,7 +3,6 @@
   "tabs": {
     "account": "Account",
     "permissions": "Permissions",
-    "mcpServers": "MCP Servers",
     "appearance": "Appearance"
   },
   "account": {
@@ -16,33 +15,9 @@
     "profile": "Profile",
     "changePassword": "Change Password"
   },
-  "mcp": {
-    "title": "MCP Servers",
-    "addServer": "Add Server",
-    "editServer": "Edit Server",
-    "deleteServer": "Delete Server",
-    "serverName": "Server Name",
-    "serverType": "Server Type",
-    "config": "Configuration",
-    "testConnection": "Test Connection",
-    "status": "Status",
-    "connected": "Connected",
-    "disconnected": "Disconnected",
-    "scope": {
-      "label": "Scope",
-      "user": "User",
-      "project": "Project"
-    }
-  },
   "appearance": {
     "title": "Appearance",
-    "theme": "Theme",
-    "codeEditor": "Code Editor",
-    "editorTheme": "Editor Theme",
-    "wordWrap": "Word Wrap",
-    "showMinimap": "Show Minimap",
-    "lineNumbers": "Line Numbers",
-    "fontSize": "Font Size"
+    "theme": "Theme"
   },
   "actions": {
     "saveChanges": "Save Changes",
@@ -86,8 +61,7 @@
   "mainTabs": {
     "agents": "Agents",
     "appearance": "Appearance",
-    "git": "Git",
-    "apiTokens": "API & Tokens",
+    "diagnostics": "Diagnostics",
     "tasks": "Tasks"
   },
   "usage": {
@@ -102,84 +76,6 @@
     "darkMode": {
       "label": "Dark Mode",
       "description": "Toggle between light and dark themes"
-    },
-    "projectSorting": {
-      "label": "Project Sorting",
-      "description": "How projects are ordered in the sidebar",
-      "alphabetical": "Alphabetical",
-      "recentActivity": "Recent Activity"
-    },
-    "codeEditor": {
-      "title": "Code Editor",
-      "theme": {
-        "label": "Editor Theme",
-        "description": "Default theme for the code editor"
-      },
-      "wordWrap": {
-        "label": "Word Wrap",
-        "description": "Enable word wrapping by default in the editor"
-      },
-      "showMinimap": {
-        "label": "Show Minimap",
-        "description": "Display a minimap for easier navigation in diff view"
-      },
-      "lineNumbers": {
-        "label": "Show Line Numbers",
-        "description": "Display line numbers in the editor"
-      },
-      "fontSize": {
-        "label": "Font Size",
-        "description": "Editor font size in pixels"
-      }
-    }
-  },
-  "mcpForm": {
-    "title": {
-      "add": "Add MCP Server",
-      "edit": "Edit MCP Server"
-    },
-    "importMode": {
-      "form": "Form Input",
-      "json": "JSON Import"
-    },
-    "scope": {
-      "label": "Scope",
-      "userGlobal": "User (Global)",
-      "projectLocal": "Project (Local)",
-      "userDescription": "User scope: Available across all projects on your machine",
-      "projectDescription": "Local scope: Only available in the selected project",
-      "cannotChange": "Scope cannot be changed when editing an existing server"
-    },
-    "fields": {
-      "serverName": "Server Name",
-      "transportType": "Transport Type",
-      "command": "Command",
-      "arguments": "Arguments (one per line)",
-      "jsonConfig": "JSON Configuration",
-      "url": "URL",
-      "envVars": "Environment Variables (KEY=value, one per line)",
-      "headers": "Headers (KEY=value, one per line)",
-      "selectProject": "Select a project..."
-    },
-    "placeholders": {
-      "serverName": "my-server"
-    },
-    "validation": {
-      "missingType": "Missing required field: type",
-      "stdioRequiresCommand": "stdio type requires a command field",
-      "httpRequiresUrl": "{{type}} type requires a url field",
-      "invalidJson": "Invalid JSON format",
-      "jsonHelp": "Paste your MCP server configuration in JSON format. Example formats:",
-      "jsonExampleStdio": "• stdio: {\"type\":\"stdio\",\"command\":\"npx\",\"args\":[\"@upstash/context7-mcp\"]}",
-      "jsonExampleHttp": "• http/sse: {\"type\":\"http\",\"url\":\"https://api.example.com/mcp\"}"
-    },
-    "configDetails": "Configuration Details (from {{configFile}})",
-    "projectPath": "Path: {{path}}",
-    "actions": {
-      "cancel": "Cancel",
-      "saving": "Saving...",
-      "addServer": "Add Server",
-      "updateServer": "Update Server"
     }
   },
   "saveStatus": {
@@ -190,77 +86,6 @@
   "footerActions": {
     "save": "Save Settings",
     "cancel": "Cancel"
-  },
-  "git": {
-    "title": "Git Configuration",
-    "description": "Configure your git identity for commits. These settings will be applied globally via git config --global",
-    "name": {
-      "label": "Git Name",
-      "help": "Your name for git commits"
-    },
-    "email": {
-      "label": "Git Email",
-      "help": "Your email for git commits"
-    },
-    "actions": {
-      "save": "Save Configuration",
-      "saving": "Saving..."
-    },
-    "status": {
-      "success": "Saved successfully"
-    }
-  },
-  "apiKeys": {
-    "title": "API Keys",
-    "description": "Generate API keys to access the external API from other applications.",
-    "newKey": {
-      "alertTitle": "⚠️ Save Your API Key",
-      "alertMessage": "This is the only time you'll see this key. Store it securely.",
-      "iveSavedIt": "I've saved it"
-    },
-    "form": {
-      "placeholder": "API Key Name (e.g., Production Server)",
-      "createButton": "Create",
-      "cancelButton": "Cancel"
-    },
-    "newButton": "New API Key",
-    "empty": "No API keys created yet.",
-    "list": {
-      "created": "Created:",
-      "lastUsed": "Last used:"
-    },
-    "confirmDelete": "Are you sure you want to delete this API key?",
-    "status": {
-      "active": "Active",
-      "inactive": "Inactive"
-    },
-    "github": {
-      "title": "GitHub Tokens",
-      "description": "Add GitHub Personal Access Tokens to clone private repositories via the external API.",
-      "descriptionAlt": "Add GitHub Personal Access Tokens to clone private repositories. You can also pass tokens directly in API requests without storing them.",
-      "addButton": "Add Token",
-      "form": {
-        "namePlaceholder": "Token Name (e.g., Personal Repos)",
-        "tokenPlaceholder": "GitHub Personal Access Token (ghp_...)",
-        "descriptionPlaceholder": "Description (optional)",
-        "addButton": "Add Token",
-        "cancelButton": "Cancel",
-        "howToCreate": "How to create a GitHub Personal Access Token →"
-      },
-      "empty": "No GitHub tokens added yet.",
-      "added": "Added:",
-      "confirmDelete": "Are you sure you want to delete this GitHub token?"
-    },
-    "apiDocsLink": "API Documentation",
-    "documentation": {
-      "title": "External API Documentation",
-      "description": "Learn how to use the external API to trigger Codex/OpenCode sessions from your applications.",
-      "viewLink": "View API Documentation →"
-    },
-    "loading": "Loading...",
-    "version": {
-      "updateAvailable": "Update available: v{{version}}"
-    }
   },
   "tasks": {
     "checking": "Checking TaskMaster installation...",
@@ -296,7 +121,10 @@
         "description": "OpenAI Codex AI assistant"
       },
       "opencode": {
-        "description": "OpenCode CLI assistant"
+        "description": "OpenCode CLI assistant",
+        "available": "OpenCode available",
+        "connectedProviders": "Connected: {{providers}}",
+        "noProviders": "OpenCode available, no provider connected yet"
       }
     },
     "connectionStatus": "Connection Status",
@@ -309,6 +137,28 @@
       "reLoginButton": "Re-login"
     },
     "error": "Error: {{error}}"
+  },
+  "diagnostics": {
+    "title": "Runtime diagnostics",
+    "description": "Server-visible oz, wo, and co commands used by workflow automation.",
+    "loading": "Loading diagnostics...",
+    "loadError": "Failed to load diagnostics",
+    "unknown": "unknown",
+    "notFound": "not found",
+    "empty": "empty",
+    "status": {
+      "success": "Success",
+      "failed": "Failed"
+    },
+    "fields": {
+      "overall": "Overall status",
+      "commandPath": "Command path",
+      "home": "Run directory",
+      "version": "Version",
+      "contract": "Contract capabilities",
+      "contractMissing": "Missing contract capabilities",
+      "path": "PATH"
+    }
   },
   "permissions": {
     "title": "Permission Settings",

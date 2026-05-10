@@ -45,6 +45,7 @@ process.env.HOME = fixture.homeDir;
 process.env.USERPROFILE = fixture.homeDir;
 process.env.DATABASE_PATH = fixture.authDbPath;
 process.env.PLAYWRIGHT_BROWSERS_PATH = PLAYWRIGHT_BROWSERS_PATH;
+process.env.SHELL = '/bin/bash';
 
 const AUTH_DB_PATH = fixture.authDbPath;
 const SERVER_PORT = process.env.PLAYWRIGHT_SERVER_PORT || '4101';
