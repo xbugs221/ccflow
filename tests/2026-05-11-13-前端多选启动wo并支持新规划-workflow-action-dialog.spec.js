@@ -15,7 +15,7 @@ import {
   PRIMARY_FIXTURE_PROJECT_PATH,
   authHeaders,
   getFixtureProject,
-} from '../spec/helpers/spec-test-helpers.js';
+} from './spec/helpers/spec-test-helpers.js';
 
 const OPEN_SPEC_CHANGE_NAME = '25-home-session-card-activity-ui';
 

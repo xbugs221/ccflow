@@ -857,13 +857,20 @@ export function useChatComposerState({
     if (!selectedProject) {
       return;
     }
+    const initialPrompt = typeof selectedSession?.initialPrompt === 'string' ? selectedSession.initialPrompt : '';
+    if (initialPrompt.trim()) {
+      setInput(initialPrompt);
+      inputValueRef.current = initialPrompt;
+      safeLocalStorage.setItem(`draft_input_${selectedProject.name}`, initialPrompt);
+      return;
+    }
     const savedInput = safeLocalStorage.getItem(`draft_input_${selectedProject.name}`) || '';
     setInput((previous) => {
       const next = previous === savedInput ? previous : savedInput;
       inputValueRef.current = next;
       return next;
     });
-  }, [selectedProject?.name]);
+  }, [selectedProject?.name, selectedSession?.id, selectedSession?.initialPrompt]);
 
   useEffect(() => {
     if (!selectedProject) {

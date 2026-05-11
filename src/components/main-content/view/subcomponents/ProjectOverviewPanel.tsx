@@ -5,10 +5,9 @@
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Clock, FolderOpen, MessageSquarePlus, Plus, Star, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clock, FolderOpen, MessageSquarePlus, Star, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../../ui/button';
-import { Input } from '../../../ui/input';
 import type { ProjectSession, ProjectWorkflow, SessionProvider } from '../../../../types/app';
 import type { ProjectOverviewPanelProps } from '../../types/types';
 import {
@@ -18,11 +17,11 @@ import {
 } from '../../../sidebar/utils/utils';
 import { formatTimeAgo } from '../../../../utils/dateUtils';
 import { api } from '../../../../utils/api';
-import { buildProjectWorkflowRoute } from '../../../../utils/projectRoute';
 import { isWorkflowOwnedSession } from '../../../../utils/workflowSessions';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import SessionActionIconMenu from '../../../session-actions/SessionActionIconMenu';
 import WorkflowStageProgress from '../../../workflow/WorkflowStageProgress';
+import WorkflowActionDialog from '../../../workflow/WorkflowActionDialog';
 import {
   getSessionActivitySignature,
   getSessionProjectName,
@@ -185,14 +184,7 @@ export default function ProjectOverviewPanel({
   const [workflowExpanded, setWorkflowExpanded] = useState(() => displayMode === 'all' || displayMode === 'workflows');
   const [sessionExpanded, setSessionExpanded] = useState(() => displayMode === 'all' || displayMode === 'sessions');
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
-  const [workflowComposerOpen, setWorkflowComposerOpen] = useState(false);
-  const [workflowTitleInput, setWorkflowTitleInput] = useState('');
-  const [workflowObjectiveInput, setWorkflowObjectiveInput] = useState('');
-  const [availableOpenSpecChanges, setAvailableOpenSpecChanges] = useState<string[]>([]);
-  const [selectedOpenSpecChange, setSelectedOpenSpecChange] = useState('');
-  const [isLoadingOpenSpecChanges, setIsLoadingOpenSpecChanges] = useState(false);
-  const [isCreatingWorkflow, setIsCreatingWorkflow] = useState(false);
-  const [workflowComposerError, setWorkflowComposerError] = useState('');
+  const [workflowActionDialogOpen, setWorkflowActionDialogOpen] = useState(false);
   const [sessionCreateError, setSessionCreateError] = useState('');
   const [actionMenu, setActionMenu] = useState<OverviewActionMenuState>({ isOpen: false, x: 0, y: 0 });
   const [isSessionSelectionMode, setSessionSelectionMode] = useState(false);
@@ -435,78 +427,6 @@ export default function ProjectOverviewPanel({
     }
   };
 
-  const openWorkflowComposer = async () => {
-    /**
-     * Open the inline workflow composer and preload adoptable OpenSpec changes
-     * so the user can pick from a dropdown instead of typing change names.
-     */
-    setWorkflowComposerOpen(true);
-    setWorkflowComposerError('');
-    try {
-      setIsLoadingOpenSpecChanges(true);
-      const changesResponse = await api.projectOpenSpecChanges(project.name);
-      const changesPayload = changesResponse.ok ? await changesResponse.json() : { changes: [] };
-      const nextChanges = Array.isArray(changesPayload?.changes) ? changesPayload.changes : [];
-      setAvailableOpenSpecChanges(nextChanges);
-      setSelectedOpenSpecChange((current) => (nextChanges.includes(current) ? current : ''));
-    } catch (error) {
-      console.error('Error loading OpenSpec changes:', error);
-      setAvailableOpenSpecChanges([]);
-      setSelectedOpenSpecChange('');
-      setWorkflowComposerError('无法读取可接手的 OpenSpec 提案。');
-    } finally {
-      setIsLoadingOpenSpecChanges(false);
-    }
-  };
-
-  const closeWorkflowComposer = () => {
-    setWorkflowComposerOpen(false);
-    setWorkflowTitleInput('');
-    setWorkflowObjectiveInput('');
-    setAvailableOpenSpecChanges([]);
-    setSelectedOpenSpecChange('');
-    setWorkflowComposerError('');
-  };
-
-  const createWorkflow = async () => {
-    const title = workflowTitleInput.trim();
-    const objective = workflowObjectiveInput.trim();
-    if (!title) {
-      setWorkflowComposerError('请先填写摘要。');
-      return;
-    }
-    if (!objective) {
-      setWorkflowComposerError('请先填写需求正文。');
-      return;
-    }
-
-    try {
-      setIsCreatingWorkflow(true);
-      setWorkflowComposerError('');
-      const openspecChangeName = selectedOpenSpecChange.trim();
-      const response = await api.createProjectWorkflow(project.name, {
-        title,
-        objective,
-        openspecChangeName: openspecChangeName || undefined,
-      });
-      if (!response.ok) {
-        setWorkflowComposerError('创建工作流失败，请稍后重试。');
-        return;
-      }
-
-      const workflow = await response.json();
-      await window.refreshProjects?.();
-      closeWorkflowComposer();
-      onSelectWorkflow(project, workflow);
-      navigate(buildProjectWorkflowRoute(project, workflow));
-    } catch (error) {
-      console.error('Error creating workflow:', error);
-      setWorkflowComposerError('创建工作流失败，请稍后重试。');
-    } finally {
-      setIsCreatingWorkflow(false);
-    }
-  };
-
   const handleDeleteSession = async (
     sessionProjectName: string,
     sessionId: string,
@@ -735,67 +655,19 @@ export default function ProjectOverviewPanel({
                   {showHiddenItems ? '收起已隐藏项' : `显示已隐藏项 (${hiddenSessionCount})`}
                 </Button>
               )}
-              <Button variant="outline" className="h-9 gap-2 self-start" onClick={() => void openWorkflowComposer()}>
-                <Plus className="h-4 w-4" />
-                新建工作流
+              <Button variant="outline" className="h-9 gap-2 self-start" onClick={() => setWorkflowActionDialogOpen(true)}>
+                工作流操作
               </Button>
             </div>
           </div>
-          {workflowComposerOpen && (
-            <div className="mt-4 rounded-md border border-border/60 bg-card p-4">
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="grid gap-2 text-sm text-foreground">
-                  <span>摘要</span>
-                  <Input
-                    value={workflowTitleInput}
-                    placeholder="例如：支持讨论优先的自动工作流"
-                    onChange={(event) => setWorkflowTitleInput(event.target.value)}
-                  />
-                </label>
-                <label className="grid gap-2 text-sm text-foreground md:col-span-2">
-                  <span>需求正文</span>
-                  <textarea
-                    className="min-h-24 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                    value={workflowObjectiveInput}
-                    placeholder="写清楚要解决的问题、预期行为和验收条件"
-                    onChange={(event) => setWorkflowObjectiveInput(event.target.value)}
-                  />
-                </label>
-                <label className="grid gap-2 text-sm text-foreground">
-                  <span>接手已有 OpenSpec</span>
-                  <select
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={isLoadingOpenSpecChanges}
-                    value={selectedOpenSpecChange}
-                    onChange={(event) => setSelectedOpenSpecChange(event.target.value)}
-                  >
-                    <option value="">新需求，先进入规划会话</option>
-                    {availableOpenSpecChanges.map((changeName) => (
-                      <option key={changeName} value={changeName}>
-                        {changeName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <p className="mt-3 text-sm text-muted-foreground">
-                {selectedOpenSpecChange
-                  ? '已选择接手现有 proposal，后端会跳过新规划并继续推进该变更。'
-                  : '未选择 proposal 时，后端会预留 OpenSpec 编号，规划会话按该编号创建 10-xxx 形式的提案。'}
-              </p>
-              {workflowComposerError && (
-                <p className="mt-2 text-sm text-red-600 dark:text-red-400">{workflowComposerError}</p>
-              )}
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Button type="button" onClick={() => void createWorkflow()} disabled={isCreatingWorkflow}>
-                  {isCreatingWorkflow ? '创建中...' : '创建工作流'}
-                </Button>
-                <Button type="button" variant="ghost" onClick={closeWorkflowComposer} disabled={isCreatingWorkflow}>
-                  取消
-                </Button>
-              </div>
-            </div>
-          )}
+          <WorkflowActionDialog
+            project={project}
+            isOpen={workflowActionDialogOpen}
+            onClose={() => setWorkflowActionDialogOpen(false)}
+            onNewSession={onNewSession}
+            onRefresh={() => window.refreshProjects?.()}
+            navigateTo={navigate}
+          />
           {workflowExpanded && (
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {workflows.length === 0 ? (

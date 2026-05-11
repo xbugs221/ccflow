@@ -52,6 +52,27 @@ Display-line jsonl labels are resolved against workflow child sessions.
 - Matching is exact against the session id with or without the `.jsonl` suffix.
 - If a jsonl label cannot be matched, the label remains visible as ordinary text and diagnostics include a warning.
 
+### Start workflows through an action dialog
+
+Project workflow startup is driven by an explicit workflow action dialog instead of a select-based form.
+
+- The project overview and project workspace navigation both expose a `工作流操作` entry that opens the same dialog behavior.
+- Adoptable active oz changes are displayed as selectable buttons or cards, not as the main-path `<select>` control.
+- The dialog supports selecting one or more changes, selecting all changes, clearing selection, and showing the selected count.
+- Starting selected changes calls the existing single-workflow creation API once per change with `openspecChangeName`; the backend continues to execute `wo run --change <name> --json`.
+- Each selected change has its own launch state: waiting, starting, started, or failed.
+- A single successful launch navigates directly to that workflow detail route; multiple launches remain on the result list and expose a detail link for each successful workflow.
+- After launching, the project/workflow data and adoptable change list are refreshed so already-bound changes no longer appear as startable items.
+
+### Open planning sessions without starting wo
+
+Users can start a normal planning conversation before any oz change exists.
+
+- The workflow action dialog provides `发起新的规划`.
+- Planning creates an ordinary Codex manual session with an initial prompt that asks to discuss problem, scope, non-goals, and test strategy before creating an oz change.
+- Planning does not call the workflow creation API, does not run `wo run`, and does not create `.wo/runs/` state.
+- After the planning session creates a new active oz change, that change is discovered by the normal adoptable-change list and can be started through the same dialog.
+
 ### Cover the migrated business workflow in tests
 
 Tests cover the new command contract and browser behavior.
@@ -61,6 +82,7 @@ Tests cover the new command contract and browser behavior.
 - Fake `wo run --json` writes `.wo/runs/<run-id>/state.json`, and ccflow binds the returned `run_id`.
 - Read-model tests cover happened display lines, unmatched jsonl warnings, arbitrary review/repair rounds, `workflow_display.lines` precedence, and terminal `done` metadata.
 - Browser/e2e tests verify wo display lines are visible, jsonl session links navigate to workflow child sessions, and project navigation does not show multiple indistinguishable `001` entries.
+- Browser/e2e tests verify the workflow action dialog has no select in the main launch path, supports batch launching two active changes, preserves successful results when another launch fails, and starts a planning session without creating `.wo/runs`.
 
 ### Hide or disambiguate temporary 001 project leftovers
 

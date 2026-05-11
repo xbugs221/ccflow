@@ -5,6 +5,7 @@
 import type { SessionProvider } from '../types/app';
 
 export type NewSessionOptions = {
+  initialPrompt?: string;
   workflowId?: string;
   sessionSummary?: string;
   workflowTitle?: string;

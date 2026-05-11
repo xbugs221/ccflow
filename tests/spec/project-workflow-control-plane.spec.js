@@ -145,7 +145,7 @@ test.describe('项目内需求工作流控制面', () => {
   test('项目右侧正文展示默认折叠的自动工作流与手动会话入口', async ({ page }) => {
     await openFixtureProject(page);
 
-    await expect(page.getByRole('button', { name: '新建工作流' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '工作流操作' })).toBeVisible();
     await expect(page.getByRole('button', { name: /新建会话|New Session/i })).toBeVisible();
     const manualSessionsPanel = page.getByTestId('project-overview-manual-sessions');
     const workflowsPanel = page.getByTestId('project-overview-workflows');
@@ -384,11 +384,12 @@ test.describe('项目内需求工作流控制面', () => {
     fs.mkdirSync(changeRoot, { recursive: true });
     fs.writeFileSync(path.join(changeRoot, 'proposal.md'), '# Playwright created change\n', 'utf8');
 
-    await page.getByRole('button', { name: '新建工作流' }).click();
-    await page.getByPlaceholder('例如：支持讨论优先的自动工作流').fill('自动触发规划讨论');
-    await page.getByLabel('需求正文').fill('验证新建工作流后会暴露后端创建的规划会话。');
-    await page.getByLabel('接手已有 OpenSpec').selectOption(changeName);
-    await page.getByRole('button', { name: '创建工作流' }).click();
+    await page.getByRole('button', { name: '工作流操作' }).click();
+    const dialog = page.getByRole('dialog', { name: '工作流操作' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('select')).toHaveCount(0);
+    await page.getByRole('button', { name: new RegExp(changeName) }).click();
+    await page.getByRole('button', { name: '启动选中工作流' }).click();
 
     await expect(page).toHaveURL(/\/runs\/[^/]+$/);
     await expect(page.getByTestId('workflow-display-lines')).toBeVisible();
@@ -706,7 +707,7 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(manualSessionGroup.getByRole('button', { name: '新建' })).toHaveCount(0);
     await expect(page.getByTestId('project-overview-workflows').getByLabel('工作流排序')).toBeVisible();
     await expect(page.getByTestId('project-overview-manual-sessions').getByLabel('手动会话排序')).toBeVisible();
-    await expect(page.getByRole('button', { name: '新建工作流' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '工作流操作' })).toBeVisible();
     await expect(page.getByRole('button', { name: /新建会话|New Session/i })).toBeVisible();
   });
 

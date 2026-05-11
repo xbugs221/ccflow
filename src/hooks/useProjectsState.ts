@@ -958,6 +958,7 @@ export function useProjectsState({
           workflowId: draftSession.workflowId || options.workflowId,
           stageKey: draftSession.stageKey || options.workflowStageKey,
           projectPath: draftSession.projectPath || navigationProject.fullPath || navigationProject.path || '',
+          initialPrompt: typeof options.initialPrompt === 'string' ? options.initialPrompt : undefined,
         },
         navigationProject,
         provider,
@@ -969,6 +970,11 @@ export function useProjectsState({
         ...insertSessionIntoProject(navigationProject, syntheticSession, provider),
         manualSessionNextRouteIndex: nextManualSessionRouteIndex,
       };
+
+      const initialPrompt = typeof options.initialPrompt === 'string' ? options.initialPrompt : '';
+      if (initialPrompt.trim() && isManualSessionDraft && typeof window !== 'undefined') {
+        window.localStorage.setItem(`draft_input_${navigationProject.name}`, initialPrompt);
+      }
 
       setProjects((prevProjects) => prevProjects.map((entry) => (
         entry.name === navigationProject.name
