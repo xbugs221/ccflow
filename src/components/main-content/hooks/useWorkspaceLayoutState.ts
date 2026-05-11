@@ -35,14 +35,14 @@ const OLD_TAB_KEY = 'activeTab';
 const DEFAULT_STATE: WorkspaceLayoutState = {
   rightDock: {
     activePanel: 'files',
-    collapsed: false,
+    collapsed: true,
     width: 360,
     fullscreen: false,
     split: null,
   },
   bottomDock: {
     activePanel: 'terminal',
-    collapsed: false,
+    collapsed: true,
     height: 260,
     fullscreen: false,
   },

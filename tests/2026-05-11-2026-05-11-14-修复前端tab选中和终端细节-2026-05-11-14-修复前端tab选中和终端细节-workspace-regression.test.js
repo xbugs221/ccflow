@@ -54,6 +54,7 @@ async function expectChatVisible(page) {
    */
   await expect(page.locator('[data-testid="workspace-dock-layout"]')).toBeVisible();
   await expect(page.locator('[data-testid="tab-chat"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByPlaceholder('Type your message...')).toBeVisible();
 }
 
 test('desktop defaults to chat even with legacy dock activeTab state', async ({ page }) => {
@@ -74,18 +75,52 @@ test('desktop dock buttons keep chat visible while opening files terminal and gi
 
   await page.locator('[data-testid="tab-git"]').click();
   await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
-  await expectChatVisible(page);
-
-  await page.locator('[data-testid="tab-shell"]').click();
-  await expect(page.locator('[data-testid="dock-panel-bottom"]')).not.toBeVisible();
+  await expect(page.locator('[data-testid="tab-git"]')).toHaveAttribute('aria-pressed', 'true');
   await expectChatVisible(page);
 
   await page.locator('[data-testid="tab-shell"]').click();
   await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+  await expect(page.locator('[data-testid="tab-shell"]')).toHaveAttribute('aria-pressed', 'true');
+  await expectChatVisible(page);
+
+  await page.locator('[data-testid="tab-shell"]').click();
+  await expect(page.locator('[data-testid="dock-panel-bottom"]')).not.toBeVisible();
+  await expect(page.locator('[data-testid="tab-shell"]')).toHaveAttribute('aria-pressed', 'false');
   await expectChatVisible(page);
 
   await page.locator('[data-testid="tab-files"]').click();
   await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+  await expect(page.locator('[data-testid="tab-files"]')).toHaveAttribute('aria-pressed', 'true');
+  await expectChatVisible(page);
+});
+
+test('desktop session keeps chat visible with stale dock activeTab and fullscreen dock state', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('activeTab', 'files');
+    window.localStorage.setItem('ccflow:workspace-layout:v1', JSON.stringify({
+      rightDock: {
+        activePanel: 'files',
+        collapsed: false,
+        width: 360,
+        fullscreen: true,
+        split: null,
+      },
+      bottomDock: {
+        activePanel: 'terminal',
+        collapsed: false,
+        height: 260,
+        fullscreen: false,
+      },
+    }));
+  });
+
+  await page.goto('/workspace/fixture-project', { waitUntil: 'networkidle' });
+  await page.locator('[data-testid="tab-files"]').click();
+
+  const sessionButton = page.locator('button', { hasText: /fixture-project manual-only session/ }).first();
+  await expect(sessionButton).toBeVisible();
+  await sessionButton.click();
+
   await expectChatVisible(page);
 });
 
@@ -109,6 +144,7 @@ test('ordinary session does not reload or poll projects every second', async ({ 
 
 test('terminal dock hides shell controls and supports create and delete', async ({ page }) => {
   await openFixtureSession(page);
+  await page.locator('[data-testid="tab-shell"]').click();
 
   const bottomDock = page.locator('[data-testid="dock-panel-bottom"]');
   await expect(bottomDock).toBeVisible();
@@ -129,6 +165,8 @@ test('terminal dock hides shell controls and supports create and delete', async 
 
 test('terminal controls remain available after moving terminal to right split', async ({ page }) => {
   await openFixtureSession(page);
+  await page.locator('[data-testid="tab-files"]').click();
+  await page.locator('[data-testid="tab-shell"]').click();
 
   const bottomDock = page.locator('[data-testid="dock-panel-bottom"]');
   await expect(bottomDock).toBeVisible();
@@ -138,6 +176,7 @@ test('terminal controls remain available after moving terminal to right split', 
   await expect(bottomDock).not.toBeVisible();
   await expect(rightDock).toBeVisible();
   await expect(rightDock.locator('[data-testid="terminal-instance"]')).toHaveCount(1);
+  await expect(page.locator('[data-testid="tab-shell"]')).toHaveAttribute('aria-pressed', 'true');
 
   await rightDock.getByRole('button', { name: '新建终端' }).click();
   await expect(rightDock.locator('[data-testid="terminal-instance"]')).toHaveCount(2);
@@ -149,6 +188,7 @@ test('terminal controls remain available after moving terminal to right split', 
 
 test('file dock shows one file title and keeps file actions available', async ({ page }) => {
   await openFixtureSession(page);
+  await page.locator('[data-testid="tab-files"]').click();
 
   const rightDock = page.locator('[data-testid="dock-panel-right"]');
   await expect(rightDock).toBeVisible();

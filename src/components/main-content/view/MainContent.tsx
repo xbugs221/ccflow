@@ -390,25 +390,25 @@ function MainContent({
 
       if (nextTab === 'files') {
         if (layout.rightDock.activePanel === 'files' && !layout.rightDock.collapsed) {
-          setRightDock({ collapsed: true });
+          setRightDock({ collapsed: true, fullscreen: false });
         } else {
-          setRightDock({ activePanel: 'files', collapsed: false });
+          setRightDock({ activePanel: 'files', collapsed: false, fullscreen: false });
         }
         setActiveTab('chat');
         return;
       } else if (nextTab === 'git') {
         if (layout.rightDock.activePanel === 'git' && !layout.rightDock.collapsed) {
-          setRightDock({ collapsed: true });
+          setRightDock({ collapsed: true, fullscreen: false });
         } else {
-          setRightDock({ activePanel: 'git', collapsed: false });
+          setRightDock({ activePanel: 'git', collapsed: false, fullscreen: false });
         }
         setActiveTab('chat');
         return;
       } else if (nextTab === 'shell') {
         if (layout.bottomDock.activePanel === 'terminal' && !layout.bottomDock.collapsed) {
-          setBottomDock({ collapsed: true });
+          setBottomDock({ collapsed: true, fullscreen: false });
         } else {
-          setBottomDock({ activePanel: 'terminal', collapsed: false });
+          setBottomDock({ activePanel: 'terminal', collapsed: false, fullscreen: false });
         }
         setActiveTab('chat');
         return;
@@ -427,7 +427,7 @@ function MainContent({
     if (isMobile) {
       setActiveTab('files');
     } else {
-      setRightDock({ activePanel: 'files', collapsed: false });
+      setRightDock({ activePanel: 'files', collapsed: false, fullscreen: false });
       setActiveTab('chat');
     }
 
@@ -452,6 +452,7 @@ function MainContent({
         rightDockCollapsed: layout.rightDock.collapsed,
         bottomDockActive: layout.bottomDock.activePanel,
         bottomDockCollapsed: layout.bottomDock.collapsed,
+        rightDockSplitBottom: layout.rightDock.split?.bottomPanel ?? null,
       }}
     />
   );
@@ -544,6 +545,7 @@ function MainContent({
             rightDockCollapsed: layout.rightDock.collapsed,
             bottomDockActive: layout.bottomDock.activePanel,
             bottomDockCollapsed: layout.bottomDock.collapsed,
+            rightDockSplitBottom: layout.rightDock.split?.bottomPanel ?? null,
           }}
         />
 
@@ -644,6 +646,7 @@ function MainContent({
             rightDockCollapsed: layout.rightDock.collapsed,
             bottomDockActive: layout.bottomDock.activePanel,
             bottomDockCollapsed: layout.bottomDock.collapsed,
+            rightDockSplitBottom: layout.rightDock.split?.bottomPanel ?? null,
           }}
         />
         <div ref={workflowMiniMapContainerRef} className="relative flex-1 flex min-h-0 overflow-hidden">
@@ -802,6 +805,7 @@ function MainContent({
             rightDockCollapsed: layout.rightDock.collapsed,
             bottomDockActive: layout.bottomDock.activePanel,
             bottomDockCollapsed: layout.bottomDock.collapsed,
+            rightDockSplitBottom: layout.rightDock.split?.bottomPanel ?? null,
           }}
         />
         <div ref={workflowMiniMapContainerRef} className="relative flex-1 flex min-h-0 overflow-hidden">
@@ -891,10 +895,11 @@ function MainContent({
   }
 
   // Main workspace with dock layout
+  const showChatSurface = activeTab !== 'tasks' && activeTab !== 'preview';
   const centerContent = (
     <>
       <div className={`flex flex-col min-h-0 min-w-0 overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
-        <div className={`flex-1 min-h-0 overflow-hidden ${activeTab === 'chat' ? 'flex flex-col' : 'hidden'}`}>
+        <div className={`flex-1 min-h-0 overflow-hidden ${showChatSurface ? 'flex flex-col' : 'hidden'}`}>
           <ErrorBoundary showDetails>
             <ChatInterface
               selectedProject={selectedProject}
@@ -983,6 +988,7 @@ function MainContent({
           rightDockCollapsed: layout.rightDock.collapsed,
           bottomDockActive: layout.bottomDock.activePanel,
           bottomDockCollapsed: layout.bottomDock.collapsed,
+          rightDockSplitBottom: layout.rightDock.split?.bottomPanel ?? null,
         }}
       />
 

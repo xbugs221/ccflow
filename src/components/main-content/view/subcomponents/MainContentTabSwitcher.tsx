@@ -57,7 +57,14 @@ export default function MainContentTabSwitcher({
     if (tabId === 'preview') return activeTab === 'preview';
 
     if (dockLayout && (tabId === 'files' || tabId === 'git' || tabId === 'shell')) {
-      return false;
+      if (tabId === 'files' || tabId === 'git') {
+        return dockLayout.rightDockActive === tabId && !dockLayout.rightDockCollapsed;
+      }
+
+      return (
+        (dockLayout.bottomDockActive === 'terminal' && !dockLayout.bottomDockCollapsed)
+        || dockLayout.rightDockSplitBottom === 'terminal'
+      );
     }
 
     return tabId === activeTab;

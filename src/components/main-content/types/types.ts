@@ -85,6 +85,7 @@ export type DockLayoutControl = {
   rightDockCollapsed: boolean;
   bottomDockActive: 'terminal' | null;
   bottomDockCollapsed: boolean;
+  rightDockSplitBottom?: 'terminal' | null;
 };
 
 export type MainContentHeaderProps = {
