@@ -17,12 +17,16 @@ ccflow uses `oz` to discover and manage change artifacts, and `wo` to run sealed
 - `wo` availability is validated with `wo contract --json` and the required workflow capabilities: `list-changes`, `run`, `resume`, `status`, and `abort`.
 - Missing commands or failed contract/version checks report the command name, failed subcommand, stderr or parse summary, and the current service `PATH`.
 
-### Read only .wo run state
+### Read only wo user-state run state
 
-Workflow read models are built from `.wo/runs/<run-id>/state.json`.
+Workflow read models are built only from `${XDG_STATE_HOME:-~/.local/state}/wo/repos/<repo-key>/runs/<run-id>/state.json`.
 
+- The repo key is derived from the absolute project path so same-basename repositories do not share runtime state.
+- Missing user-state runs roots produce an empty workflow list, not an error.
+- Project-local `.wo/runs` state is not listed as a workflow source.
 - Old `.ccflow/runs` state is not listed as a workflow source.
 - Runner JSON is treated as snake_case for run binding, including `run_id` and `change_name`.
+- Starting or resuming a workflow waits for the user-state `state.json` path and must not fall back to project-local `.wo/runs`.
 
 ### Render wo display lines as the primary workflow view
 
@@ -38,7 +42,7 @@ Workflow detail pages show `workflowDisplay.lines` as the main progress surface.
 
 ### Support arbitrary happened review and repair rounds
 
-Workflow read models support every `review_N` and `repair_N` stage that appears in `.wo/runs/<run-id>/state.json`.
+Workflow read models support every `review_N` and `repair_N` stage that appears in the wo user-state `state.json`.
 
 - Dynamic stage ordering is `execution`, then alternating `review_1`, `repair_1`, `review_2`, `repair_2`, and so on for all happened rounds, followed by `archive`.
 - Legal multi-round stages such as `review_4` or `repair_4` must not produce unknown-stage diagnostics.
@@ -70,7 +74,7 @@ Users can start a normal planning conversation before any oz change exists.
 
 - The workflow action dialog provides `发起新的规划`.
 - Planning creates an ordinary Codex manual session with an initial prompt that asks to discuss problem, scope, non-goals, and test strategy before creating an oz change.
-- Planning does not call the workflow creation API, does not run `wo run`, and does not create `.wo/runs/` state.
+- Planning does not call the workflow creation API, does not run `wo run`, and does not create wo run state.
 - After the planning session creates a new active oz change, that change is discovered by the normal adoptable-change list and can be started through the same dialog.
 
 ### Cover the migrated business workflow in tests
@@ -79,15 +83,15 @@ Tests cover the new command contract and browser behavior.
 
 - Fake PATH tests provide only `oz` and `wo` and verify old `mc` / `ox` commands are not required.
 - Runtime diagnostics tests provide fake `oz`, `wo`, and `co` only through PATH and verify resolved `command_path` values.
-- Fake `wo run --json` writes `.wo/runs/<run-id>/state.json`, and ccflow binds the returned `run_id`.
+- Fake `wo run --json` writes `${XDG_STATE_HOME:-~/.local/state}/wo/repos/<repo-key>/runs/<run-id>/state.json`, and ccflow binds the returned `run_id`.
 - Read-model tests cover happened display lines, unmatched jsonl warnings, arbitrary review/repair rounds, `workflow_display.lines` precedence, and terminal `done` metadata.
 - Browser/e2e tests verify wo display lines are visible, jsonl session links navigate to workflow child sessions, and project navigation does not show multiple indistinguishable `001` entries.
-- Browser/e2e tests verify the workflow action dialog has no select in the main launch path, supports batch launching two active changes, preserves successful results when another launch fails, and starts a planning session without creating `.wo/runs`.
+- Browser/e2e tests verify the workflow action dialog has no select in the main launch path, supports batch launching two active changes, preserves successful results when another launch fails, and starts a planning session without creating wo run state.
 
 ### Hide or disambiguate temporary 001 project leftovers
 
 Project discovery must not expose obvious test leftovers as multiple indistinguishable sidebar projects.
 
-- Empty `/tmp/Test.../001` projects with no Claude/Codex/OpenCode sessions, no `.wo/runs` workflows, and no explicit user-retention metadata are filtered from `/api/projects`.
+- Empty `/tmp/Test.../001` projects with no Claude/Codex/OpenCode sessions, no wo user-state workflows, and no explicit user-retention metadata are filtered from `/api/projects`.
 - Temporary or duplicate-basename projects that have business data are retained but displayed with a distinguishing short path component, such as `001 - Test...`.
 - Project selection, routing, and session loading continue to use `fullPath` and `routePath`, not `displayName`.

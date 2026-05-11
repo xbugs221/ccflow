@@ -9,7 +9,7 @@ import path from 'node:path';
 
 /**
  * Create fake oz/wo binaries for the isolated Playwright server process.
- * The scripts operate on real fixture docs/changes and .wo/runs files.
+ * The scripts operate on real fixture docs/changes and wo user-state files.
  * @param {string} cwd - Repository root.
  * @returns {string} Directory to prepend to PATH.
  */
@@ -62,7 +62,11 @@ function ensureWorkflowToolFixtures(cwd) {
       '    if [ "$1" = "--change" ]; then shift; change="$1"; fi',
       '    shift || break',
       '  done',
-      '  run_dir="$PWD/.wo/runs/$run_id"',
+      '  repo_path="$(pwd -P)"',
+      '  repo_base="$(basename "$repo_path" | tr "[:upper:]" "[:lower:]" | sed -E "s/[^a-z0-9]+/-/g; s/^-+//; s/-+$//")"',
+      '  if [ -z "$repo_base" ]; then repo_base="repo"; fi',
+      '  repo_hash="$(printf "%s" "$repo_path" | sha1sum | cut -c1-10)"',
+      '  run_dir="${XDG_STATE_HOME}/wo/repos/${repo_base}-${repo_hash}/runs/$run_id"',
       '  mkdir -p "$run_dir/logs"',
       '  echo "playwright runner log" > "$run_dir/logs/executor.log"',
       '  cat > "$run_dir/state.json" <<JSON',
@@ -335,6 +339,7 @@ export default async function globalSetup() {
     PORT: serverPort,
     VITE_PORT: vitePort,
     CCFLOW_CO_HOME: process.env.CCFLOW_CO_HOME || path.join(cwd, '.tmp', 'playwright-co-home'),
+    XDG_STATE_HOME: process.env.XDG_STATE_HOME || path.join(cwd, '.tmp', 'playwright-state-home'),
     CCFLOW_FAKE_RUNNER: process.env.CCFLOW_FAKE_RUNNER || '1',
     CCFLOW_FAKE_RUNNER_DELAY_MS: process.env.CCFLOW_FAKE_RUNNER_DELAY_MS || '8000',
     CCFLOW_FAKE_CO_DELAY_MS: process.env.CCFLOW_FAKE_CO_DELAY_MS || '8000',

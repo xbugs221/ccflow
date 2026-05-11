@@ -40,10 +40,12 @@ async function withTemporaryHome(testBody) {
   const run = async () => {
     const originalHome = process.env.HOME;
     const originalPath = process.env.PATH;
+    const originalXdgStateHome = process.env.XDG_STATE_HOME;
     const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-session-rename-test-'));
     const binDir = path.join(tempHome, 'bin');
 
     process.env.HOME = tempHome;
+    process.env.XDG_STATE_HOME = path.join(tempHome, 'state');
     process.env.PATH = `${binDir}${path.delimiter}${originalPath || ''}`;
     clearProjectDirectoryCache();
     try {
@@ -56,6 +58,11 @@ async function withTemporaryHome(testBody) {
         process.env.HOME = originalHome;
       } else {
         delete process.env.HOME;
+      }
+      if (originalXdgStateHome) {
+        process.env.XDG_STATE_HOME = originalXdgStateHome;
+      } else {
+        delete process.env.XDG_STATE_HOME;
       }
 
       await fs.rm(tempHome, { recursive: true, force: true });
@@ -114,7 +121,11 @@ async function writeFakeWorkflowTools(binDir) {
       '    if [ "$1" = "--change" ]; then shift; change="$1"; fi',
       '    shift || break',
       '  done',
-      '  run_dir="$PWD/.wo/runs/$run_id"',
+      '  repo_path="$(pwd -P)"',
+      '  repo_base="$(basename "$repo_path" | tr "[:upper:]" "[:lower:]" | sed -E "s/[^a-z0-9]+/-/g; s/^-+//; s/-+$//")"',
+      '  if [ -z "$repo_base" ]; then repo_base="repo"; fi',
+      '  repo_hash="$(printf "%s" "$repo_path" | sha1sum | cut -c1-10)"',
+      '  run_dir="${XDG_STATE_HOME}/wo/repos/${repo_base}-${repo_hash}/runs/$run_id"',
       '  mkdir -p "$run_dir/logs"',
       '  echo "session workflow log" > "$run_dir/logs/executor.log"',
       '  cat > "$run_dir/state.json" <<JSON',

@@ -6,8 +6,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { resolveWoRunStatePath } from '../../../server/domains/workflows/wo-runtime-paths.js';
 
 const FIXTURE_ROOT = path.join(process.cwd(), '.tmp', 'playwright-home');
+const FIXTURE_STATE_HOME = path.join(process.cwd(), '.tmp', 'playwright-state-home');
 const AUTH_DB_PATH = path.join(FIXTURE_ROOT, '.ccflow', 'auth.db');
 const INIT_SQL_PATH = path.join(process.cwd(), 'server', 'database', 'init.sql');
 const PROJECT_CONF_PATH = path.join(FIXTURE_ROOT, 'workspace', 'fixture-project', '.ccflow', 'conf.json');
@@ -190,7 +192,6 @@ function writeWorkflowStoreFixture() {
   fs.mkdirSync(path.join(fixtureProjectPath, 'assets'), { recursive: true });
   fs.mkdirSync(path.join(fixtureProjectPath, 'data'), { recursive: true });
   fs.mkdirSync(path.join(fixtureProjectPath, 'images'), { recursive: true });
-  fs.mkdirSync(path.join(fixtureProjectPath, '.wo', 'runs', 'run-fixture', 'logs'), { recursive: true });
   fs.writeFileSync(path.join(fixtureProjectPath, 'notes', 'todo.md'), '# TODO\n', 'utf8');
   fs.writeFileSync(
     path.join(fixtureProjectPath, 'notes', 'boundary.md'),
@@ -203,8 +204,10 @@ function writeWorkflowStoreFixture() {
   fs.writeFileSync(path.join(fixtureProjectPath, 'images', 'pixel.png'), Buffer.from('iVBORw0KGgo=', 'base64'));
   fs.writeFileSync(path.join(fixtureProjectPath, 'SUMMARY.md'), '# Workflow summary fixture\n', 'utf8');
   fs.writeFileSync(path.join(fixtureProjectPath, 'workflow-output', 'result.txt'), 'workflow artifact folder fixture\n', 'utf8');
-  fs.writeFileSync(path.join(fixtureProjectPath, '.wo', 'runs', 'run-fixture', 'logs', 'executor.log'), 'executor log fixture\n', 'utf8');
-  fs.writeFileSync(path.join(fixtureProjectPath, '.wo', 'runs', 'run-fixture', 'state.json'), `${JSON.stringify({
+  const fixtureRunStatePath = resolveWoRunStatePath(fixtureProjectPath, 'run-fixture');
+  fs.mkdirSync(path.join(path.dirname(fixtureRunStatePath), 'logs'), { recursive: true });
+  fs.writeFileSync(path.join(path.dirname(fixtureRunStatePath), 'logs', 'executor.log'), 'executor log fixture\n', 'utf8');
+  fs.writeFileSync(fixtureRunStatePath, `${JSON.stringify({
     run_id: 'run-fixture',
     change_name: '登录升级',
     status: 'running',
@@ -263,9 +266,12 @@ export function ensurePlaywrightFixture(options = {}) {
   if (options.preserveAuthDatabase === true) {
     fs.rmSync(path.join(FIXTURE_ROOT, 'workspace'), { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     fs.rmSync(path.join(FIXTURE_ROOT, '.codex'), { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+    fs.rmSync(FIXTURE_STATE_HOME, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   } else {
     fs.rmSync(FIXTURE_ROOT, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+    fs.rmSync(FIXTURE_STATE_HOME, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   }
+  process.env.XDG_STATE_HOME = FIXTURE_STATE_HOME;
   fs.mkdirSync(FIXTURE_ROOT, { recursive: true });
   fs.writeFileSync(path.join(FIXTURE_ROOT, '.bashrc'), '# Playwright fixture shell startup\n', 'utf8');
   fs.writeFileSync(path.join(FIXTURE_ROOT, '.zshrc'), '# Playwright fixture shell startup\n', 'utf8');

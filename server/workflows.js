@@ -1,7 +1,7 @@
 /**
  * PURPOSE: Build project workflow read models from wo runner state.
  * ccflow keeps the Web control plane thin: automatic workflow facts come from
- * `.wo/runs/<run-id>/state.json`, not from a local workflow mirror.
+ * wo's user-state run path, not from a local workflow mirror.
  */
 import { listOpenSpecChanges } from './domains/openspec/oz-client.js';
 import {
@@ -194,4 +194,3 @@ export async function abortWorkflowRun(project, workflowId) {
   await abortGoWorkflowRun(projectPath, workflow.runId);
   return getProjectWorkflow(project, workflowId);
 }
-

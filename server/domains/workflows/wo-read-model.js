@@ -4,8 +4,11 @@
  */
 import path from 'path';
 import { promises as fs } from 'fs';
+import {
+  formatWoStatePathForDiagnostics,
+  resolveWoRunsRoot,
+} from './wo-runtime-paths.js';
 
-const RUNS_ROOT = path.join('.wo', 'runs');
 const STAGE_LABELS = {
   planning: '规划提案',
   execution: '执行',
@@ -608,7 +611,7 @@ export async function buildWoWorkflowReadModel({ projectPath, runDirName, state,
   };
   const runnerError = String(pick(state, 'error') || '').trim();
   const diagnostics = {
-    statePath: normalizeRelativePath(projectPath, statePath),
+    statePath: formatWoStatePathForDiagnostics(statePath),
     stateMtime: stateStat?.mtime?.toISOString?.() || null,
     rawStatus,
     rawStage,
@@ -663,7 +666,7 @@ export async function listWoWorkflowReadModels(projectPath) {
   if (!projectPath) {
     return [];
   }
-  const runsRoot = path.join(projectPath, RUNS_ROOT);
+  const runsRoot = resolveWoRunsRoot(projectPath);
   let entries = [];
   try {
     entries = await fs.readdir(runsRoot, { withFileTypes: true });
@@ -708,7 +711,7 @@ export async function listWoWorkflowReadModels(projectPath) {
           childSessions: [],
           runnerProcesses: [],
           runnerDiagnostics: {
-            statePath: normalizeRelativePath(projectPath, statePath),
+            statePath: formatWoStatePathForDiagnostics(statePath),
             stateMtime: null,
             rawStatus: '',
             rawStage: '',

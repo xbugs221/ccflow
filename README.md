@@ -77,4 +77,4 @@ pnpm test:e2e
 
 ## 备注
 
-项目仍偏自用，未做完整产品化。oz 文档根是 `docs/`，active changes 位于 `docs/changes`，归档目录保留历史变更依据。wo runner 的运行状态保存在 `.wo/runs/<run-id>/state.json`，这是 workflow 列表和详情的唯一 runner fact 来源；旧 `.ccflow/runs` 不再读取。workflow 主路由使用 `/runs/<runId>`，runner child session 使用后端 read model 提供的 `/runs/<runId>/sessions/...` 地址，手动会话仍使用 `cN`。主流程展示只渲染 wo 风格输出行，例如 `✓ start`、`→ review` 和 `1 fix review`，日志和诊断放在辅助区域。
+项目仍偏自用，未做完整产品化。oz 文档根是 `docs/`，active changes 位于 `docs/changes`，归档目录保留历史变更依据。wo runner 的运行状态保存在 `${XDG_STATE_HOME:-~/.local/state}/wo/repos/<repo-key>/runs/<run-id>/state.json`，这是 workflow 列表和详情的唯一 runner fact 来源；项目内旧运行态目录不再读取。workflow 主路由使用 `/runs/<runId>`，runner child session 使用后端 read model 提供的 `/runs/<runId>/sessions/...` 地址，手动会话仍使用 `cN`。主流程展示只渲染 wo 风格输出行，例如 `✓ start`、`→ review` 和 `1 fix review`，日志和诊断放在辅助区域。

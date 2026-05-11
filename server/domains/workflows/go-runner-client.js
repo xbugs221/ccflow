@@ -6,9 +6,9 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
+import { resolveWoRunStatePath } from './wo-runtime-paths.js';
 
 const execFileAsync = promisify(execFile);
-const RUNS_ROOT = path.join('.wo', 'runs');
 
 /**
  * Execute wo with JSON output and parse the response payload.
@@ -26,7 +26,7 @@ async function runWoJson(args, projectPath) {
  * Wait briefly for the runner to publish the sealed state file for a run id.
  */
 async function waitForRunStateFile(projectPath, runId) {
-  const statePath = path.join(projectPath, RUNS_ROOT, runId, 'state.json');
+  const statePath = resolveWoRunStatePath(projectPath, runId);
   for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
       await fs.access(statePath);
@@ -197,7 +197,7 @@ export async function readGoWorkflowState(projectPath, runId) {
   if (!projectPath || !runId) {
     return null;
   }
-  const statePath = path.join(projectPath, RUNS_ROOT, runId, 'state.json');
+  const statePath = resolveWoRunStatePath(projectPath, runId);
   try {
     return JSON.parse(await fs.readFile(statePath, 'utf8'));
   } catch (error) {

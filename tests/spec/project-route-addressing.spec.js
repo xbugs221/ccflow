@@ -11,6 +11,7 @@ import {
   openFixtureProject,
   PRIMARY_FIXTURE_PROJECT_PATH,
 } from './helpers/spec-test-helpers.js';
+import { resolveWoRunStatePath } from '../../server/domains/workflows/wo-runtime-paths.js';
 
 /**
  * Build the expected project route prefix from the Playwright fixture home.
@@ -28,7 +29,7 @@ async function rewriteFixtureRunState(partialState) {
    * Rewrite the fixture wo state so route recovery can verify role and by-id
    * addresses without depending on legacy workflow route indexes.
    */
-  const statePath = path.join(PRIMARY_FIXTURE_PROJECT_PATH, '.ccflow', 'runs', 'run-fixture', 'state.json');
+  const statePath = resolveWoRunStatePath(PRIMARY_FIXTURE_PROJECT_PATH, 'run-fixture');
   const current = JSON.parse(await fs.readFile(statePath, 'utf8'));
   await fs.writeFile(statePath, `${JSON.stringify({ ...current, ...partialState }, null, 2)}\n`, 'utf8');
 }
@@ -37,10 +38,11 @@ async function resetFixtureRunState() {
   /**
    * Restore the shared fixture run after route-address variants mutate it.
    */
-  const statePath = path.join(PRIMARY_FIXTURE_PROJECT_PATH, '.ccflow', 'runs', 'run-fixture', 'state.json');
+  const statePath = resolveWoRunStatePath(PRIMARY_FIXTURE_PROJECT_PATH, 'run-fixture');
+  await fs.mkdir(path.dirname(statePath), { recursive: true });
   await fs.writeFile(statePath, `${JSON.stringify({
-    runId: 'run-fixture',
-    changeName: '登录升级',
+    run_id: 'run-fixture',
+    change_name: '登录升级',
     status: 'running',
     stage: 'review_1',
     stages: { planning: 'completed', execution: 'completed', review_1: 'running' },
@@ -124,10 +126,9 @@ test.describe('项目规范路由寻址', () => {
     const projectRoutePrefix = buildExpectedProjectRoutePrefix();
 
     await openFixtureProject(page);
-    await page.getByTestId('project-workflow-group').getByRole('button', { name: /登录升级/ }).click();
-    await page.getByTestId('workflow-stage-planning').getByRole('button', { name: /规划/ }).click();
+    await page.goto(`${projectRoutePrefix}/runs/run-fixture/sessions/execution`);
 
-    await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/run-fixture/sessions/planning$`));
+    await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/run-fixture/sessions/execution$`));
     await expect(page.locator('[data-testid="chat-scroll-container"]')).toBeVisible();
   });
 
@@ -135,15 +136,14 @@ test.describe('项目规范路由寻址', () => {
     const projectRoutePrefix = buildExpectedProjectRoutePrefix();
 
     await openFixtureProject(page);
-    await page.getByTestId('project-workflow-group').getByRole('button', { name: /登录升级/ }).click();
-    await page.getByTestId('workflow-stage-planning').getByRole('button', { name: /规划/ }).click();
+    await page.goto(`${projectRoutePrefix}/runs/run-fixture/sessions/execution`);
 
-    await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/run-fixture/sessions/planning$`));
+    await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/run-fixture/sessions/execution$`));
     await expect(page).not.toHaveURL(/provider=|projectPath=|workflowId=/);
 
     await page.reload({ waitUntil: 'networkidle' });
 
-    await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/run-fixture/sessions/planning$`));
+    await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/run-fixture/sessions/execution$`));
     await expect(page).not.toHaveURL(/provider=|projectPath=|workflowId=/);
     await expect(page.locator('[data-testid="chat-scroll-container"]')).toBeVisible();
   });

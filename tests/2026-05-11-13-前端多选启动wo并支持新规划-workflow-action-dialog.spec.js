@@ -16,6 +16,21 @@ import {
   authHeaders,
   getFixtureProject,
 } from './spec/helpers/spec-test-helpers.js';
+import { resolveWoRunsRoot } from '../server/domains/workflows/wo-runtime-paths.js';
+
+async function listDirectoryNamesIfExists(directoryPath) {
+  /**
+   * Return child directory names while treating an absent runtime root as empty.
+   */
+  try {
+    return await fs.readdir(directoryPath);
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+}
 
 const OPEN_SPEC_CHANGE_NAME = '25-home-session-card-activity-ui';
 
@@ -170,8 +185,8 @@ test('batch launch keeps successful workflow result when another change fails', 
 
 test('starting a new planning session does not create a wo run', async ({ page }) => {
   await openFixtureProject(page);
-  const runsRoot = path.join(PRIMARY_FIXTURE_PROJECT_PATH, '.wo', 'runs');
-  const beforeRuns = await fs.readdir(runsRoot);
+  const userStateRunsRoot = resolveWoRunsRoot(PRIMARY_FIXTURE_PROJECT_PATH);
+  const beforeRuns = await listDirectoryNamesIfExists(userStateRunsRoot);
 
   await page.getByRole('button', { name: '工作流操作' }).click();
   await page.getByRole('button', { name: '发起新的规划' }).click();
@@ -180,8 +195,11 @@ test('starting a new planning session does not create a wo run', async ({ page }
   const composer = page.locator('textarea.chat-input-placeholder');
   await expect(composer).toContainText('先讨论问题、范围、非目标和测试策略');
   await expect(composer).toContainText('不要启动 wo sealed run');
-  const afterRuns = await fs.readdir(runsRoot);
+  const afterRuns = await listDirectoryNamesIfExists(userStateRunsRoot);
   expect(afterRuns.sort()).toEqual(beforeRuns.sort());
+  await expect(async () => {
+    await fs.access(path.join(PRIMARY_FIXTURE_PROJECT_PATH, '.wo', 'runs'));
+  }).rejects.toThrow(/ENOENT/);
 });
 
 function workflowIdFromUrl(url) {

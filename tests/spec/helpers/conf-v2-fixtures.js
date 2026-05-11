@@ -20,11 +20,13 @@ export async function withIsolatedProject(testBody) {
   const run = async () => {
     const originalHome = process.env.HOME;
     const originalPath = process.env.PATH;
+    const originalXdgStateHome = process.env.XDG_STATE_HOME;
     const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-conf-v2-'));
     const binDir = path.join(homeDir, 'bin');
     const projectPath = path.join(homeDir, 'workspace', 'project');
 
     process.env.HOME = homeDir;
+    process.env.XDG_STATE_HOME = path.join(homeDir, 'state');
     process.env.PATH = `${binDir}${path.delimiter}${originalPath || ''}`;
     clearProjectDirectoryCache();
     await fs.mkdir(projectPath, { recursive: true });
@@ -39,6 +41,11 @@ export async function withIsolatedProject(testBody) {
         process.env.HOME = originalHome;
       } else {
         delete process.env.HOME;
+      }
+      if (originalXdgStateHome) {
+        process.env.XDG_STATE_HOME = originalXdgStateHome;
+      } else {
+        delete process.env.XDG_STATE_HOME;
       }
       await fs.rm(homeDir, { recursive: true, force: true });
     }
@@ -97,7 +104,11 @@ async function writeFakeGoWorkflowTools(binDir) {
       '    if [ "$1" = "--change" ]; then shift; change="$1"; fi',
       '    shift || break',
       '  done',
-      '  run_dir="$PWD/.wo/runs/$run_id"',
+      '  repo_path="$(pwd -P)"',
+      '  repo_base="$(basename "$repo_path" | tr "[:upper:]" "[:lower:]" | sed -E "s/[^a-z0-9]+/-/g; s/^-+//; s/-+$//")"',
+      '  if [ -z "$repo_base" ]; then repo_base="repo"; fi',
+      '  repo_hash="$(printf "%s" "$repo_path" | sha1sum | cut -c1-10)"',
+      '  run_dir="${XDG_STATE_HOME}/wo/repos/${repo_base}-${repo_hash}/runs/$run_id"',
       '  mkdir -p "$run_dir/logs"',
       '  echo log > "$run_dir/logs/executor.log"',
       '  cat > "$run_dir/state.json" <<JSON',

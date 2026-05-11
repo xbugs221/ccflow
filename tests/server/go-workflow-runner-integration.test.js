@@ -7,14 +7,19 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
+import { resolveWoRunStatePath, resolveWoRunsRoot } from '../../server/domains/workflows/wo-runtime-paths.js';
 
 /**
  * Run a test body with fake Go CLIs first in PATH and restore process env.
  */
 async function withFakeGoWorkflowTools(testBody) {
   const previousPath = process.env.PATH;
+  const previousHome = process.env.HOME;
+  const previousXdgStateHome = process.env.XDG_STATE_HOME;
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-go-workflow-'));
   const binDir = path.join(tempRoot, 'bin');
+  const homeDir = path.join(tempRoot, 'home');
+  const stateHome = path.join(tempRoot, 'state');
   await fs.mkdir(binDir, { recursive: true });
   await fs.writeFile(
     path.join(binDir, 'oz'),
@@ -39,7 +44,11 @@ async function withFakeGoWorkflowTools(testBody) {
       '#!/bin/sh',
       'PATH="/usr/bin:/bin:$PATH"',
       'run_id="run-abc"',
-      'run_dir="$PWD/.wo/runs/$run_id"',
+      'repo_path="$(pwd -P)"',
+      'repo_base="$(basename "$repo_path" | tr "[:upper:]" "[:lower:]" | sed -E "s/[^a-z0-9]+/-/g; s/^-+//; s/-+$//")"',
+      'if [ -z "$repo_base" ]; then repo_base="repo"; fi',
+      'repo_hash="$(printf "%s" "$repo_path" | sha1sum | cut -c1-10)"',
+      'run_dir="${XDG_STATE_HOME}/wo/repos/${repo_base}-${repo_hash}/runs/$run_id"',
       'state="$run_dir/state.json"',
       'write_state() {',
       '  mkdir -p "$run_dir/logs"',
@@ -62,10 +71,18 @@ async function withFakeGoWorkflowTools(testBody) {
   );
 
   process.env.PATH = `${binDir}${path.delimiter}${previousPath || ''}`;
+  process.env.HOME = homeDir;
+  process.env.XDG_STATE_HOME = stateHome;
   try {
     await testBody(tempRoot);
   } finally {
     process.env.PATH = previousPath;
+    process.env.HOME = previousHome;
+    if (previousXdgStateHome === undefined) {
+      delete process.env.XDG_STATE_HOME;
+    } else {
+      process.env.XDG_STATE_HOME = previousXdgStateHome;
+    }
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 }
@@ -101,7 +118,7 @@ async function writeExternalRunState(projectPath, runId, runnerState) {
    * PURPOSE: Model a run started from another terminal where only the Go runner
    * sealed state exists before the Web control plane lists workflows.
    */
-  const runDir = path.join(projectPath, '.wo', 'runs', runId);
+  const runDir = path.join(resolveWoRunsRoot(projectPath), runId);
   await fs.mkdir(path.join(runDir, 'logs'), { recursive: true });
   await fs.writeFile(path.join(runDir, 'logs', 'executor.log'), 'runner log\n', 'utf8');
   await fs.writeFile(path.join(runDir, 'state.json'), JSON.stringify(runnerState), 'utf8');
@@ -187,6 +204,7 @@ test('Go-backed workflow persists run id and maps state.json into the read model
     assert.equal(refreshed.runId, 'run-abc');
     assert.equal(refreshed.runnerError, '');
     assert.equal(refreshed.childSessions.find((session) => session.id === 'codex-exec-thread')?.address, 'execution');
+    await assert.rejects(() => fs.access(path.join(projectPath, '.wo', 'runs', 'run-abc', 'state.json')), /ENOENT/);
   });
 });
 
@@ -194,10 +212,10 @@ test('Go-backed workflow prefers runner processes and preserves process metadata
   await withFakeGoWorkflowTools(async (tempRoot) => {
     const projectPath = path.join(tempRoot, 'project');
     const project = { name: 'project', fullPath: projectPath, path: projectPath };
-    await fs.mkdir(path.join(projectPath, '.wo', 'runs', 'run-abc', 'logs'), { recursive: true });
+    await fs.mkdir(path.join(resolveWoRunsRoot(projectPath), 'run-abc', 'logs'), { recursive: true });
     await writeOpenSpecChange(projectPath);
     await fs.writeFile(
-      path.join(projectPath, '.wo', 'runs', 'run-abc', 'state.json'),
+      resolveWoRunStatePath(projectPath, 'run-abc'),
       JSON.stringify({
         run_id: 'run-abc',
         change_name: 'go-change',
@@ -219,7 +237,7 @@ test('Go-backed workflow prefers runner processes and preserves process metadata
       }),
       'utf8',
     );
-    await fs.writeFile(path.join(projectPath, '.wo', 'runs', 'run-abc', 'logs', 'reviewer.log'), 'runner log\n');
+    await fs.writeFile(path.join(resolveWoRunsRoot(projectPath), 'run-abc', 'logs', 'reviewer.log'), 'runner log\n');
 
     const importKey = encodeURIComponent(`${tempRoot}-processes`);
     const { getProjectWorkflow } = await import(`../../server/workflows.js?go=${importKey}`);
@@ -265,12 +283,12 @@ test('Go-backed workflow diagnostics warn about unknown paths and process fields
   await withFakeGoWorkflowTools(async (tempRoot) => {
     const projectPath = path.join(tempRoot, 'project');
     const project = { name: 'project', fullPath: projectPath, path: projectPath };
-    await fs.mkdir(path.join(projectPath, '.wo', 'runs', 'run-extra', 'logs'), { recursive: true });
+    await fs.mkdir(path.join(resolveWoRunsRoot(projectPath), 'run-extra', 'logs'), { recursive: true });
     await writeOpenSpecChange(projectPath);
-    await fs.writeFile(path.join(projectPath, '.wo', 'runs', 'run-extra', 'extra.txt'), 'extra report\n', 'utf8');
-    await fs.writeFile(path.join(projectPath, '.wo', 'runs', 'run-extra', 'logs', 'executor.log'), 'runner log\n', 'utf8');
+    await fs.writeFile(path.join(resolveWoRunsRoot(projectPath), 'run-extra', 'extra.txt'), 'extra report\n', 'utf8');
+    await fs.writeFile(path.join(resolveWoRunsRoot(projectPath), 'run-extra', 'logs', 'executor.log'), 'runner log\n', 'utf8');
     await fs.writeFile(
-      path.join(projectPath, '.wo', 'runs', 'run-extra', 'state.json'),
+      resolveWoRunStatePath(projectPath, 'run-extra'),
       JSON.stringify({
         run_id: 'run-extra',
         change_name: 'go-change',
@@ -301,7 +319,7 @@ test('Go-backed workflow diagnostics warn about unknown paths and process fields
     assert.ok(workflow.artifacts.some((artifact) => (
       artifact.label === 'extra report'
       && artifact.path === '.wo/runs/run-extra/extra.txt'
-      && artifact.exists === true
+      && artifact.exists === false
     )));
     assert.deepEqual(workflow.runnerProcesses, [{
       stage: 'execution',
@@ -324,7 +342,7 @@ test('Go-backed workflow preserves runner child-session addresses across process
   await withFakeGoWorkflowTools(async (tempRoot) => {
     const projectPath = path.join(tempRoot, 'project');
     const project = { name: 'project', fullPath: projectPath, path: projectPath };
-    await fs.mkdir(path.join(projectPath, '.wo', 'runs', 'run-abc'), { recursive: true });
+    await fs.mkdir(path.join(resolveWoRunsRoot(projectPath), 'run-abc'), { recursive: true });
     await writeOpenSpecChange(projectPath);
     await fs.writeFile(
       path.join(projectPath, '.ccflow', 'conf.json'),
@@ -352,7 +370,7 @@ test('Go-backed workflow preserves runner child-session addresses across process
     const importKey = encodeURIComponent(`${tempRoot}-stable-routes`);
     const { listProjectWorkflows } = await import(`../../server/workflows.js?go=${importKey}`);
     await fs.writeFile(
-      path.join(projectPath, '.wo', 'runs', 'run-abc', 'state.json'),
+      resolveWoRunStatePath(projectPath, 'run-abc'),
       JSON.stringify({
         run_id: 'run-abc',
         change_name: 'go-change',
@@ -373,7 +391,7 @@ test('Go-backed workflow preserves runner child-session addresses across process
     assert.equal(firstRead.childSessions.find((session) => session.id === 'codex-review-thread')?.address, 'review_1');
 
     await fs.writeFile(
-      path.join(projectPath, '.wo', 'runs', 'run-abc', 'state.json'),
+      resolveWoRunStatePath(projectPath, 'run-abc'),
       JSON.stringify({
         run_id: 'run-abc',
         change_name: 'go-change',
@@ -493,7 +511,7 @@ test('Go-backed workflow discovery is idempotent and reuses registered runs', as
 test('Go-backed workflow discovery exposes corrupt external runs as diagnostics', async () => {
   await withFakeGoWorkflowTools(async (tempRoot) => {
     const projectPath = path.join(tempRoot, 'project');
-    await fs.mkdir(path.join(projectPath, '.wo', 'runs', 'run-abc'), { recursive: true });
+    await fs.mkdir(path.join(resolveWoRunsRoot(projectPath), 'run-abc'), { recursive: true });
     await writeOpenSpecChange(projectPath);
     await writeExternalRunState(projectPath, 'run-abc', {
       run_id: 'run-abc',
@@ -504,8 +522,8 @@ test('Go-backed workflow discovery exposes corrupt external runs as diagnostics'
       paths: {},
       sessions: {},
     });
-    await fs.mkdir(path.join(projectPath, '.wo', 'runs', 'bad-run'), { recursive: true });
-    await fs.writeFile(path.join(projectPath, '.wo', 'runs', 'bad-run', 'state.json'), '{bad json', 'utf8');
+    await fs.mkdir(path.join(resolveWoRunsRoot(projectPath), 'bad-run'), { recursive: true });
+    await fs.writeFile(resolveWoRunStatePath(projectPath, 'bad-run'), '{bad json', 'utf8');
     await fs.writeFile(
       path.join(projectPath, '.ccflow', 'conf.json'),
       JSON.stringify({
@@ -617,7 +635,7 @@ test('Go-backed workflow maps runner execution, review, repair, and archive stag
   await withFakeGoWorkflowTools(async (tempRoot) => {
     const projectPath = path.join(tempRoot, 'project');
     const project = { name: 'project', fullPath: projectPath, path: projectPath };
-    await fs.mkdir(path.join(projectPath, '.wo', 'runs', 'run-abc'), { recursive: true });
+    await fs.mkdir(path.join(resolveWoRunsRoot(projectPath), 'run-abc'), { recursive: true });
     await writeOpenSpecChange(projectPath);
     await fs.writeFile(
       path.join(projectPath, '.ccflow', 'conf.json'),
@@ -653,7 +671,7 @@ test('Go-backed workflow maps runner execution, review, repair, and archive stag
 
     for (const [runnerStage, runnerStatus, expectedStage, expectedStatus] of cases) {
       await fs.writeFile(
-        path.join(projectPath, '.wo', 'runs', 'run-abc', 'state.json'),
+        resolveWoRunStatePath(projectPath, 'run-abc'),
         JSON.stringify({
           run_id: 'run-abc',
           change_name: 'go-change',
@@ -724,5 +742,34 @@ test('Go runner client accepts state-publishing commands that exit immediately',
     const resumed = await resumeGoWorkflowRun(projectPath, 'run-abc');
     assert.equal(resumed.run_id, 'run-abc');
     assert.equal(resumed.stage, 'review_1');
+  });
+});
+
+test('Go runner client does not fall back to legacy project .wo state when user-state publish is missing', async () => {
+  await withFakeGoWorkflowTools(async (tempRoot) => {
+    const projectPath = path.join(tempRoot, 'project');
+    await fs.mkdir(path.join(projectPath, '.wo', 'runs', 'run-abc'), { recursive: true });
+    await fs.writeFile(
+      path.join(projectPath, '.wo', 'runs', 'run-abc', 'state.json'),
+      JSON.stringify({ run_id: 'run-abc', status: 'running', stage: 'execution' }),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(tempRoot, 'bin', 'wo'),
+      [
+        '#!/bin/sh',
+        'if [ "$1" = "run" ]; then echo \'{"run_id":"run-abc","change_name":"go-change"}\'; exit 0; fi',
+        'echo "{}"',
+      ].join('\n'),
+      { mode: 0o755 },
+    );
+
+    const importKey = encodeURIComponent(`${tempRoot}-missing-state`);
+    const { startGoWorkflowRun } = await import(`../../server/domains/workflows/go-runner-client.js?go=${importKey}`);
+
+    await assert.rejects(
+      () => startGoWorkflowRun(projectPath, 'go-change'),
+      /Go runner did not publish state\.json for run run-abc/,
+    );
   });
 });
