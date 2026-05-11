@@ -71,7 +71,7 @@ test('settings only exposes appearance agents diagnostics and shows OpenCode pro
   await page.getByRole('tab', { name: '智能体' }).click();
   await expect(page.getByText('MCP 服务器')).toHaveCount(0);
   await page.getByRole('button', { name: /OpenCode/ }).click();
-  await expect(page.getByText(/anthropic/)).toBeVisible();
+  await expect(page.getByText('anthropic', { exact: true })).toBeVisible();
 });
 
 test('OpenCode status failure shows backend error instead of available no-provider copy', async ({ page }) => {
@@ -94,7 +94,7 @@ test('OpenCode status failure shows backend error instead of available no-provid
   await page.getByRole('button', { name: /OpenCode/ }).click();
 
   await expect(page.getByText('错误：opencode missing from service PATH').first()).toBeVisible();
-  await expect(page.getByText('OpenCode 可用，尚未连接 provider')).toHaveCount(0);
+  await expect(page.getByText('OpenCode 可用，尚未绑定 provider')).toHaveCount(0);
 });
 
 test('OpenCode available without connected providers keeps the no-provider copy', async ({ page }) => {
@@ -103,6 +103,7 @@ test('OpenCode available without connected providers keeps the no-provider copy'
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
+        available: true,
         authenticated: false,
         providers: [{ name: 'anthropic', connected: false, source: 'fake' }],
       }),
@@ -114,7 +115,7 @@ test('OpenCode available without connected providers keeps the no-provider copy'
   await page.getByRole('tab', { name: '智能体' }).click();
   await page.getByRole('button', { name: /OpenCode/ }).click();
 
-  await expect(page.getByText('OpenCode 可用，尚未连接 provider')).toBeVisible();
+  await expect(page.getByText('OpenCode 可用，尚未绑定 provider').first()).toBeVisible();
 });
 
 test('diagnostics uses Chinese labels and sidebar actions live in the footer', async ({ page }) => {

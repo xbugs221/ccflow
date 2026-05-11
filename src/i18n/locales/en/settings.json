@@ -124,7 +124,8 @@
         "description": "OpenCode CLI assistant",
         "available": "OpenCode available",
         "connectedProviders": "Connected: {{providers}}",
-        "noProviders": "OpenCode available, no provider connected yet"
+        "noProviders": "OpenCode available, no provider bound yet",
+        "providerStatusFailed": "OpenCode available, provider status read failed"
       }
     },
     "connectionStatus": "Connection Status",

@@ -78,13 +78,41 @@ function getOpenCodeProviderHeadline(authStatus: AuthStatus, connectedProviders:
   /**
    * Separate OpenCode CLI failure from the valid no-provider connection state.
    */
-  if (authStatus.error) {
+  if (authStatus.error && !authStatus.available) {
     return t('agents.authStatus.disconnected');
   }
   if (connectedProviders.length > 0) {
     return t('agents.authStatus.connected');
   }
   return t('agents.account.opencode.available');
+}
+
+function getOpenCodeConnectionText(authStatus: AuthStatus, t: TFunction) {
+  /**
+   * Report CLI availability separately from provider authentication.
+   */
+  if (authStatus.available) {
+    if (authStatus.error) {
+      return t('agents.account.opencode.providerStatusFailed');
+    }
+    return authStatus.providers?.some((provider) => provider.connected)
+      ? t('agents.account.opencode.available')
+      : t('agents.account.opencode.noProviders');
+  }
+  return t('agents.authStatus.notConnected');
+}
+
+function getOpenCodeProviderApiLabel(provider: NonNullable<AuthStatus['providers']>[number]) {
+  /**
+   * Build the compact API metadata label shown beside one OpenCode provider.
+   */
+  const authType = provider.authType || provider.api?.type;
+  const pieces = [
+    authType ? authType.toUpperCase() : null,
+    provider.api?.baseUrl || null,
+    provider.api?.keyPreview || null,
+  ].filter(Boolean);
+  return pieces.join(' · ');
 }
 
 /**
@@ -120,7 +148,9 @@ export default function AccountContent({
                 {t('agents.connectionStatus')}
               </div>
               <div className={`text-sm ${config.subtextClass}`}>
-                {authStatus.loading ? (
+                {agent === 'opencode' && !authStatus.loading ? (
+                  getOpenCodeConnectionText(authStatus, t)
+                ) : authStatus.loading ? (
                   t('agents.authStatus.checkingAuth')
                 ) : authStatus.authenticated ? (
                   t('agents.authStatus.loggedInAs', {
@@ -136,9 +166,9 @@ export default function AccountContent({
                 <Badge variant="secondary" className="bg-gray-100 dark:bg-gray-800">
                   {t('agents.authStatus.checking')}
                 </Badge>
-              ) : authStatus.authenticated ? (
+              ) : authStatus.authenticated || (agent === 'opencode' && authStatus.available) ? (
                 <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-                  {t('agents.authStatus.connected')}
+                  {agent === 'opencode' ? t('agents.account.opencode.available') : t('agents.authStatus.connected')}
                 </Badge>
               ) : (
                 <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
@@ -157,6 +187,19 @@ export default function AccountContent({
                 <div className={`text-sm ${config.subtextClass}`}>
                   {opencodeProviderSummary}
                 </div>
+                {(authStatus.providers || []).length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {(authStatus.providers || []).map((provider) => (
+                      <div
+                        key={`${provider.name}-${provider.source || ''}`}
+                        className="flex items-center justify-between gap-3 rounded border border-orange-200/70 bg-white/60 px-3 py-2 text-sm dark:border-orange-800/70 dark:bg-black/10"
+                      >
+                        <span className={config.textClass}>{provider.name}</span>
+                        <span className={config.subtextClass}>{getOpenCodeProviderApiLabel(provider)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-center justify-between">

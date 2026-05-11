@@ -27,12 +27,24 @@ type UseSettingsControllerArgs = {
 };
 
 type StatusApiResponse = {
+  available?: boolean;
   authenticated?: boolean;
   email?: string | null;
   error?: string | null;
   provider?: string | null;
   baseUrl?: string | null;
-  providers?: Array<{ name?: string; connected?: boolean; available?: boolean; source?: string | null }>;
+  providers?: Array<{
+    name?: string;
+    connected?: boolean;
+    available?: boolean;
+    source?: string | null;
+    authType?: string | null;
+    api?: {
+      type?: string | null;
+      baseUrl?: string | null;
+      keyPreview?: string | null;
+    } | null;
+  }>;
 };
 
 type CodexSettingsStorage = {
@@ -114,6 +126,8 @@ const normalizeOpenCodeProviders = (providers: StatusApiResponse['providers'] = 
       name: provider.name || '',
       connected: Boolean(provider.connected ?? provider.available),
       source: provider.source || null,
+      authType: provider.authType || provider.api?.type || null,
+      api: provider.api || null,
     }))
     .filter((provider) => provider.name)
 );
@@ -161,6 +175,7 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
       if (!response.ok) {
         const error = await readStatusError(response);
         setAuthStatusByProvider(provider, {
+          available: false,
           authenticated: false,
           email: null,
           loading: false,
@@ -171,6 +186,7 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
 
       const data = await toResponseJson<StatusApiResponse>(response);
       setAuthStatusByProvider(provider, {
+        available: data.available,
         authenticated: Boolean(data.authenticated),
         email: data.email || null,
         loading: false,
@@ -182,6 +198,7 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
     } catch (error) {
       console.error(`Error checking ${provider} auth status:`, error);
       setAuthStatusByProvider(provider, {
+        available: false,
         authenticated: false,
         email: null,
         loading: false,

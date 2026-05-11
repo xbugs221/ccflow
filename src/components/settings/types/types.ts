@@ -13,13 +13,24 @@ export type SettingsProject = {
 };
 
 export type AuthStatus = {
+  available?: boolean;
   authenticated: boolean;
   email: string | null;
   loading: boolean;
   error: string | null;
   provider?: string | null;
   baseUrl?: string | null;
-  providers?: Array<{ name: string; connected: boolean; source?: string | null }>;
+  providers?: Array<{
+    name: string;
+    connected: boolean;
+    source?: string | null;
+    authType?: string | null;
+    api?: {
+      type?: string | null;
+      baseUrl?: string | null;
+      keyPreview?: string | null;
+    } | null;
+  }>;
 };
 
 export type SettingsProps = {

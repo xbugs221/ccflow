@@ -102,6 +102,36 @@ function ensureWorkflowToolFixtures(cwd) {
     ].join('\n'),
     { mode: 0o755 },
   );
+  fs.writeFileSync(
+    path.join(binDir, 'opencode'),
+    [
+      '#!/bin/sh',
+      'mode="${CCFLOW_FAKE_OPENCODE_MODE:-providers}"',
+      'if [ -f "${CCFLOW_FAKE_OPENCODE_MODE_FILE:-}" ]; then mode="$(cat "$CCFLOW_FAKE_OPENCODE_MODE_FILE")"; fi',
+      'if [ "$1 $2 $3" = "auth list --json" ]; then echo "unknown flag: --json" >&2; exit 2; fi',
+      'if [ "$1 $2" = "auth list" ]; then',
+      '  case "$mode" in',
+      '    providers)',
+      '      echo "Credentials ~/.local/share/opencode/auth.json"',
+      '      echo "●  DeepSeek api"',
+      '      echo "●  Kimi For Coding api"',
+      '      echo "└  2 credentials"',
+      '      exit 0;;',
+      '    empty)',
+      '      echo "Credentials ~/.local/share/opencode/auth.json"',
+      '      echo "└  0 credentials"',
+      '      exit 0;;',
+      '    fail)',
+      '      echo "failed to read opencode auth list" >&2',
+      '      exit 3;;',
+      '  esac',
+      'fi',
+      'if [ "$1" = "--version" ]; then echo "opencode-playwright"; exit 0; fi',
+      'echo "usage: opencode auth list" >&2',
+      'exit 1',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
   return binDir;
 }
 
@@ -343,6 +373,7 @@ export default async function globalSetup() {
     CCFLOW_FAKE_RUNNER: process.env.CCFLOW_FAKE_RUNNER || '1',
     CCFLOW_FAKE_RUNNER_DELAY_MS: process.env.CCFLOW_FAKE_RUNNER_DELAY_MS || '8000',
     CCFLOW_FAKE_CO_DELAY_MS: process.env.CCFLOW_FAKE_CO_DELAY_MS || '8000',
+    CCFLOW_FAKE_OPENCODE_MODE_FILE: process.env.CCFLOW_FAKE_OPENCODE_MODE_FILE || path.join(cwd, '.tmp', 'playwright-opencode-mode'),
   };
   childEnv.PATH = `${ensureWorkflowToolFixtures(cwd)}:${childEnv.PATH || ''}`;
 

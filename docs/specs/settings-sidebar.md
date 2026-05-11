@@ -54,6 +54,12 @@ OpenCode surfaces use their own icon and report the provider state returned by t
 - When the backend reports a connected provider such as `anthropic`, the OpenCode card shows that provider.
 - When OpenCode CLI is available but no provider is connected, the card says no provider is connected.
 - When OpenCode status checks fail, backend error text is shown before any available/no-provider copy.
+- OpenCode status must not report disconnected only because `opencode auth list --json` is unsupported; the backend must fall back to parsing `opencode auth list` text output.
+- OpenCode status distinguishes CLI availability from provider bindings with `available`, `authenticated`, and structured `providers`.
+- OpenCode provider rows show provider names and non-sensitive API metadata such as auth type, credential source, base URL, or a redacted key preview.
+- OpenCode provider status read failures while the CLI is available show a provider-status-failed state instead of the no-provider state.
+- OpenCode status responses must not include full API keys, tokens, or secrets.
+- End-to-end coverage must exercise the settings page through the real backend status endpoint and a fake `opencode` on the service process `PATH`, without mocking `/api/cli/opencode/status`.
 
 ### Localize diagnostics and supported languages
 
