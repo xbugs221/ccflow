@@ -205,6 +205,7 @@ function ChatInterface({
     setCurrentSessionId,
     sessionMessages,
     setSessionMessages,
+    sessionMessagesError,
     isLoadingSessionMessages,
     isLoadingMoreMessages,
     hasMoreMessages,
@@ -873,6 +874,7 @@ function ChatInterface({
           onTouchMove={handleTouchMove}
           onKeyDown={handleTranscriptKeyDown}
           isLoadingSessionMessages={isLoadingSessionMessages}
+          sessionMessagesError={sessionMessagesError}
           chatMessages={chatMessages}
           selectedSession={selectedSession}
           currentSessionId={currentSessionId}

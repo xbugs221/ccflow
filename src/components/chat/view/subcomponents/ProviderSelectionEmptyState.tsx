@@ -223,7 +223,7 @@ export default function ProviderSelectionEmptyState({
   /* ── Existing session — continue prompt ── */
   if (selectedSession) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center h-full" data-testid="chat-empty-session-state">
         <div className="text-center px-6 max-w-md">
           <p className="text-lg font-semibold text-foreground mb-1.5">{t('session.continue.title')}</p>
           <p className="text-sm text-muted-foreground leading-relaxed">{t('session.continue.description')}</p>

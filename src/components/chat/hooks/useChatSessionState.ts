@@ -345,6 +345,7 @@ export function useChatSessionState({
   const [isLoading, setIsLoading] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(selectedSession?.id || null);
   const [sessionMessages, setSessionMessages] = useState<any[]>([]);
+  const [sessionMessagesError, setSessionMessagesError] = useState<string | null>(null);
   const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
@@ -410,6 +411,7 @@ export function useChatSessionState({
           total: 0,
           hasMore: false,
           tokenUsage: null as Record<string, unknown> | null,
+          error: null as string | null,
         };
       }
 
@@ -436,6 +438,7 @@ export function useChatSessionState({
           total: Number.isFinite(Number(data?.total)) ? Number(data.total) : messages.length,
           hasMore: Boolean(data?.hasMore),
           tokenUsage: (data?.tokenUsage || null) as Record<string, unknown> | null,
+          error: null as string | null,
         };
       } catch (error) {
         console.error('Error loading session messages:', error);
@@ -444,6 +447,7 @@ export function useChatSessionState({
           total: 0,
           hasMore: false,
           tokenUsage: null as Record<string, unknown> | null,
+          error: error instanceof Error ? error.message : 'Failed to load session messages',
         };
       }
     },
@@ -455,6 +459,7 @@ export function useChatSessionState({
       const isInitialLoad = !loadMore;
       if (isInitialLoad) {
         setIsLoadingSessionMessages(true);
+        setSessionMessagesError(null);
       } else {
         setIsLoadingMoreMessages(true);
       }
@@ -470,6 +475,9 @@ export function useChatSessionState({
         );
         if (isInitialLoad && result.tokenUsage) {
           setTokenBudget(result.tokenUsage);
+        }
+        if (isInitialLoad && result.error) {
+          setSessionMessagesError(result.error);
         }
 
         if (result.total > 0 || result.hasMore) {
@@ -531,6 +539,7 @@ export function useChatSessionState({
     chatMergeSessionKeyRef.current = null;
     setChatMessages([]);
     setSessionMessages([]);
+    setSessionMessagesError(null);
     setIsLoading(false);
     setIsLoadingSessionMessages(false);
     setIsLoadingMoreMessages(false);
@@ -857,6 +866,7 @@ export function useChatSessionState({
               setChatMessages([]);
             }
             setSessionMessages([]);
+            setSessionMessagesError(null);
             setClaudeStatus(null);
             setCanAbortSession(false);
           }
@@ -920,7 +930,8 @@ export function useChatSessionState({
           resetStreamingState();
           pendingViewSessionRef.current = null;
           setChatMessages([]);
-          setSessionMessages([]);
+         setSessionMessages([]);
+          setSessionMessagesError(null);
           setClaudeStatus(null);
           setCanAbortSession(false);
           setIsLoading(false);
@@ -933,6 +944,7 @@ export function useChatSessionState({
         setTotalMessages(0);
         setFrozenTailMessageKey(null);
         setTokenBudget(null);
+        setSessionMessagesError(null);
       }
 
       setTimeout(() => {
@@ -1307,6 +1319,7 @@ export function useChatSessionState({
     setCurrentSessionId,
     sessionMessages,
     setSessionMessages,
+    sessionMessagesError,
     isLoadingSessionMessages,
     isLoadingMoreMessages,
     hasMoreMessages,

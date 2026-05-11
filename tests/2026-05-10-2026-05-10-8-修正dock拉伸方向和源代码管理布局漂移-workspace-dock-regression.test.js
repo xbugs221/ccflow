@@ -47,6 +47,22 @@ async function openTestProject(page) {
   }
 }
 
+async function openRightDock(page) {
+  /**
+   * Open the auxiliary files dock explicitly; desktop no longer opens it by default.
+   */
+  await page.locator('[data-testid="tab-files"]').click();
+  await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+}
+
+async function openBottomDock(page) {
+  /**
+   * Open the terminal dock explicitly; desktop no longer opens it by default.
+   */
+  await page.locator('[data-testid="tab-shell"]').click();
+  await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+}
+
 async function box(locator) {
   /**
    * Return a visible element bounding box or fail with a useful message.
@@ -81,6 +97,7 @@ function expectNear(actual, expected, tolerance = 2) {
 
 test('right dock drag direction follows the left boundary', async ({ page }) => {
   await openTestProject(page);
+  await openRightDock(page);
 
   const rightDock = page.locator('[data-testid="dock-panel-right"]');
   const handle = page.locator('[data-testid="resize-handle-vertical"]');
@@ -101,6 +118,7 @@ test('right dock drag direction follows the left boundary', async ({ page }) => 
 
 test('bottom dock drag direction follows the top boundary', async ({ page }) => {
   await openTestProject(page);
+  await openBottomDock(page);
 
   const bottomDock = page.locator('[data-testid="dock-panel-bottom"]');
   const handle = page.locator('[data-testid="resize-handle-horizontal"]');
@@ -121,6 +139,7 @@ test('bottom dock drag direction follows the top boundary', async ({ page }) => 
 
 test('switching from files to source control keeps right dock size stable', async ({ page }) => {
   await openTestProject(page);
+  await openRightDock(page);
 
   const rightDock = page.locator('[data-testid="dock-panel-right"]');
   const handle = page.locator('[data-testid="resize-handle-vertical"]');
@@ -138,6 +157,7 @@ test('switching from files to source control keeps right dock size stable', asyn
 
 test('repeated files and source control switching does not push into chat', async ({ page }) => {
   await openTestProject(page);
+  await openRightDock(page);
 
   const rightDock = page.locator('[data-testid="dock-panel-right"]');
   await page.locator('[data-testid="tab-git"]').click();
@@ -158,6 +178,7 @@ test('repeated files and source control switching does not push into chat', asyn
 
 test('bottom terminal fullscreen still exits back to bottom dock', async ({ page }) => {
   await openTestProject(page);
+  await openBottomDock(page);
 
   const bottomDock = page.locator('[data-testid="dock-panel-bottom"]');
   await expect(bottomDock).toBeVisible();

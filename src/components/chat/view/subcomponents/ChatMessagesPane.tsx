@@ -25,6 +25,7 @@ interface ChatMessagesPaneProps {
   onTouchMove: (event: ReactTouchEvent<HTMLDivElement>) => void;
   onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
   isLoadingSessionMessages: boolean;
+  sessionMessagesError: string | null;
   chatMessages: ChatMessage[];
   selectedSession: ProjectSession | null;
   currentSessionId: string | null;
@@ -68,6 +69,7 @@ export default function ChatMessagesPane({
   onTouchMove,
   onKeyDown,
   isLoadingSessionMessages,
+  sessionMessagesError,
   chatMessages,
   selectedSession,
   currentSessionId,
@@ -154,6 +156,16 @@ export default function ChatMessagesPane({
             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400" />
             <p>{t('session.loading.sessionMessages')}</p>
           </div>
+        </div>
+      ) : sessionMessagesError && chatMessages.length === 0 ? (
+        <div
+          className="mx-auto mt-8 max-w-md px-6 text-center text-sm text-muted-foreground"
+          data-testid="chat-session-load-error"
+        >
+          <p className="mb-1 text-base font-semibold text-foreground">
+            {t('session.loadError.title', { defaultValue: '无法加载会话历史' })}
+          </p>
+          <p>{t('session.loadError.description', { defaultValue: '消息接口返回失败，请刷新页面或返回项目页后重试。' })}</p>
         </div>
       ) : chatMessages.length === 0 ? (
         <ProviderSelectionEmptyState

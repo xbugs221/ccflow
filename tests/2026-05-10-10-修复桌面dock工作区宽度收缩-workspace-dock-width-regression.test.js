@@ -43,6 +43,14 @@ async function openProjectHome(page) {
   await expect(page.locator('[data-testid="workspace-dock-layout"]')).toBeVisible({ timeout: 10_000 });
 }
 
+async function openRightDock(page) {
+  /**
+   * Open the auxiliary files dock explicitly; desktop no longer opens it by default.
+   */
+  await page.locator('[data-testid="tab-files"]').click();
+  await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible({ timeout: 10_000 });
+}
+
 async function openProjectSession(page) {
   /**
    * Open a real fixture project session inside the dock workspace.
@@ -51,7 +59,7 @@ async function openProjectSession(page) {
   const sessionButton = page.locator('button', { hasText: /fixture-project manual-only session/ }).first();
   await expect(sessionButton).toBeVisible({ timeout: 10_000 });
   await sessionButton.click();
-  await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible({ timeout: 10_000 });
+  await openRightDock(page);
 }
 
 async function box(locator, name) {
@@ -135,6 +143,7 @@ test('right dock resize keeps the right edge attached', async ({ page }) => {
 
 test('project homepage dock also fills desktop workspace width', async ({ page }) => {
   await openProjectHome(page);
+  await openRightDock(page);
 
   const { workspace, rightDock, center } = await readWorkspaceBoxes(page);
   expect(workspace.width).toBeGreaterThan(1500);
