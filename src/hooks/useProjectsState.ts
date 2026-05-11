@@ -489,9 +489,13 @@ const isUpdateAdditive = (
 const VALID_TABS: Set<string> = new Set(['chat', 'files', 'shell', 'git', 'tasks', 'preview']);
 
 const readPersistedTab = (): AppTab => {
+  /**
+   * Restore only main-content tabs. Legacy dock values are handled by the
+   * workspace dock layout migration and must not hide the chat surface.
+   */
   try {
     const stored = localStorage.getItem('activeTab');
-    if (stored === 'workflows') {
+    if (stored === 'workflows' || stored === 'files' || stored === 'shell' || stored === 'git') {
       return 'chat';
     }
     if (stored && VALID_TABS.has(stored)) {

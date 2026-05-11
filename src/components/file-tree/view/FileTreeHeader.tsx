@@ -19,6 +19,7 @@ type FileTreeHeaderProps = {
   onCollapseAll: () => void;
   onUploadFiles: () => void;
   onUploadFolder: () => void;
+  showTitle?: boolean;
   disabled?: boolean;
 };
 
@@ -33,6 +34,7 @@ export default function FileTreeHeader({
   onCollapseAll,
   onUploadFiles,
   onUploadFolder,
+  showTitle = false,
   disabled = false,
 }: FileTreeHeaderProps) {
   const { t } = useTranslation();
@@ -40,7 +42,11 @@ export default function FileTreeHeader({
   return (
     <div className="px-3 pt-3 pb-2 border-b border-border space-y-2">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-foreground">{t('fileTree.files')}</h3>
+        {showTitle ? (
+          <h3 className="text-sm font-medium text-foreground">{t('fileTree.files')}</h3>
+        ) : (
+          <span className="sr-only">{t('fileTree.files')}</span>
+        )}
         <div className="flex gap-0.5">
           <Button
             variant={viewMode === 'simple' ? 'default' : 'ghost'}

@@ -26,6 +26,7 @@ type FileTreeProps =  {
   selectedProject: Project | null;
   onFileOpen?: (filePath: string) => void;
   revealDirectoryRequest?: { path: string; requestId: number } | null;
+  showHeaderTitle?: boolean;
 }
 
 function findTreeNodeByPath(nodes: FileTreeNode[], targetPath: string): FileTreeNode | null {
@@ -45,7 +46,7 @@ function findTreeNodeByPath(nodes: FileTreeNode[], targetPath: string): FileTree
   return null;
 }
 
-export default function FileTree({ selectedProject, onFileOpen, revealDirectoryRequest }: FileTreeProps) {
+export default function FileTree({ selectedProject, onFileOpen, revealDirectoryRequest, showHeaderTitle = false }: FileTreeProps) {
   const { t } = useTranslation();
   const [selectedImage, setSelectedImage] = useState<FileTreeImageSelection | null>(null);
   const [contextMenu, setContextMenu] = useState<{
@@ -302,6 +303,7 @@ export default function FileTree({ selectedProject, onFileOpen, revealDirectoryR
         onCollapseAll={collapseAllDirectories}
         onUploadFiles={() => openFileUploadPicker('')}
         onUploadFolder={() => openFolderUploadPicker('')}
+        showTitle={showHeaderTitle}
         disabled={busy}
       />
 

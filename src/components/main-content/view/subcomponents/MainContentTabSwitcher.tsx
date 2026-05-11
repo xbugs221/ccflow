@@ -48,23 +48,18 @@ export default function MainContentTabSwitcher({
   const tabs = shouldShowTasksTab ? [...BASE_TABS, TASKS_TAB] : BASE_TABS;
 
   const isTabActive = (tabId: AppTab): boolean => {
+    /**
+     * Desktop dock buttons are controls, not primary tab selections. Mobile
+     * callers do not pass dockLayout, so they keep the single-view behavior.
+     */
     if (tabId === 'chat') return activeTab === 'chat';
     if (tabId === 'tasks') return activeTab === 'tasks';
     if (tabId === 'preview') return activeTab === 'preview';
-    
-    // For dock-controlled tabs, check dock state
-    if (dockLayout) {
-      if (tabId === 'files') {
-        return dockLayout.rightDockActive === 'files' && !dockLayout.rightDockCollapsed;
-      }
-      if (tabId === 'git') {
-        return dockLayout.rightDockActive === 'git' && !dockLayout.rightDockCollapsed;
-      }
-      if (tabId === 'shell') {
-        return dockLayout.bottomDockActive === 'terminal' && !dockLayout.bottomDockCollapsed;
-      }
+
+    if (dockLayout && (tabId === 'files' || tabId === 'git' || tabId === 'shell')) {
+      return false;
     }
-    
+
     return tabId === activeTab;
   };
 

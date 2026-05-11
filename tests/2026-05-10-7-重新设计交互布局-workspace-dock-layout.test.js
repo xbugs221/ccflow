@@ -59,37 +59,40 @@ test.describe('workspace dock layout', () => {
     await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
   });
 
-  test('clicking files toggles right dock with files active', async ({ page }) => {
-    await openTestProject(page);
-
-    await clickTab(page, 'files');
-
-    // Right dock should be visible with files active
-    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
-    await expect(page.locator('[data-testid="tab-files"]')).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  test('clicking git toggles right dock with git active', async ({ page }) => {
+  test('clicking files toggles right dock while chat stays active', async ({ page }) => {
     await openTestProject(page);
 
     await clickTab(page, 'git');
-
-    // Right dock should be visible with git active
-    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
-    await expect(page.locator('[data-testid="tab-git"]')).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  test('files and git are mutually exclusive in right dock', async ({ page }) => {
-    await openTestProject(page);
-
-    // Click files first
     await clickTab(page, 'files');
-    await expect(page.locator('[data-testid="tab-files"]')).toHaveAttribute('aria-pressed', 'true');
 
-    // Click git
-    await clickTab(page, 'git');
-    await expect(page.locator('[data-testid="tab-git"]')).toHaveAttribute('aria-pressed', 'true');
+    // Right dock should be visible with chat remaining the main tab.
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+    await expect(page.locator('[data-testid="tab-chat"]')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('[data-testid="tab-files"]')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('clicking git toggles right dock while chat stays active', async ({ page }) => {
+    await openTestProject(page);
+
+    await clickTab(page, 'git');
+
+    // Right dock should be visible with chat remaining the main tab.
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+    await expect(page.locator('[data-testid="tab-chat"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-testid="tab-git"]')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('files and git switch the right dock without becoming main tabs', async ({ page }) => {
+    await openTestProject(page);
+
+    await clickTab(page, 'git');
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+    await expect(page.locator('[data-testid="tab-git"]')).toHaveAttribute('aria-pressed', 'false');
+
+    await clickTab(page, 'files');
+    await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+    await expect(page.locator('[data-testid="tab-files"]')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('[data-testid="tab-chat"]')).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('clicking terminal toggles bottom dock collapse', async ({ page }) => {
@@ -98,21 +101,15 @@ test.describe('workspace dock layout', () => {
     // Bottom dock should be visible by default
     await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
 
-    // First click shell: activeTab changes from 'chat' to 'shell', dock expands (already visible)
+    // First click shell collapses the already-open bottom dock.
     await clickTab(page, 'shell');
-    await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
-
-    // Second click shell: activeTab is already 'shell', so toggle collapse
-    await clickTab(page, 'shell');
-
-    // Bottom dock should be collapsed (not visible)
     await expect(page.locator('[data-testid="dock-panel-bottom"]')).not.toBeVisible();
+    await expect(page.locator('[data-testid="tab-chat"]')).toHaveAttribute('aria-pressed', 'true');
 
-    // Third click shell: expand again
+    // Second click shell expands again without hiding chat.
     await clickTab(page, 'shell');
-
-    // Bottom dock should be visible again
     await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+    await expect(page.locator('[data-testid="tab-chat"]')).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('resize handles are present and interactive', async ({ page }) => {
@@ -132,7 +129,6 @@ test.describe('workspace dock layout', () => {
     const rightDock = page.locator('[data-testid="dock-panel-right"]');
     await expect(rightDock).toBeVisible();
 
-    await page.locator('[data-testid="tab-files"]').click();
     await page.locator('[data-testid="tab-files"]').click();
 
     // Wait a moment for state to update
@@ -168,7 +164,8 @@ test.describe('workspace dock layout', () => {
 
     // Should show files in right dock
     await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
-    await expect(page.locator('[data-testid="tab-files"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-testid="tab-chat"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-testid="tab-files"]')).toHaveAttribute('aria-pressed', 'false');
   });
 });
 
@@ -290,6 +287,8 @@ test.describe('workspace dock fullscreen and terminal move', () => {
 
     // Right dock should still be visible (now with split)
     await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
+    await expect(page.locator('[data-testid="dock-panel-right"]').getByRole('button', { name: '新建终端' })).toBeVisible();
+    await expect(page.locator('[data-testid="dock-panel-right"]').getByRole('button', { name: '删除终端' })).toBeVisible();
 
     // Click "move terminal to bottom" button on right dock
     const moveToBottomButton = page.locator('[data-testid="dock-panel-right"] button[title="移动终端"]').first();

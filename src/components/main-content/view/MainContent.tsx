@@ -2,7 +2,7 @@
  * PURPOSE: Main content area with separate desktop dock and mobile single-view workspace layouts.
  */
 import React, { useEffect } from 'react';
-import { ChevronsLeft, ChevronsRight, Move } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Move, Plus, Trash2 } from 'lucide-react';
 
 import ChatInterface from '../../chat/view/ChatInterface';
 import FileTree from '../../file-tree/view/FileTree';
@@ -44,6 +44,22 @@ type WorkflowMiniMapPosition = {
 };
 
 const WORKFLOW_MINIMAP_MARGIN = 16;
+
+type TerminalInstance = {
+  id: string;
+  title: string;
+};
+
+const createTerminalInstance = (index: number): TerminalInstance => {
+  /**
+   * Create a local terminal tab descriptor. The shell connection lifecycle is
+   * owned by the mounted StandaloneShell for this id.
+   */
+  return {
+    id: `terminal-${Date.now()}-${index}`,
+    title: `终端 ${index}`,
+  };
+};
 
 function clampWorkflowMiniMapPosition(
   position: WorkflowMiniMapPosition,
@@ -111,6 +127,9 @@ function MainContent({
   const [workflowMiniMapPosition, setWorkflowMiniMapPosition] = React.useState<WorkflowMiniMapPosition | null>(null);
   const workflowMiniMapContainerRef = React.useRef<HTMLDivElement | null>(null);
   const workflowMiniMapPanelRef = React.useRef<HTMLDivElement | null>(null);
+  const terminalCounterRef = React.useRef(1);
+  const [terminalInstances, setTerminalInstances] = React.useState<TerminalInstance[]>(() => [createTerminalInstance(1)]);
+  const [activeTerminalId, setActiveTerminalId] = React.useState<string>(() => terminalInstances[0]?.id || '');
   const workflowMiniMapDragRef = React.useRef<{
     pointerId: number;
     startClientX: number;
@@ -157,6 +176,129 @@ function MainContent({
     moveTerminalToBottom,
     setRightDockSplitRatio,
   } = useWorkspaceLayoutState(isMobile);
+
+  useEffect(() => {
+    /**
+     * Terminal instances are scoped to the selected project.
+     */
+    terminalCounterRef.current = 1;
+    const initialTerminal = createTerminalInstance(1);
+    setTerminalInstances([initialTerminal]);
+    setActiveTerminalId(initialTerminal.id);
+  }, [selectedProject?.fullPath, selectedProject?.path, selectedProject?.name]);
+
+  const handleCreateTerminal = React.useCallback(() => {
+    /**
+     * Add an independent terminal for the current project and make it active.
+     */
+    terminalCounterRef.current += 1;
+    const nextTerminal = createTerminalInstance(terminalCounterRef.current);
+    setTerminalInstances((prev) => [...prev, nextTerminal]);
+    setActiveTerminalId(nextTerminal.id);
+    setBottomDock({ activePanel: 'terminal', collapsed: false });
+  }, [setBottomDock]);
+
+  const handleDeleteActiveTerminal = React.useCallback(() => {
+    /**
+     * Removing the mounted shell component closes its runtime connection. The
+     * empty state intentionally keeps only the new-terminal entry point.
+     */
+    setTerminalInstances((prev) => {
+      const activeIndex = prev.findIndex((terminal) => terminal.id === activeTerminalId);
+      if (activeIndex === -1) {
+        return prev;
+      }
+
+      const next = prev.filter((terminal) => terminal.id !== activeTerminalId);
+      const nextActive = next[Math.max(0, activeIndex - 1)] || next[0] || null;
+      setActiveTerminalId(nextActive?.id || '');
+      return next;
+    });
+  }, [activeTerminalId]);
+
+  const terminalDockActions = (
+    <>
+      <button
+        type="button"
+        className="inline-flex items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+        onClick={handleCreateTerminal}
+        aria-label="新建终端"
+        title="新建"
+      >
+        <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="inline-flex items-center justify-center rounded-md p-1 text-xs text-muted-foreground hover:bg-muted/70 hover:text-foreground disabled:opacity-40"
+        onClick={handleDeleteActiveTerminal}
+        disabled={!activeTerminalId}
+        aria-label="删除终端"
+        title="删除"
+      >
+        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+    </>
+  );
+
+  const renderTerminalDockContent = () => {
+    /**
+     * Keep inactive terminals mounted so switching does not drop their shell
+     * connection; deleting unmounts only the selected instance.
+     */
+    if (terminalInstances.length === 0) {
+      return (
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground" data-testid="terminal-empty-state">
+          <button
+            type="button"
+            className="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-muted/70"
+            onClick={handleCreateTerminal}
+          >
+            新建终端
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex flex-shrink-0 items-center gap-1 border-b border-border/60 px-2 py-1" data-testid="terminal-instance-tabs">
+          {terminalInstances.map((terminal) => (
+            <button
+              key={terminal.id}
+              type="button"
+              className={`rounded-md px-2 py-1 text-xs ${
+                terminal.id === activeTerminalId
+                  ? 'bg-muted text-foreground'
+                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+              }`}
+              onClick={() => setActiveTerminalId(terminal.id)}
+              aria-pressed={terminal.id === activeTerminalId}
+            >
+              {terminal.title}
+            </button>
+          ))}
+        </div>
+        <div className="relative min-h-0 flex-1">
+          {terminalInstances.map((terminal) => (
+            <div
+              key={terminal.id}
+              className={`absolute inset-0 ${terminal.id === activeTerminalId ? 'block' : 'hidden'}`}
+              data-testid="terminal-instance"
+              data-terminal-active={terminal.id === activeTerminalId ? 'true' : 'false'}
+            >
+              <StandaloneShell
+                project={selectedProject}
+                command={null}
+                isPlainShell
+                showHeader={false}
+                minimal
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   const resolveWorkflowMiniMapPosition = React.useCallback(() => {
     const container = workflowMiniMapContainerRef.current;
@@ -247,30 +389,52 @@ function MainContent({
       }
 
       if (nextTab === 'files') {
-        // Only toggle collapse when clicking the same tab again
-        if (activeTab === 'files' && layout.rightDock.activePanel === 'files' && !layout.rightDock.collapsed) {
+        if (layout.rightDock.activePanel === 'files' && !layout.rightDock.collapsed) {
           setRightDock({ collapsed: true });
         } else {
           setRightDock({ activePanel: 'files', collapsed: false });
         }
+        setActiveTab('chat');
+        return;
       } else if (nextTab === 'git') {
-        if (activeTab === 'git' && layout.rightDock.activePanel === 'git' && !layout.rightDock.collapsed) {
+        if (layout.rightDock.activePanel === 'git' && !layout.rightDock.collapsed) {
           setRightDock({ collapsed: true });
         } else {
           setRightDock({ activePanel: 'git', collapsed: false });
         }
+        setActiveTab('chat');
+        return;
       } else if (nextTab === 'shell') {
-        if (activeTab === 'shell' && layout.bottomDock.activePanel === 'terminal' && !layout.bottomDock.collapsed) {
+        if (layout.bottomDock.activePanel === 'terminal' && !layout.bottomDock.collapsed) {
           setBottomDock({ collapsed: true });
         } else {
           setBottomDock({ activePanel: 'terminal', collapsed: false });
         }
+        setActiveTab('chat');
+        return;
       }
 
       setActiveTab(nextTab);
     },
     [activeTab, isMobile, layout.rightDock.activePanel, layout.rightDock.collapsed, layout.bottomDock.activePanel, layout.bottomDock.collapsed, setRightDock, setBottomDock, setActiveTab],
   );
+
+  const openFilesDock = React.useCallback((directoryPath?: string) => {
+    /**
+     * Open the file browser from artifact links without changing desktop main
+     * content away from chat/workflow. Mobile keeps the single-view files tab.
+     */
+    if (isMobile) {
+      setActiveTab('files');
+    } else {
+      setRightDock({ activePanel: 'files', collapsed: false });
+      setActiveTab('chat');
+    }
+
+    if (directoryPath) {
+      setRevealDirectoryRequest({ path: directoryPath, requestId: Date.now() });
+    }
+  }, [isMobile, setActiveTab, setRightDock]);
 
   const renderHeader = (headerActiveTab: AppTab = activeTab) => (
     <MainContentHeader
@@ -321,6 +485,7 @@ function MainContent({
           selectedProject={selectedProject}
           onFileOpen={handleFileOpen}
           revealDirectoryRequest={revealDirectoryRequest}
+          showHeaderTitle
         />
       );
     }
@@ -426,10 +591,7 @@ function MainContent({
             workflow={selectedWorkflow}
             onNavigateToSession={onNavigateToSession}
             onOpenArtifactFile={handleFileOpen}
-            onOpenArtifactDirectory={(directoryPath) => {
-              setActiveTab('files');
-              setRevealDirectoryRequest({ path: directoryPath, requestId: Date.now() });
-            }}
+            onOpenArtifactDirectory={openFilesDock}
           />
         </div>
         <EditorSidebar
@@ -461,14 +623,8 @@ function MainContent({
       <GitPanel selectedProject={selectedProject} isMobile={isMobile} onFileOpen={handleFileOpen} />
     ) : null;
 
-    const workflowBottomDockContent = layout.bottomDock.activePanel === 'terminal' ? (
-      <StandaloneShell
-        key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
-        project={selectedProject}
-        command={null}
-        isPlainShell
-        showHeader={false}
-      />
+    const workflowBottomDockContent = layout.bottomDock.activePanel === 'terminal' || layout.rightDock.split?.bottomPanel === 'terminal' ? (
+      renderTerminalDockContent()
     ) : null;
 
     return (
@@ -547,10 +703,7 @@ function MainContent({
                     treeOnly
                     onNavigateToSession={onNavigateToSession}
                     onOpenArtifactFile={handleFileOpen}
-                    onOpenArtifactDirectory={(directoryPath) => {
-                      setActiveTab('files');
-                      setRevealDirectoryRequest({ path: directoryPath, requestId: Date.now() });
-                    }}
+                    onOpenArtifactDirectory={openFilesDock}
                   />
                 </div>
               )}
@@ -571,6 +724,7 @@ function MainContent({
             onMoveTerminalToRightSplit={moveTerminalToRightSplit}
             onMoveTerminalToBottom={moveTerminalToBottom}
             onRightDockSplitRatioChange={setRightDockSplitRatio}
+            bottomDockActions={terminalDockActions}
           />
 
         </div>
@@ -627,14 +781,8 @@ function MainContent({
       <GitPanel selectedProject={selectedProject} isMobile={isMobile} onFileOpen={handleFileOpen} />
     ) : null;
 
-    const overviewBottomDockContent = layout.bottomDock.activePanel === 'terminal' ? (
-      <StandaloneShell
-        key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
-        project={selectedProject}
-        command={null}
-        isPlainShell
-        showHeader={false}
-      />
+    const overviewBottomDockContent = layout.bottomDock.activePanel === 'terminal' || layout.rightDock.split?.bottomPanel === 'terminal' ? (
+      renderTerminalDockContent()
     ) : null;
 
     return (
@@ -713,10 +861,7 @@ function MainContent({
                     treeOnly
                     onNavigateToSession={onNavigateToSession}
                     onOpenArtifactFile={handleFileOpen}
-                    onOpenArtifactDirectory={(directoryPath) => {
-                      setActiveTab('files');
-                      setRevealDirectoryRequest({ path: directoryPath, requestId: Date.now() });
-                    }}
+                    onOpenArtifactDirectory={openFilesDock}
                   />
                 </div>
               )}
@@ -737,6 +882,7 @@ function MainContent({
             onMoveTerminalToRightSplit={moveTerminalToRightSplit}
             onMoveTerminalToBottom={moveTerminalToBottom}
             onRightDockSplitRatioChange={setRightDockSplitRatio}
+            bottomDockActions={terminalDockActions}
           />
 
         </div>
@@ -811,13 +957,9 @@ function MainContent({
   ) : null;
 
   const bottomDockContent = layout.bottomDock.activePanel === 'terminal' ? (
-    <StandaloneShell
-      key={`shell-${selectedProject.fullPath || selectedProject.path || selectedProject.name}`}
-      project={selectedProject}
-      command={null}
-      isPlainShell
-      showHeader={false}
-    />
+    renderTerminalDockContent()
+  ) : layout.rightDock.split?.bottomPanel === 'terminal' ? (
+    renderTerminalDockContent()
   ) : null;
 
   if (isMobile) {
@@ -901,10 +1043,7 @@ function MainContent({
                   treeOnly
                   onNavigateToSession={onNavigateToSession}
                   onOpenArtifactFile={handleFileOpen}
-                  onOpenArtifactDirectory={(directoryPath) => {
-                    setActiveTab('files');
-                    setRevealDirectoryRequest({ path: directoryPath, requestId: Date.now() });
-                  }}
+                  onOpenArtifactDirectory={openFilesDock}
                 />
               </div>
             )}
@@ -925,6 +1064,7 @@ function MainContent({
           onMoveTerminalToRightSplit={moveTerminalToRightSplit}
           onMoveTerminalToBottom={moveTerminalToBottom}
           onRightDockSplitRatioChange={setRightDockSplitRatio}
+          bottomDockActions={terminalDockActions}
         />
 
       </div>

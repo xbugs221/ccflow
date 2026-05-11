@@ -21,6 +21,7 @@ export type WorkspaceDockLayoutProps = {
   onMoveTerminalToRightSplit?: () => void;
   onMoveTerminalToBottom?: () => void;
   onRightDockSplitRatioChange?: (ratio: number) => void;
+  bottomDockActions?: React.ReactNode;
 };
 
 export default function WorkspaceDockLayout({
@@ -38,6 +39,7 @@ export default function WorkspaceDockLayout({
   onMoveTerminalToRightSplit,
   onMoveTerminalToBottom,
   onRightDockSplitRatioChange,
+  bottomDockActions,
 }: WorkspaceDockLayoutProps) {
   const { rightDock, bottomDock } = layout;
 
@@ -62,6 +64,7 @@ export default function WorkspaceDockLayout({
           title="终端"
           onFullscreenToggle={onBottomDockFullscreenToggle}
           isFullscreen
+          actions={bottomDockActions}
         />
         <div className="flex-1 min-h-0 overflow-hidden">{bottomDockContent}</div>
       </div>
@@ -98,6 +101,7 @@ export default function WorkspaceDockLayout({
               title="终端"
               onFullscreenToggle={onBottomDockFullscreenToggle}
               onMoveTerminal={onMoveTerminalToRightSplit}
+              actions={bottomDockActions}
             >
               {bottomDockContent}
             </DockPanelFrame>
@@ -118,6 +122,7 @@ export default function WorkspaceDockLayout({
             title={showRightSplit ? '文件 / 终端' : rightDock.activePanel === 'files' ? '文件' : '源代码管理'}
             onFullscreenToggle={onRightDockFullscreenToggle}
             onMoveTerminal={onMoveTerminalToBottom}
+            actions={showRightSplit ? bottomDockActions : undefined}
           >
             {showRightSplit ? (
               <RightSplitPanel
@@ -144,16 +149,19 @@ function DockPanelHeader({
   onFullscreenToggle,
   onMoveTerminal,
   isFullscreen,
+  actions,
 }: {
   title: string;
   onFullscreenToggle: () => void;
   onMoveTerminal?: () => void;
   isFullscreen: boolean;
+  actions?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-shrink-0 items-center justify-between px-3 py-2 border-b border-border/60 bg-background" data-testid="dock-panel-header">
       <span className="text-sm font-medium text-foreground">{title}</span>
       <div className="flex items-center gap-1">
+        {actions}
         {onMoveTerminal && (
           <button
             type="button"
@@ -246,6 +254,7 @@ function DockPanelFrame({
   children,
   onFullscreenToggle,
   onMoveTerminal,
+  actions,
 }: {
   direction: 'right' | 'bottom';
   size: number;
@@ -253,6 +262,7 @@ function DockPanelFrame({
   children: React.ReactNode;
   onFullscreenToggle: () => void;
   onMoveTerminal?: () => void;
+  actions?: React.ReactNode;
 }) {
   return (
     <div
@@ -267,6 +277,7 @@ function DockPanelFrame({
         onFullscreenToggle={onFullscreenToggle}
         onMoveTerminal={onMoveTerminal}
         isFullscreen={false}
+        actions={actions}
       />
       <div className="flex-1 min-h-0 min-w-0 overflow-hidden">{children}</div>
     </div>

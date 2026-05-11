@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Verify the main shell tab opens a fresh plain terminal and can be disconnected/reconnected.
+ * PURPOSE: Verify the main shell tab opens an embedded plain terminal without duplicate shell controls.
  */
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
@@ -30,42 +30,10 @@ const AUTH_TOKEN = createLocalAuthToken();
 test.beforeEach(async ({ page }) => {
   await page.addInitScript((token) => {
     window.localStorage.setItem('auth-token', token);
+    window.localStorage.removeItem('ccflow:workspace-layout:v1');
+    window.localStorage.removeItem('activeTab');
   }, AUTH_TOKEN);
 });
-
-/**
- * Click the first visible button whose text matches the provided pattern.
- *
- * @param {import('@playwright/test').Page} page
- * @param {RegExp} pattern
- */
-async function clickVisibleButton(page, pattern) {
-  await page.waitForFunction(
-    (source) => {
-      const matcher = new RegExp(source, 'i');
-      return Array.from(document.querySelectorAll('button')).some((node) => {
-        const text = (node.textContent || '').trim();
-        return matcher.test(text) && node.offsetParent !== null;
-      });
-    },
-    pattern.source,
-    { timeout: 20_000 },
-  );
-
-  await page.evaluate((source) => {
-    const matcher = new RegExp(source, 'i');
-    const button = Array.from(document.querySelectorAll('button')).find((node) => {
-      const text = (node.textContent || '').trim();
-      return matcher.test(text) && node.offsetParent !== null;
-    });
-
-    if (!button) {
-      throw new Error(`visible button not found: ${source}`);
-    }
-
-    button.click();
-  }, pattern.source);
-}
 
 /**
  * Open the target project so the shell tab can be exercised against a stable workspace.
@@ -77,29 +45,19 @@ async function openShellProject(page) {
   await expect(page.getByRole('button', { name: /^Shell$|^终端$/ })).toBeVisible({ timeout: 10_000 });
 }
 
-test('shell tab uses plain shell controls and supports disconnect/reconnect', async ({ page }) => {
+test('shell tab uses embedded plain shell without disconnect or restart controls', async ({ page }) => {
   await openShellProject(page);
 
-  await clickVisibleButton(page, /^Shell$|^终端$/);
+  const bottomDock = page.locator('[data-testid="dock-panel-bottom"]');
+  if (!(await bottomDock.isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: /^Shell$|^终端$/ }).click();
+  }
 
-  await expect(page.locator('.xterm')).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator('body')).toContainText(/New Session|新会话/, { timeout: 10_000 });
-  await expect(page.locator('body')).not.toContainText(/Resume session|恢复会话/);
+  await expect(bottomDock).toBeVisible({ timeout: 10_000 });
+  await expect(bottomDock.locator('.xterm')).toBeVisible({ timeout: 10_000 });
+  await expect(bottomDock).not.toContainText(/Resume session|恢复会话/);
+  await expect(bottomDock).not.toContainText(/Disconnect|断开连接|Restart|重启/);
 
-  await page.locator('button[title="Disconnect from shell"], button[title="断开 Shell 连接"]').first().click();
-
-  await page.waitForFunction(
-    () => /Continue in Shell|在 Shell 中继续|Disconnect|断开连接/.test(document.body.textContent || ''),
-    undefined,
-    { timeout: 10_000 },
-  );
-  await page.evaluate(() => {
-    const connectButton = Array.from(document.querySelectorAll('button')).find((node) => {
-      const text = (node.textContent || '').trim();
-      return /^(Continue in Shell|在 Shell 中继续)$/i.test(text) && node.offsetParent !== null;
-    });
-    connectButton?.click();
-  });
-
-  await expect(page.locator('body')).toContainText(/Disconnect|断开连接/, { timeout: 10_000 });
+  await bottomDock.getByRole('button', { name: '新建终端' }).click();
+  await expect(bottomDock.locator('[data-testid="terminal-instance"]')).toHaveCount(2);
 });

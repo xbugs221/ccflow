@@ -20,5 +20,6 @@ export default {
     '2026-05-10-12-区分移动端单视图和精简会话标题-12-main-content-title-resume-id.test.js',
     '2026-05-10-12-区分移动端单视图和精简会话标题-12-mobile-single-view-workspace.test.js',
     '2026-05-11-13-前端多选启动wo并支持新规划-workflow-action-dialog.spec.js',
+    '2026-05-11-2026-05-11-14-修复前端tab选中和终端细节-2026-05-11-14-修复前端tab选中和终端细节-workspace-regression.test.js',
   ],
 };

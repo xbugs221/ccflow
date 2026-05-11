@@ -119,12 +119,16 @@ function Sidebar({
   }, [isPWA]);
 
   const handleProjectCreated = () => {
+    /**
+     * Project creation only needs to refresh the shared project read model.
+     * Reloading the whole app can reset an unrelated open session.
+     */
     if (window.refreshProjects) {
       void window.refreshProjects();
       return;
     }
 
-    window.location.reload();
+    void refreshProjects();
   };
 
   const projectListProps: SidebarProjectListProps = {
