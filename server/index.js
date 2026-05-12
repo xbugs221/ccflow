@@ -467,8 +467,14 @@ function attachCoTurnTail(turnId, state, sourceUserId = null) {
                 ...normalizedPayload,
                 ccflowSessionId: state.conversation_id,
                 ccflow_session_id: state.conversation_id,
+                turnId: normalizedPayload?.turnId || turnKey,
+                turn_id: normalizedPayload?.turn_id || turnKey,
             }
-            : normalizedPayload;
+            : {
+                ...normalizedPayload,
+                turnId: normalizedPayload?.turnId || turnKey,
+                turn_id: normalizedPayload?.turn_id || turnKey,
+            };
         if (state.conversation_id && normalizedPayload?.type === 'session-created' && normalizedPayload?.sessionId) {
             void finalizeCcflowRouteSession({
                 projectName: '',
@@ -551,8 +557,14 @@ async function replayCoTurnEvents(ws, sourceUserId = null) {
                         ...payload,
                         ccflowSessionId: turn.ccflowSessionId,
                         ccflow_session_id: turn.ccflowSessionId,
+                        turnId: payload?.turnId || turn.turnId,
+                        turn_id: payload?.turn_id || turn.turnId,
                     }
-                    : payload;
+                    : {
+                        ...payload,
+                        turnId: payload?.turnId || turn.turnId,
+                        turn_id: payload?.turn_id || turn.turnId,
+                    };
                 ws.send(JSON.stringify(indexedPayload));
             } catch (error) {
                 console.warn('[co] Failed to replay event:', error.message);
@@ -594,6 +606,8 @@ async function replayCoConversationEvents(ws, conversation) {
                     ...payload,
                     ccflowSessionId: conversation.conversation_id,
                     ccflow_session_id: conversation.conversation_id,
+                    turnId: payload?.turnId || turnId,
+                    turn_id: payload?.turn_id || turnId,
                 }));
             } catch (error) {
                 console.warn('[co] Failed to replay conversation event:', error.message);
@@ -777,11 +791,20 @@ async function recoverCoConversation(conversationId, sourceUserId = null) {
 }
 
 /**
+ * Return durable turn ids from a co conversation state in protocol order.
+ */
+function getCoConversationTurnIds(state) {
+    return Array.isArray(state?.turns)
+        ? state.turns.filter((turnId) => typeof turnId === 'string' && turnId.length > 0)
+        : [];
+}
+
+/**
  * Keep observing a co conversation after requests are queued. co serializes
  * requests per conversation, so a later turn may appear long after the current
  * active turn finishes.
  */
-function observeCoConversationTurns(conversationId, writer, provider, sourceUserId = null, { excludeTurnId = '', intervalMs = 250, idleMs = 300000 } = {}) {
+function observeCoConversationTurns(conversationId, writer, provider, sourceUserId = null, { excludeTurnId = '', excludeTurnIds = [], intervalMs = 250, idleMs = 300000 } = {}) {
     if (!conversationId) {
         return null;
     }
@@ -808,6 +831,14 @@ function observeCoConversationTurns(conversationId, writer, provider, sourceUser
     if (excludeTurnId) {
         observer.seenTurnIds.add(excludeTurnId);
     }
+    for (const turnId of excludeTurnIds) {
+        if (turnId) {
+            observer.seenTurnIds.add(turnId);
+        }
+    }
+
+    // 新请求意味着 conversation 可能被重新激活，重置 idle 计时
+    observer.idleStartedAt = null;
 
     if (observer.timer) {
         return observer;
@@ -821,6 +852,17 @@ function observeCoConversationTurns(conversationId, writer, provider, sourceUser
         try {
             const state = await recoverCoConversation(conversationId, observer.sourceUserId);
             const activeTurnId = state?.active_turn_id || '';
+            const durableTurnIds = getCoConversationTurnIds(state);
+            const unseenDurableTurnIds = durableTurnIds.filter((turnId) => (
+                turnId !== activeTurnId && !observer.seenTurnIds.has(turnId)
+            ));
+            for (const turnId of unseenDurableTurnIds) {
+                observer.seenTurnIds.add(turnId);
+                attachCoTurnTail(turnId, state, observer.sourceUserId);
+            }
+            if (unseenDurableTurnIds.length > 0) {
+                observer.idleStartedAt = null;
+            }
             if (activeTurnId) {
                 observer.idleStartedAt = null;
                 if (!observer.seenTurnIds.has(activeTurnId)) {
@@ -831,6 +873,9 @@ function observeCoConversationTurns(conversationId, writer, provider, sourceUser
                         provider: state.provider || observer.provider,
                         isProcessing: true,
                         turnId: activeTurnId,
+                        turn_id: activeTurnId,
+                        ccflowSessionId: conversationId,
+                        ccflow_session_id: conversationId,
                     };
                     for (const targetWriter of observer.writers) {
                         targetWriter.send(status);
@@ -2602,7 +2647,9 @@ function handleChatConnection(ws, request) {
                         windowId: data.windowId || data.options?.windowId || '',
                     },
                 });
-                const previousActiveTurnId = (await readCoConversationState(coRequest.conversation_id).catch(() => null))?.active_turn_id || '';
+                const previousConversationState = await readCoConversationState(coRequest.conversation_id).catch(() => null);
+                const previousActiveTurnId = previousConversationState?.active_turn_id || '';
+                const previousTurnIds = getCoConversationTurnIds(previousConversationState);
                 await writeCoRequest(coRequest);
                 sendMessageAccepted(writer, {
                     sessionId: ccflowSessionId || codexProviderOptions?.sessionId || data.sessionId || data.options?.sessionId,
@@ -2623,6 +2670,7 @@ function handleChatConnection(ws, request) {
                 }
                 observeCoConversationTurns(coRequest.conversation_id, writer, 'codex', request?.user?.id || null, {
                     excludeTurnId: previousActiveTurnId,
+                    excludeTurnIds: previousTurnIds,
                 });
             } else if (data.type === 'opencode-command') {
                 if (!acceptChatRequestId(data.clientRequestId || data.options?.clientRequestId)) {
@@ -2697,7 +2745,9 @@ function handleChatConnection(ws, request) {
                         windowId: data.windowId || data.options?.windowId || '',
                     },
                 });
-                const previousActiveTurnId = (await readCoConversationState(coRequest.conversation_id).catch(() => null))?.active_turn_id || '';
+                const previousConversationState = await readCoConversationState(coRequest.conversation_id).catch(() => null);
+                const previousActiveTurnId = previousConversationState?.active_turn_id || '';
+                const previousTurnIds = getCoConversationTurnIds(previousConversationState);
                 await writeCoRequest(coRequest);
                 sendMessageAccepted(writer, {
                     sessionId: ccflowSessionId || opencodeProviderOptions?.sessionId || data.sessionId || data.options?.sessionId,
@@ -2718,6 +2768,7 @@ function handleChatConnection(ws, request) {
                 }
                 observeCoConversationTurns(coRequest.conversation_id, writer, 'opencode', request?.user?.id || null, {
                     excludeTurnId: previousActiveTurnId,
+                    excludeTurnIds: previousTurnIds,
                 });
             } else if (data.type === 'abort-session') {
                 console.log('[DEBUG] Abort session request:', data.sessionId);

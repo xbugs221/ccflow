@@ -63,6 +63,32 @@ Existing manual `cN` routes represent stable ccflow conversations, while `new-se
 - Deduplication must not rely on message text alone, because different turns may legitimately produce identical assistant text.
 - Sending multiple follow-up messages in the same `cN` page appends the current turn once and must not reinsert earlier user or assistant rows.
 
+### Discover durable turns beyond active_turn_id
+
+The observer must tail every turn whose events have been written, not only the currently active turn.
+
+- When a conversation has no `active_turn_id` because co already completed the turn, the observer must still discover and tail that turn if it was not yet observed.
+- The observer scans `state.turns` for unseen turn ids and attaches a tail for each new durable turn.
+- Events from newly discovered durable turns are broadcast to the same `cN` route without replaying already-completed earlier turns.
+- A fast-completed turn whose `active_turn_id` went from running to empty within a single poll interval must still be discovered via `state.turns` and broadcast.
+
+### Forward follow-up responses with stable route identity
+
+Every co event broadcast for a follow-up turn must carry the same `cN` route identity as the original conversation.
+
+- `codex-response` and `opencode-response` events for the second or later turn must include `ccflowSessionId` equal to the `conversation_id`.
+- The payload must include `ccflow_session_id` equal to the `conversation_id`.
+- `turnId` or `turn_id` must point to the correct follow-up turn id.
+- Frontend session filtering must not drop the event because the mapped provider session id differs from the first turn.
+
+### Keep check-session-status from suppressing later realtime events
+
+Idle status checks may run while a queued or fast-completed turn is about to produce events.
+
+- `check-session-status` for an idle conversation returns `session-status` with `isProcessing=false` and may clear loading UI.
+- That response must not cause the frontend to ignore or discard subsequent `codex-response` or `opencode-response` events for a new turn.
+- The frontend must remain able to append assistant messages from later turns after an idle status check.
+
 ### Coordinate running-turn intervention through co requests
 
 Running-turn interventions target the co conversation and must be guarded by the current active turn id.
