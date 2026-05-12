@@ -56,7 +56,7 @@ test.describe('项目工作区导航壳层', () => {
 
     await expect(page.getByTestId('workflow-runner-processes')).toHaveCount(0);
 
-    await page.getByTestId('workflow-display-lines').getByRole('button', { name: 'start' }).click();
+    await page.getByTestId('workflow-role-row-executor').getByRole('button').click();
     await expect(page).toHaveURL(/\/workspace\/fixture-project\/runs\/run-fixture\/sessions\/execution$/);
   });
 

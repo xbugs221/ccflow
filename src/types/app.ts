@@ -100,6 +100,22 @@ export interface WorkflowDisplayLine {
   } | null;
 }
 
+export interface WorkflowRoleSummaryRow {
+  key: string;
+  label: string;
+  role: string;
+  sessionRef?: {
+    label: string;
+    sessionId: string;
+    provider?: SessionProvider | string;
+    stageKey?: string;
+    address?: string;
+    routePath?: string;
+  } | null;
+  placeholder?: string;
+  checkCount: number;
+}
+
 export interface ProjectWorkflow {
   id: string;
   title: string;
@@ -125,6 +141,9 @@ export interface ProjectWorkflow {
   diagnostics?: Record<string, unknown>;
   workflowDisplay?: {
     lines?: WorkflowDisplayLine[];
+  };
+  workflowRoleSummary?: {
+    rows?: WorkflowRoleSummaryRow[];
   };
   openspecTaskProgress?: {
     name?: string;

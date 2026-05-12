@@ -212,15 +212,15 @@ const SESSION_PATH_CACHE_TTL_MS = (() => {
 })();
 const CODEX_INDEX_CACHE_TTL_MS = (() => {
   const parsed = Number.parseInt(process.env.CODEX_INDEX_CACHE_TTL_MS || '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30 * 1000;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 30 * 1000;
 })();
 const OPENCODE_INDEX_CACHE_TTL_MS = (() => {
   const parsed = Number.parseInt(process.env.OPENCODE_INDEX_CACHE_TTL_MS || '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30 * 1000;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 30 * 1000;
 })();
 const PROJECTS_CACHE_TTL_MS = (() => {
   const parsed = Number.parseInt(process.env.PROJECTS_CACHE_TTL_MS || '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 5 * 1000;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 5 * 1000;
 })();
 const PROJECT_OVERVIEW_SESSION_LIMIT = Number.MAX_SAFE_INTEGER;
 

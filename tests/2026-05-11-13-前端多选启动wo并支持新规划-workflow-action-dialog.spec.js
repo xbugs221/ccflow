@@ -98,15 +98,15 @@ test('creating a workflow with existing OpenSpec change binds correctly', async 
 
   // Verify navigation to workflow detail page
   await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/playwright-run-[^/]+$`));
-  await expect(page.getByTestId('workflow-display-lines')).toBeVisible();
+  await expect(page.getByTestId('workflow-role-summary')).toBeVisible();
   await expect(page.getByTestId('project-workflow-group')).toContainText(OPEN_SPEC_CHANGE_NAME);
 
-  // Verify the wo display lines are the primary workflow view and link to the child session.
-  await expect(page.getByTestId('workflow-display-lines')).toContainText('✓');
-  await expect(page.getByTestId('workflow-display-lines')).toContainText('start');
-  await expect(page.getByTestId('workflow-display-lines')).toContainText('review', { timeout: 10000 });
+  // Verify the fixed role rows are the primary workflow view and link to the child session.
+  await expect(page.getByTestId('workflow-role-summary')).toContainText('规');
+  await expect(page.getByTestId('workflow-role-summary')).toContainText('写');
+  await expect(page.getByTestId('workflow-role-summary')).toContainText('审');
   await expect(page.getByTestId('workflow-stage-tree')).toHaveCount(0);
-  await page.getByTestId('workflow-display-lines').getByRole('button', { name: 'start' }).click();
+  await page.getByTestId('workflow-role-row-executor').getByRole('button').click();
   await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/playwright-run-[^/]+/sessions/execution$`));
   await page.goto(`${projectRoutePrefix}/runs/${workflowIdFromUrl(page.url())}`);
   await expect(page.getByText(/Go runner: playwright-run-/)).toBeVisible();

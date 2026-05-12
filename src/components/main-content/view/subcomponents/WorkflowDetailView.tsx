@@ -21,7 +21,6 @@ import { api } from '../../../../utils/api';
 type WorkflowDetailViewProps = {
   project: Project;
   workflow: ProjectWorkflow;
-  treeOnly?: boolean;
   onNavigateToSession: (
     sessionId: string,
     options?: {
@@ -460,6 +459,67 @@ function renderWorkflowDisplayLines(
   );
 }
 
+function renderWorkflowRoleSummary(
+  project: Project,
+  workflow: ProjectWorkflow,
+  onNavigateToSession: WorkflowDetailViewProps['onNavigateToSession'],
+) {
+  const rows = workflow.workflowRoleSummary?.rows;
+  if (!rows || rows.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="space-y-2" data-testid="workflow-role-summary" aria-label="workflow role summary">
+      {rows.map((row) => {
+        const sessionRef = row.sessionRef;
+        const checks = '✓'.repeat(row.checkCount || 0);
+        const hasLink = Boolean(sessionRef?.sessionId);
+        return (
+          <div
+            key={row.key}
+            className="flex min-h-8 items-center gap-3 rounded-md border border-border/50 bg-background/70 px-3 py-1.5 text-sm"
+            data-testid={`workflow-role-row-${row.key}`}
+          >
+            <span className="w-6 shrink-0 font-medium text-foreground">{row.label}</span>
+            {hasLink && sessionRef ? (
+              <button
+                type="button"
+                className="truncate text-left text-sm font-medium text-primary underline decoration-current underline-offset-2"
+                onClick={() => {
+                  const childSession = workflow.childSessions.find((s) => s.id === sessionRef.sessionId);
+                  if (childSession) {
+                    onNavigateToSession(
+                      sessionRef.sessionId,
+                      buildWorkflowSessionRouteOptions(project, workflow, childSession),
+                    );
+                  } else {
+                    onNavigateToSession(sessionRef.sessionId, {
+                      provider: (sessionRef.provider || 'codex') as SessionProvider,
+                      projectName: project.name,
+                      projectPath: project.fullPath || project.path || '',
+                      workflowId: workflow.id,
+                    });
+                  }
+                }}
+              >
+                {sessionRef.label || sessionRef.sessionId}
+              </button>
+            ) : (
+              <span className="text-muted-foreground">{row.placeholder || '—'}</span>
+            )}
+            {checks ? (
+              <span className="ml-auto text-green-500" data-testid={`workflow-role-checks-${row.key}`}>
+                {checks}
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
 function hasSubstageEvidence(substage: WorkflowSubstageInspection): boolean {
   /**
    * Treat a persisted child session or inspectable output as proof that the
@@ -854,7 +914,6 @@ function renderStageControlPlaneEvents(stage: WorkflowStageInspection) {
 export default function WorkflowDetailView({
   project,
   workflow,
-  treeOnly = false,
   onNavigateToSession,
   onOpenArtifactFile,
   onOpenArtifactDirectory,
@@ -1050,11 +1109,8 @@ export default function WorkflowDetailView({
   const stageTree = (
     <div
       ref={treeContainerRef}
-      className={[
-        'relative space-y-3',
-        treeOnly ? 'p-3' : 'mt-4 border-t border-border/40 pt-4',
-      ].join(' ')}
-      data-testid={treeOnly ? 'workflow-inspection-preview' : 'workflow-inspection-tree'}
+      className="relative mt-4 space-y-3 border-t border-border/40 pt-4"
+      data-testid="workflow-inspection-tree"
     >
       <svg className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible" aria-hidden="true">
         {graphPaths.map((path) => (
@@ -1173,16 +1229,6 @@ export default function WorkflowDetailView({
     </div>
   );
 
-  if (treeOnly) {
-    return (
-      <div className="max-h-[70vh] overflow-auto rounded-md border border-border/60 bg-background/95 shadow-sm backdrop-blur-sm">
-        <div className="p-3">
-          {renderWorkflowDisplayLines(project, currentWorkflow, onNavigateToSession, 'workflow-display-lines-preview')}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-full overflow-auto bg-background">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-4 md:px-6">
@@ -1221,7 +1267,8 @@ export default function WorkflowDetailView({
             </div>
           </div>
           <div className="mt-4">
-            {renderWorkflowDisplayLines(project, currentWorkflow, onNavigateToSession)}
+            {renderWorkflowRoleSummary(project, currentWorkflow, onNavigateToSession)
+              || renderWorkflowDisplayLines(project, currentWorkflow, onNavigateToSession)}
           </div>
         </div>
 

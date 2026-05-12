@@ -53,8 +53,9 @@ async function withFakeGoWorkflowTools(testBody) {
       'write_state() {',
       '  mkdir -p "$run_dir/logs"',
       '  echo "runner log" > "$run_dir/logs/executor.log"',
+      '  echo "archiver log" > "$run_dir/logs/archiver.log"',
       '  cat > "$state" <<JSON',
-      '{"run_id":"run-abc","change_name":"go-change","status":"$1","stage":"$2","stages":{"execution":"$1","review_1":"pending","repair_1":"pending","archive":"pending"},"paths":{"executor_log":".wo/runs/run-abc/logs/executor.log"},"sessions":{"executor":"codex-exec-thread"},"error":"$3"}',
+      '{"run_id":"run-abc","change_name":"go-change","status":"$1","stage":"$2","stages":{"execution":"$1","review_1":"pending","repair_1":"pending","archive":"pending"},"paths":{"executor_log":".wo/runs/run-abc/logs/executor.log","archiver_log":".wo/runs/run-abc/logs/archiver.log"},"sessions":{"executor":"codex-exec-thread"},"error":"$3"}',
       'JSON',
       '}',
       'case "$1" in',
@@ -174,10 +175,9 @@ test('Go-backed workflow persists run id and maps state.json into the read model
       workflow.runnerProcesses.find((process) => process.stage === 'archive'),
       {
         stage: 'archive',
-        role: 'executor',
+        role: 'archiver',
         status: 'pending',
-        sessionId: 'codex-exec-thread',
-        logPath: '.wo/runs/run-abc/logs/executor.log',
+        logPath: '.wo/runs/run-abc/logs/archiver.log',
       },
     );
     assert.deepEqual(
@@ -461,7 +461,7 @@ test('Go-backed workflow maps snake_case external state into the read model', as
       status: 'done',
       stage: 'archive',
       stages: { archive: 'completed' },
-      paths: { executor_log: '.wo/runs/snake-dir-run/logs/executor.log' },
+      paths: { archiver_log: '.wo/runs/snake-dir-run/logs/archiver.log' },
       sessions: {},
     });
 
@@ -473,7 +473,7 @@ test('Go-backed workflow maps snake_case external state into the read model', as
     assert.equal(workflow.openspecChangeName, 'go-change');
     assert.equal(workflow.stage, 'archive');
     assert.equal(workflow.runState, 'completed');
-    assert.ok(workflow.runnerProcesses.some((process) => process.logPath === '.wo/runs/snake-dir-run/logs/executor.log'));
+    assert.ok(workflow.runnerProcesses.some((process) => process.logPath === '.wo/runs/snake-dir-run/logs/archiver.log'));
   });
 });
 
@@ -571,7 +571,7 @@ test('Go-backed workflow list and detail expose external completed wo runs', asy
       status: 'completed',
       stage: 'archive',
       stages: { archive: 'completed' },
-      paths: { executor_log: '.wo/runs/external-done/logs/executor.log' },
+      paths: { archiver_log: '.wo/runs/external-done/logs/archiver.log' },
       sessions: {},
     });
 
@@ -585,7 +585,7 @@ test('Go-backed workflow list and detail expose external completed wo runs', asy
     assert.equal(detailWorkflow.openspecChangeName, 'go-change');
     assert.equal(detailWorkflow.stage, 'archive');
     assert.equal(detailWorkflow.runState, 'completed');
-    assert.ok(detailWorkflow.runnerProcesses.some((process) => process.logPath === '.wo/runs/external-done/logs/executor.log'));
+    assert.ok(detailWorkflow.runnerProcesses.some((process) => process.logPath === '.wo/runs/external-done/logs/archiver.log'));
     assert.equal(detailWorkflow.runnerDiagnostics.rawStatus, 'completed');
   });
 });

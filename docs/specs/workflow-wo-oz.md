@@ -28,16 +28,18 @@ Workflow read models are built only from `${XDG_STATE_HOME:-~/.local/state}/wo/r
 - Runner JSON is treated as snake_case for run binding, including `run_id` and `change_name`.
 - Starting or resuming a workflow waits for the user-state `state.json` path and must not fall back to project-local `.wo/runs`.
 
-### Render wo display lines as the primary workflow view
+### Render wo 0.9 fixed role rows as the primary workflow view
 
-Workflow detail pages show `workflowDisplay.lines` as the main progress surface.
+Workflow detail pages show `workflowRoleSummary.rows` as the main progress surface, matching `wo status -w1` semantics.
 
-- Display text follows wo-visible wording such as `start`, `review`, `1 fix`, `1 fix review`, and `archive`.
-- Only happened or active stages are shown; future repair, review, or archive placeholders are not generated.
-- The old stage artifact tree is not rendered as the main workflow pipeline.
-- Logs, processes, and diagnostics remain available as auxiliary sections.
-- If `state.workflow_display.lines` exists, its marker, text, raw line, and stage key are the display authority; ccflow may only add matched session references.
-- If `workflow_display.lines` is missing, fallback text must follow wo wording: `execution` as `start`, `review_1` as `review`, `repair_N` as `N fix`, `review_N` for `N > 1` as `(N - 1) fix review`, and `archive` as `archive`.
+- Fixed role rows are `规` (planning), `写` (executor), `审` (reviewer), and `存` (archiver).
+- Check counts on each row indicate how many stages of that role have happened or are active.
+- `写` count includes `execution` and any `fix_N` / `repair_N` stages.
+- `审` count includes all `review_N` stages.
+- `存` count includes `archive` stages.
+- `规` shows `未知` when no planning session is present; no invalid link is generated.
+- Each row links to its matched workflow child session when available.
+- `workflowDisplay.lines` remains as a compatibility fallback when `workflowRoleSummary` is absent.
 - `stage=done` and `status=done` are terminal metadata, not workflow display rows.
 
 ### Support arbitrary happened review and repair rounds

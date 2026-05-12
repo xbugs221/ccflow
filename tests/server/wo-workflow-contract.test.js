@@ -328,6 +328,7 @@ test('wo read model links role jsonl checklist rows to frontend sessions', async
     await fs.mkdir(path.join(runRoot, 'logs'), { recursive: true });
     await fs.writeFile(path.join(runRoot, 'logs', 'executor.jsonl'), '');
     await fs.writeFile(path.join(runRoot, 'logs', 'reviewer.jsonl'), '');
+    await fs.writeFile(path.join(runRoot, 'logs', 'archiver.jsonl'), '');
     await fs.writeFile(path.join(runRoot, 'state.json'), JSON.stringify({
       run_id: 'run-role-sessions',
       change_name: 'change-a',
@@ -343,10 +344,12 @@ test('wo read model links role jsonl checklist rows to frontend sessions', async
       sessions: {
         'codex:executor': 'executor-session',
         'codex:reviewer': 'reviewer-session',
+        'codex:archiver': 'archiver-session',
       },
       paths: {
         executor_log: '.wo/runs/run-role-sessions/logs/executor.jsonl',
         reviewer_log: '.wo/runs/run-role-sessions/logs/reviewer.jsonl',
+        archiver_log: '.wo/runs/run-role-sessions/logs/archiver.jsonl',
       },
     }));
 
@@ -360,6 +363,74 @@ test('wo read model links role jsonl checklist rows to frontend sessions', async
     assert.equal(workflow.workflowDisplay.lines[0].sessionRef.label, 'executor.jsonl');
     assert.equal(workflow.workflowDisplay.lines[1].sessionRef.label, 'reviewer.jsonl');
     assert.equal(workflow.workflowDisplay.lines[2].sessionRef.sessionId, 'reviewer-session');
-    assert.equal(workflow.workflowDisplay.lines[3].sessionRef.sessionId, 'executor-session');
+    assert.equal(workflow.workflowDisplay.lines[3].sessionRef.sessionId, 'archiver-session');
+  });
+});
+
+test('wo read model emits 0.9 fixed role summary rows with check counts', async () => {
+  await withFakePath(async ({ projectPath }) => {
+    const runRoot = path.join(resolveWoRunsRoot(projectPath), 'run-role-summary');
+    await fs.mkdir(runRoot, { recursive: true });
+    await fs.writeFile(path.join(runRoot, 'state.json'), JSON.stringify({
+      run_id: 'run-role-summary',
+      change_name: 'change-a',
+      status: 'done',
+      stage: 'done',
+      stages: {
+        execution: 'completed',
+        review_1: 'completed',
+        fix_1: 'completed',
+        review_2: 'completed',
+        fix_2: 'completed',
+        archive: 'completed',
+      },
+      sessions: {
+        'codex:executor': 'executor-session',
+        'codex:reviewer': 'reviewer-session',
+        'codex:archiver': 'archiver-session',
+      },
+    }));
+
+    const [workflow] = await listWoWorkflowReadModels(projectPath);
+    const rows = workflow.workflowRoleSummary.rows;
+    assert.equal(rows.find((r) => r.key === 'planning').label, '规');
+    assert.equal(rows.find((r) => r.key === 'planning').placeholder, '未知');
+    assert.equal(rows.find((r) => r.key === 'planning').sessionRef, null);
+    assert.equal(rows.find((r) => r.key === 'executor').label, '写');
+    assert.equal(rows.find((r) => r.key === 'executor').checkCount, 3);
+    assert.equal(rows.find((r) => r.key === 'executor').sessionRef.sessionId, 'executor-session');
+    assert.equal(rows.find((r) => r.key === 'executor').sessionRef.label, 'executor-session');
+    assert.equal(rows.find((r) => r.key === 'reviewer').label, '审');
+    assert.equal(rows.find((r) => r.key === 'reviewer').checkCount, 2);
+    assert.equal(rows.find((r) => r.key === 'reviewer').sessionRef.sessionId, 'reviewer-session');
+    assert.equal(rows.find((r) => r.key === 'reviewer').sessionRef.label, 'reviewer-session');
+    assert.equal(rows.find((r) => r.key === 'archiver').label, '存');
+    assert.equal(rows.find((r) => r.key === 'archiver').checkCount, 1);
+    assert.equal(rows.find((r) => r.key === 'archiver').sessionRef.sessionId, 'archiver-session');
+    assert.equal(rows.find((r) => r.key === 'archiver').sessionRef.label, 'archiver-session');
+  });
+});
+
+test('wo read model archiver row falls back to archiver session for archive stage', async () => {
+  await withFakePath(async ({ projectPath }) => {
+    const runRoot = path.join(resolveWoRunsRoot(projectPath), 'run-archiver-mapping');
+    await fs.mkdir(runRoot, { recursive: true });
+    await fs.writeFile(path.join(runRoot, 'state.json'), JSON.stringify({
+      run_id: 'run-archiver-mapping',
+      change_name: 'change-a',
+      status: 'done',
+      stage: 'done',
+      stages: { execution: 'completed', review_1: 'completed', archive: 'completed' },
+      sessions: {
+        'codex:executor': 'executor-session',
+        'codex:reviewer': 'reviewer-session',
+        'codex:archiver': 'archiver-session',
+      },
+    }));
+
+    const [workflow] = await listWoWorkflowReadModels(projectPath);
+    const archiverRow = workflow.workflowRoleSummary.rows.find((r) => r.key === 'archiver');
+    assert.equal(archiverRow.sessionRef.sessionId, 'archiver-session');
+    assert.equal(archiverRow.checkCount, 1);
   });
 });

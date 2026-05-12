@@ -2,7 +2,7 @@
  * PURPOSE: Main content area with separate desktop dock and mobile single-view workspace layouts.
  */
 import React, { useEffect } from 'react';
-import { ChevronsLeft, ChevronsRight, Move, Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 
 import ChatInterface from '../../chat/view/ChatInterface';
 import FileTree from '../../file-tree/view/FileTree';
@@ -38,13 +38,6 @@ type TasksSettingsContextValue = {
   isTaskMasterReady: boolean | null;
 };
 
-type WorkflowMiniMapPosition = {
-  x: number;
-  y: number;
-};
-
-const WORKFLOW_MINIMAP_MARGIN = 16;
-
 type TerminalInstance = {
   id: string;
   title: string;
@@ -60,31 +53,6 @@ const createTerminalInstance = (index: number): TerminalInstance => {
     title: `终端 ${index}`,
   };
 };
-
-function clampWorkflowMiniMapPosition(
-  position: WorkflowMiniMapPosition,
-  containerRect: DOMRect,
-  panelRect: DOMRect,
-): WorkflowMiniMapPosition {
-  const maxX = Math.max(WORKFLOW_MINIMAP_MARGIN, containerRect.width - panelRect.width - WORKFLOW_MINIMAP_MARGIN);
-  const maxY = Math.max(WORKFLOW_MINIMAP_MARGIN, containerRect.height - panelRect.height - WORKFLOW_MINIMAP_MARGIN);
-
-  return {
-    x: Math.min(Math.max(position.x, WORKFLOW_MINIMAP_MARGIN), maxX),
-    y: Math.min(Math.max(position.y, WORKFLOW_MINIMAP_MARGIN), maxY),
-  };
-}
-
-function getDefaultWorkflowMiniMapPosition(containerRect: DOMRect, panelRect: DOMRect): WorkflowMiniMapPosition {
-  return clampWorkflowMiniMapPosition(
-    {
-      x: containerRect.width - panelRect.width - WORKFLOW_MINIMAP_MARGIN,
-      y: WORKFLOW_MINIMAP_MARGIN,
-    },
-    containerRect,
-    panelRect,
-  );
-}
 
 function MainContent({
   selectedProject,
@@ -123,19 +91,9 @@ function MainContent({
   const shouldShowTasksTab = Boolean(tasksEnabled && isTaskMasterInstalled);
   const projectSessions = selectedProject ? getAllSessions(selectedProject, {}, true) : [];
   const [revealDirectoryRequest, setRevealDirectoryRequest] = React.useState<{ path: string; requestId: number } | null>(null);
-  const [isWorkflowMiniMapCollapsed, setIsWorkflowMiniMapCollapsed] = React.useState(false);
-  const [workflowMiniMapPosition, setWorkflowMiniMapPosition] = React.useState<WorkflowMiniMapPosition | null>(null);
-  const workflowMiniMapContainerRef = React.useRef<HTMLDivElement | null>(null);
-  const workflowMiniMapPanelRef = React.useRef<HTMLDivElement | null>(null);
   const terminalCounterRef = React.useRef(1);
   const [terminalInstances, setTerminalInstances] = React.useState<TerminalInstance[]>(() => [createTerminalInstance(1)]);
   const [activeTerminalId, setActiveTerminalId] = React.useState<string>(() => terminalInstances[0]?.id || '');
-  const workflowMiniMapDragRef = React.useRef<{
-    pointerId: number;
-    startClientX: number;
-    startClientY: number;
-    origin: WorkflowMiniMapPosition;
-  } | null>(null);
   const workflowSessionWorkflow = React.useMemo(() => {
     if (selectedWorkflow) {
       return selectedWorkflow;
@@ -299,72 +257,6 @@ function MainContent({
       </div>
     );
   };
-
-  const resolveWorkflowMiniMapPosition = React.useCallback(() => {
-    const container = workflowMiniMapContainerRef.current;
-    const panel = workflowMiniMapPanelRef.current;
-    if (!container || !panel) {
-      return null;
-    }
-    const containerRect = container.getBoundingClientRect();
-    const panelRect = panel.getBoundingClientRect();
-    return workflowMiniMapPosition
-      ? clampWorkflowMiniMapPosition(workflowMiniMapPosition, containerRect, panelRect)
-      : getDefaultWorkflowMiniMapPosition(containerRect, panelRect);
-  }, [workflowMiniMapPosition]);
-
-  const handleWorkflowMiniMapDragStart = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const origin = resolveWorkflowMiniMapPosition();
-    if (!origin) {
-      return;
-    }
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    workflowMiniMapDragRef.current = {
-      pointerId: event.pointerId,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      origin,
-    };
-    setWorkflowMiniMapPosition(origin);
-  }, [resolveWorkflowMiniMapPosition]);
-
-  const handleWorkflowMiniMapDragMove = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = workflowMiniMapDragRef.current;
-    const container = workflowMiniMapContainerRef.current;
-    const panel = workflowMiniMapPanelRef.current;
-    if (!drag || drag.pointerId !== event.pointerId || !container || !panel) {
-      return;
-    }
-    const containerRect = container.getBoundingClientRect();
-    const panelRect = panel.getBoundingClientRect();
-    setWorkflowMiniMapPosition(clampWorkflowMiniMapPosition(
-      {
-        x: drag.origin.x + event.clientX - drag.startClientX,
-        y: drag.origin.y + event.clientY - drag.startClientY,
-      },
-      containerRect,
-      panelRect,
-    ));
-  }, []);
-
-  const handleWorkflowMiniMapDragEnd = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (workflowMiniMapDragRef.current?.pointerId !== event.pointerId) {
-      return;
-    }
-    workflowMiniMapDragRef.current = null;
-    event.currentTarget.releasePointerCapture(event.pointerId);
-  }, []);
-
-  React.useLayoutEffect(() => {
-    if (!workflowMiniMapPosition) {
-      return;
-    }
-    const nextPosition = resolveWorkflowMiniMapPosition();
-    if (nextPosition && (nextPosition.x !== workflowMiniMapPosition.x || nextPosition.y !== workflowMiniMapPosition.y)) {
-      setWorkflowMiniMapPosition(nextPosition);
-    }
-  }, [isWorkflowMiniMapCollapsed, resolveWorkflowMiniMapPosition, workflowMiniMapPosition]);
 
   useEffect(() => {
     if (selectedProject && selectedProject !== currentProject) {
@@ -649,69 +541,7 @@ function MainContent({
             rightDockSplitBottom: layout.rightDock.split?.bottomPanel ?? null,
           }}
         />
-        <div ref={workflowMiniMapContainerRef} className="relative flex-1 flex min-h-0 overflow-hidden">
-          {workflowSessionWorkflow && (
-            <div
-              ref={workflowMiniMapPanelRef}
-              className={[
-                'pointer-events-none absolute z-20 hidden xl:block',
-                isWorkflowMiniMapCollapsed ? 'w-auto' : 'w-[22rem]',
-              ].join(' ')}
-              style={workflowMiniMapPosition
-                ? { left: `${workflowMiniMapPosition.x}px`, top: `${workflowMiniMapPosition.y}px` }
-                : { right: `${WORKFLOW_MINIMAP_MARGIN}px`, top: `${WORKFLOW_MINIMAP_MARGIN}px` }}
-              data-testid="workflow-minimap"
-            >
-              {isWorkflowMiniMapCollapsed ? (
-                <button
-                  type="button"
-                  className="pointer-events-auto inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2.5 py-2 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur-sm hover:bg-muted/70"
-                  title="展开流程图"
-                  aria-label="展开流程图"
-                  onClick={() => setIsWorkflowMiniMapCollapsed(false)}
-                >
-                  <ChevronsLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                  流程
-                </button>
-              ) : (
-                <div className="pointer-events-auto space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div
-                      className="inline-flex cursor-move touch-none select-none items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm"
-                      title="拖动流程图"
-                      aria-label="拖动流程图"
-                      data-testid="workflow-minimap-drag-handle"
-                      onPointerDown={handleWorkflowMiniMapDragStart}
-                      onPointerMove={handleWorkflowMiniMapDragMove}
-                      onPointerUp={handleWorkflowMiniMapDragEnd}
-                      onPointerCancel={handleWorkflowMiniMapDragEnd}
-                    >
-                      <Move className="h-3.5 w-3.5" aria-hidden="true" />
-                      流程图
-                    </div>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm hover:bg-muted/70"
-                      title="收起流程图"
-                      aria-label="收起流程图"
-                      onClick={() => setIsWorkflowMiniMapCollapsed(true)}
-                    >
-                      <ChevronsRight className="h-3.5 w-3.5" aria-hidden="true" />
-                      收起
-                    </button>
-                  </div>
-                  <WorkflowDetailView
-                    project={selectedProject}
-                    workflow={workflowSessionWorkflow}
-                    treeOnly
-                    onNavigateToSession={onNavigateToSession}
-                    onOpenArtifactFile={handleFileOpen}
-                    onOpenArtifactDirectory={openFilesDock}
-                  />
-                </div>
-              )}
-            </div>
-          )}
+        <div className="relative flex-1 flex min-h-0 overflow-hidden">
           <WorkspaceDockLayout
             layout={layout}
             isMobile={isMobile}
@@ -729,7 +559,6 @@ function MainContent({
             onRightDockSplitRatioChange={setRightDockSplitRatio}
             bottomDockActions={terminalDockActions}
           />
-
         </div>
       </div>
     );
@@ -808,69 +637,7 @@ function MainContent({
             rightDockSplitBottom: layout.rightDock.split?.bottomPanel ?? null,
           }}
         />
-        <div ref={workflowMiniMapContainerRef} className="relative flex-1 flex min-h-0 overflow-hidden">
-          {workflowSessionWorkflow && (
-            <div
-              ref={workflowMiniMapPanelRef}
-              className={[
-                'pointer-events-none absolute z-20 hidden xl:block',
-                isWorkflowMiniMapCollapsed ? 'w-auto' : 'w-[22rem]',
-              ].join(' ')}
-              style={workflowMiniMapPosition
-                ? { left: `${workflowMiniMapPosition.x}px`, top: `${workflowMiniMapPosition.y}px` }
-                : { right: `${WORKFLOW_MINIMAP_MARGIN}px`, top: `${WORKFLOW_MINIMAP_MARGIN}px` }}
-              data-testid="workflow-minimap"
-            >
-              {isWorkflowMiniMapCollapsed ? (
-                <button
-                  type="button"
-                  className="pointer-events-auto inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2.5 py-2 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur-sm hover:bg-muted/70"
-                  title="展开流程图"
-                  aria-label="展开流程图"
-                  onClick={() => setIsWorkflowMiniMapCollapsed(false)}
-                >
-                  <ChevronsLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                  流程
-                </button>
-              ) : (
-                <div className="pointer-events-auto space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div
-                      className="inline-flex cursor-move touch-none select-none items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm"
-                      title="拖动流程图"
-                      aria-label="拖动流程图"
-                      data-testid="workflow-minimap-drag-handle"
-                      onPointerDown={handleWorkflowMiniMapDragStart}
-                      onPointerMove={handleWorkflowMiniMapDragMove}
-                      onPointerUp={handleWorkflowMiniMapDragEnd}
-                      onPointerCancel={handleWorkflowMiniMapDragEnd}
-                    >
-                      <Move className="h-3.5 w-3.5" aria-hidden="true" />
-                      流程图
-                    </div>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm hover:bg-muted/70"
-                      title="收起流程图"
-                      aria-label="收起流程图"
-                      onClick={() => setIsWorkflowMiniMapCollapsed(true)}
-                    >
-                      <ChevronsRight className="h-3.5 w-3.5" aria-hidden="true" />
-                      收起
-                    </button>
-                  </div>
-                  <WorkflowDetailView
-                    project={selectedProject}
-                    workflow={workflowSessionWorkflow}
-                    treeOnly
-                    onNavigateToSession={onNavigateToSession}
-                    onOpenArtifactFile={handleFileOpen}
-                    onOpenArtifactDirectory={openFilesDock}
-                  />
-                </div>
-              )}
-            </div>
-          )}
+        <div className="relative flex-1 flex min-h-0 overflow-hidden">
           <WorkspaceDockLayout
             layout={layout}
             isMobile={isMobile}
@@ -992,69 +759,7 @@ function MainContent({
         }}
       />
 
-      <div ref={workflowMiniMapContainerRef} className="relative flex-1 flex min-h-0 overflow-hidden">
-        {workflowSessionWorkflow && (
-          <div
-            ref={workflowMiniMapPanelRef}
-            className={[
-              'pointer-events-none absolute z-20 hidden xl:block',
-              isWorkflowMiniMapCollapsed ? 'w-auto' : 'w-[22rem]',
-            ].join(' ')}
-            style={workflowMiniMapPosition
-              ? { left: `${workflowMiniMapPosition.x}px`, top: `${workflowMiniMapPosition.y}px` }
-              : { right: `${WORKFLOW_MINIMAP_MARGIN}px`, top: `${WORKFLOW_MINIMAP_MARGIN}px` }}
-            data-testid="workflow-minimap"
-          >
-            {isWorkflowMiniMapCollapsed ? (
-              <button
-                type="button"
-                className="pointer-events-auto inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2.5 py-2 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur-sm hover:bg-muted/70"
-                title="展开流程图"
-                aria-label="展开流程图"
-                onClick={() => setIsWorkflowMiniMapCollapsed(false)}
-              >
-                <ChevronsLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                流程
-              </button>
-            ) : (
-              <div className="pointer-events-auto space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <div
-                    className="inline-flex cursor-move touch-none select-none items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm"
-                    title="拖动流程图"
-                    aria-label="拖动流程图"
-                    data-testid="workflow-minimap-drag-handle"
-                    onPointerDown={handleWorkflowMiniMapDragStart}
-                    onPointerMove={handleWorkflowMiniMapDragMove}
-                    onPointerUp={handleWorkflowMiniMapDragEnd}
-                    onPointerCancel={handleWorkflowMiniMapDragEnd}
-                  >
-                    <Move className="h-3.5 w-3.5" aria-hidden="true" />
-                    流程图
-                  </div>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/95 px-2 py-1 text-xs text-muted-foreground shadow-sm hover:bg-muted/70"
-                    title="收起流程图"
-                    aria-label="收起流程图"
-                    onClick={() => setIsWorkflowMiniMapCollapsed(true)}
-                  >
-                    <ChevronsRight className="h-3.5 w-3.5" aria-hidden="true" />
-                    收起
-                  </button>
-                </div>
-                <WorkflowDetailView
-                  project={selectedProject}
-                  workflow={workflowSessionWorkflow}
-                  treeOnly
-                  onNavigateToSession={onNavigateToSession}
-                  onOpenArtifactFile={handleFileOpen}
-                  onOpenArtifactDirectory={openFilesDock}
-                />
-              </div>
-            )}
-          </div>
-        )}
+      <div className="relative flex-1 flex min-h-0 overflow-hidden">
         <WorkspaceDockLayout
           layout={layout}
           isMobile={isMobile}

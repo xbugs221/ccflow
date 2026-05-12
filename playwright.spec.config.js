@@ -6,6 +6,7 @@ import baseConfig from './playwright.config.js';
 
 process.env.CCFLOW_FAKE_RUNNER = process.env.CCFLOW_FAKE_RUNNER || '1';
 process.env.CCFLOW_FAKE_RUNNER_DELAY_MS = process.env.CCFLOW_FAKE_RUNNER_DELAY_MS || '8000';
+process.env.CODEX_INDEX_CACHE_TTL_MS = '0';
 
 export default {
   ...baseConfig,

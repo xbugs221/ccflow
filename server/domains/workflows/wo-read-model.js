@@ -119,7 +119,14 @@ function mapStageStatus(status) {
  * Infer a default runner role for a stage when wo only reports stage state.
  */
 function inferRole(stage) {
-  return String(stage || '').startsWith('review') ? 'reviewer' : 'executor';
+  const normalized = String(stage || '').trim();
+  if (normalized.startsWith('review')) {
+    return 'reviewer';
+  }
+  if (normalized === 'archive') {
+    return 'archiver';
+  }
+  return 'executor';
 }
 
 /**
@@ -549,6 +556,116 @@ function buildWorkflowDisplayLines(state, stageStatuses, childSessions, runnerPr
 }
 
 /**
+ * Build wo 0.9 fixed-role summary rows from state stages and sessions.
+ */
+function buildWorkflowRoleSummary(state, childSessions) {
+  const stages = pick(state, 'stages') || {};
+  const sessions = pick(state, 'sessions') || {};
+  const stageEntries = Object.entries(stages && typeof stages === 'object' ? stages : {});
+
+  let writeCount = 0;
+  let reviewCount = 0;
+  let archiveCount = 0;
+
+  for (const [stageKey, status] of stageEntries) {
+    const normalizedStatus = String(status || '').toLowerCase();
+    const isDone = ['completed', 'done', 'success', 'succeeded', 'archived'].includes(normalizedStatus);
+    const isActive = ['running', 'active', 'in_progress'].includes(normalizedStatus);
+    if (!isDone && !isActive) {
+      continue;
+    }
+    if (stageKey === 'execution' || parseFixStage(stageKey)) {
+      writeCount += 1;
+    } else if (/^review_\d+$/.test(stageKey)) {
+      reviewCount += 1;
+    } else if (stageKey === 'archive') {
+      archiveCount += 1;
+    }
+  }
+
+  function resolveSessionRef(role, label) {
+    let sessionId = sessions[role] || sessions[`codex:${role}`] || sessions[`claude:${role}`];
+    if (!sessionId) {
+      const roleFallbacks = {
+        executor: ['execution'],
+        reviewer: ['review_1', 'review_2', 'review_3'],
+        archiver: ['archive'],
+        planning: ['planning'],
+      };
+      const fallbacks = roleFallbacks[role] || [];
+      for (const key of fallbacks) {
+        if (sessions[key]) {
+          sessionId = sessions[key];
+          break;
+        }
+      }
+    }
+    if (!sessionId) {
+      const childMatch = childSessions.find((s) => s.role === role || s.stageKey === role);
+      if (childMatch) {
+        sessionId = childMatch.id;
+      }
+    }
+    if (!sessionId) {
+      return null;
+    }
+    const session = childSessions.find((s) => s.id === sessionId);
+    if (session) {
+      return {
+        label: label || sessionId,
+        sessionId,
+        provider: session.provider || 'codex',
+        stageKey: session.stageKey,
+        address: session.address,
+        routePath: session.routePath,
+      };
+    }
+    return {
+      label: label || sessionId,
+      sessionId,
+      provider: 'codex',
+      routePath: `/runs/${encodeURIComponent(state?.run_id || '')}/sessions/by-id/${encodeURIComponent(sessionId)}`,
+    };
+  }
+
+  const planningSessionId = sessions.planning || sessions['codex:planning'];
+
+  return {
+    rows: [
+      {
+        key: 'planning',
+        label: '规',
+        role: 'planning',
+        sessionRef: planningSessionId ? resolveSessionRef('planning', 'planning') : null,
+        placeholder: planningSessionId ? undefined : '未知',
+        checkCount: 0,
+      },
+      {
+        key: 'executor',
+        label: '写',
+        role: 'executor',
+        sessionRef: resolveSessionRef('executor', ''),
+        checkCount: writeCount,
+      },
+      {
+        key: 'reviewer',
+        label: '审',
+        role: 'reviewer',
+        sessionRef: resolveSessionRef('reviewer', ''),
+        checkCount: reviewCount,
+      },
+      {
+        key: 'archiver',
+        label: '存',
+        role: 'archiver',
+        sessionRef: resolveSessionRef('archiver', ''),
+        checkCount: archiveCount,
+      },
+    ],
+  };
+}
+
+/**
  * Build the legacy auxiliary inspection model from wo-derived fields.
  */
 function buildStageInspections(stageStatuses, childSessions, artifacts, runnerError, diagnostics) {
@@ -609,6 +726,7 @@ export async function buildWoWorkflowReadModel({ projectPath, runDirName, state,
   const workflowDisplay = {
     lines: buildWorkflowDisplayLines(state, stageStatuses, childSessions, runnerProcesses, warnings),
   };
+  const workflowRoleSummary = buildWorkflowRoleSummary(state, childSessions);
   const runnerError = String(pick(state, 'error') || '').trim();
   const diagnostics = {
     statePath: formatWoStatePathForDiagnostics(statePath),
@@ -645,6 +763,7 @@ export async function buildWoWorkflowReadModel({ projectPath, runDirName, state,
     childSessions,
     runnerProcesses,
     workflowDisplay,
+    workflowRoleSummary,
     stageInspections,
     controlPlaneReadModel: { stages: stageInspections },
     controllerEvents: diagnostics.warnings.map((message) => ({
