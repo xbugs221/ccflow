@@ -28,17 +28,28 @@ Workflow read models are built only from `${XDG_STATE_HOME:-~/.local/state}/wo/r
 - Runner JSON is treated as snake_case for run binding, including `run_id` and `change_name`.
 - Starting or resuming a workflow waits for the user-state `state.json` path and must not fall back to project-local `.wo/runs`.
 
+### Aggregate multi-round stages in workflow cards
+
+Project overview and sidebar workflow cards must not grow endless stage icons with more review/repair rounds.
+
+- All `review_N` stages are aggregated into a single review icon showing `xN` (e.g. `x2`).
+- All `repair_N` / `fix_N` stages are aggregated into a single repair icon showing `xN` (e.g. `x1`).
+- Single-stage icons (planning, execution, archive) keep their original appearance.
+- Aggregated icon color follows active/failed priority: if any summed stage is `active`, `running`, `blocked`, or `failed`, the aggregated icon shows the active color, never completed color.
+
 ### Render wo 0.9 fixed role rows as the primary workflow view
 
 Workflow detail pages show `workflowRoleSummary.rows` as the main progress surface, matching `wo status -w1` semantics.
 
 - Fixed role rows are `规` (planning), `写` (executor), `审` (reviewer), and `存` (archiver).
-- Check counts on each row indicate how many stages of that role have happened or are active.
+- Completion counts use digit notation `xN` (e.g. `x3`) instead of repeated `✓` marks.
 - `写` count includes `execution` and any `fix_N` / `repair_N` stages.
 - `审` count includes all `review_N` stages.
 - `存` count includes `archive` stages.
 - `规` shows `未知` when no planning session is present; no invalid link is generated.
-- Each row links to its matched workflow child session when available.
+- Each row links to its matched workflow child session, with the visible link text as `会话` (not the raw session ID).
+- Each row shows a link to the current-round artifact (e.g. `review-2.json`) after the session link, choosing the latest review/repair/fix stage file.
+- When the current-round artifact does not exist or `exists = false`, no artifact link is rendered.
 - `workflowDisplay.lines` remains as a compatibility fallback when `workflowRoleSummary` is absent.
 - `stage=done` and `status=done` are terminal metadata, not workflow display rows.
 

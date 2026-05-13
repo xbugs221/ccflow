@@ -20,6 +20,7 @@ export interface WorkflowArtifact {
   path?: string;
   relativePath?: string;
   type?: 'file' | 'directory' | string;
+  semanticType?: string;
   stage?: string;
   substageKey?: string;
   exists?: boolean;

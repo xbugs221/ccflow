@@ -277,6 +277,74 @@ function resolveArtifactType(artifact: WorkflowArtifact): 'file' | 'directory' {
   return 'file';
 }
 
+function getArtifactFileName(artifact: WorkflowArtifact): string {
+  /**
+   * Prefer the persisted relative path because wo artifacts are project-scoped,
+   * then fall back to the normalized path and label for older records.
+   */
+  const artifactPath = artifact.relativePath || artifact.path || artifact.label || '';
+  return artifactPath.split(/[\\/]/).filter(Boolean).at(-1) || artifact.label || artifact.id;
+}
+
+function getArtifactRound(artifact: WorkflowArtifact, stagePrefix: string): number {
+  /**
+   * Extract the wo review/fix round from either stage keys or generated JSON
+   * filenames so the role row can link only the latest current-round artifact.
+   */
+  const stageMatch = String(artifact.stage || '').match(new RegExp(`^${stagePrefix}_(\\d+)$`));
+  if (stageMatch) {
+    return Number(stageMatch[1]);
+  }
+  const nameMatch = getArtifactFileName(artifact).match(new RegExp(`^${stagePrefix}-(\\d+)\\.json$`));
+  return nameMatch ? Number(nameMatch[1]) : 0;
+}
+
+function getLatestRoundArtifact(workflow: ProjectWorkflow, prefixes: string[]): WorkflowArtifact | null {
+  /**
+   * Pick one existing JSON artifact for the latest review/fix round, ignoring
+   * directories and missing path references that would open a broken link.
+   */
+  const candidates = (workflow.artifacts || [])
+    .filter((artifact) => artifact.exists !== false && resolveArtifactType(artifact) === 'file')
+    .map((artifact) => {
+      const matchedPrefix = prefixes.find((prefix) => (
+        new RegExp(`^${prefix}_\\d+$`).test(String(artifact.stage || ''))
+        || new RegExp(`^${prefix}-\\d+\\.json$`).test(getArtifactFileName(artifact))
+      ));
+      return matchedPrefix ? { artifact, round: getArtifactRound(artifact, matchedPrefix) } : null;
+    })
+    .filter((candidate): candidate is { artifact: WorkflowArtifact; round: number } => Boolean(candidate && candidate.round > 0));
+
+  candidates.sort((left, right) => right.round - left.round);
+  return candidates[0]?.artifact || null;
+}
+
+function getRoleSummaryArtifact(workflow: ProjectWorkflow, rowKey: string): WorkflowArtifact | null {
+  /**
+   * Map compact role rows to the one artifact that best represents the latest
+   * visible work for that role.
+   */
+  if (rowKey === 'reviewer') {
+    return getLatestRoundArtifact(workflow, ['review']);
+  }
+  if (rowKey === 'executor') {
+    return getLatestRoundArtifact(workflow, ['repair', 'fix'])
+      || (workflow.artifacts || []).find((artifact) => (
+        artifact.exists !== false
+        && resolveArtifactType(artifact) === 'file'
+        && (artifact.type === 'summary' || artifact.semanticType === 'summary' || artifact.semanticType === 'workflow_output')
+      )) || null;
+  }
+  if (rowKey === 'archiver') {
+    return (workflow.artifacts || []).find((artifact) => (
+      artifact.exists !== false
+      && resolveArtifactType(artifact) === 'file'
+      && (artifact.type === 'delivery-summary' || artifact.semanticType === 'delivery-summary' || getArtifactFileName(artifact) === 'delivery-summary.json')
+    )) || null;
+  }
+  return null;
+}
+
 function buildFallbackStageInspections(workflow: ProjectWorkflow): WorkflowStageInspection[] {
   /**
    * Preserve the previous coarse detail view when the backend has not yet
@@ -463,6 +531,7 @@ function renderWorkflowRoleSummary(
   project: Project,
   workflow: ProjectWorkflow,
   onNavigateToSession: WorkflowDetailViewProps['onNavigateToSession'],
+  onOpenArtifactFile: WorkflowDetailViewProps['onOpenArtifactFile'],
 ) {
   const rows = workflow.workflowRoleSummary?.rows;
   if (!rows || rows.length === 0) {
@@ -473,8 +542,10 @@ function renderWorkflowRoleSummary(
     <section className="space-y-2" data-testid="workflow-role-summary" aria-label="workflow role summary">
       {rows.map((row) => {
         const sessionRef = row.sessionRef;
-        const checks = '✓'.repeat(row.checkCount || 0);
+        const checks = row.checkCount || 0;
         const hasLink = Boolean(sessionRef?.sessionId);
+        const currentArtifact = getRoleSummaryArtifact(workflow, row.key);
+        const currentArtifactPath = currentArtifact ? resolveArtifactPath(project, currentArtifact) : null;
         return (
           <div
             key={row.key}
@@ -486,6 +557,7 @@ function renderWorkflowRoleSummary(
               <button
                 type="button"
                 className="truncate text-left text-sm font-medium text-primary underline decoration-current underline-offset-2"
+                title={sessionRef.label || sessionRef.sessionId}
                 onClick={() => {
                   const childSession = workflow.childSessions.find((s) => s.id === sessionRef.sessionId);
                   if (childSession) {
@@ -503,14 +575,24 @@ function renderWorkflowRoleSummary(
                   }
                 }}
               >
-                {sessionRef.label || sessionRef.sessionId}
+                会话
               </button>
             ) : (
               <span className="text-muted-foreground">{row.placeholder || '—'}</span>
             )}
+            {currentArtifact && currentArtifactPath ? (
+              <button
+                type="button"
+                className="truncate text-left text-sm font-medium text-primary underline decoration-current underline-offset-2"
+                title={currentArtifact.relativePath || currentArtifact.path || currentArtifact.label}
+                onClick={() => onOpenArtifactFile(currentArtifactPath)}
+              >
+                {getArtifactFileName(currentArtifact)}
+              </button>
+            ) : null}
             {checks ? (
               <span className="ml-auto text-green-500" data-testid={`workflow-role-checks-${row.key}`}>
-                {checks}
+                x{checks}
               </span>
             ) : null}
           </div>
@@ -1267,7 +1349,7 @@ export default function WorkflowDetailView({
             </div>
           </div>
           <div className="mt-4">
-            {renderWorkflowRoleSummary(project, currentWorkflow, onNavigateToSession)
+            {renderWorkflowRoleSummary(project, currentWorkflow, onNavigateToSession, onOpenArtifactFile)
               || renderWorkflowDisplayLines(project, currentWorkflow, onNavigateToSession)}
           </div>
         </div>

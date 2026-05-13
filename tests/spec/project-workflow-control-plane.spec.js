@@ -260,10 +260,10 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(page.getByTestId('workflow-role-row-executor')).toContainText('写');
     await expect(page.getByTestId('workflow-role-row-reviewer')).toContainText('审');
     await expect(page.getByTestId('workflow-role-row-archiver')).toContainText('存');
-    await expect(page.getByTestId('workflow-role-row-executor')).toContainText('✓');
-    // 验证按钮文本显示真实会话 id 而非角色名
-    await expect(page.getByTestId('workflow-role-row-executor').getByRole('button')).toContainText('fixture-project-execution-session');
-    await page.getByTestId('workflow-role-row-executor').getByRole('button').click();
+    await expect(page.getByTestId('workflow-role-row-executor')).toContainText('x1');
+    await expect(page.getByTestId('workflow-role-row-executor')).not.toContainText('✓');
+    await expect(page.getByTestId('workflow-role-row-executor').getByRole('button', { name: /^会话$/ })).toContainText('会话');
+    await page.getByTestId('workflow-role-row-executor').getByRole('button', { name: /^会话$/ }).click();
     await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/execution$/);
   });
 
@@ -347,7 +347,7 @@ test.describe('项目内需求工作流控制面', () => {
     const roleSummary = page.getByTestId('workflow-role-summary');
     await expect(roleSummary).toContainText('审');
     await expect(roleSummary).not.toContainText('unknown-thread.jsonl');
-    await expect(roleSummary.getByRole('button')).toHaveCount(3);
+    await expect(roleSummary.getByRole('button', { name: /^会话$/ })).toHaveCount(3);
     await expect(page.getByTestId('workflow-runner-diagnostics')).toHaveCount(0);
   });
 
@@ -419,7 +419,7 @@ test.describe('项目内需求工作流控制面', () => {
     await page.getByRole('button', { name: /登录升级/ }).click();
 
     await expect(page.getByTestId('workflow-inspection-tree')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /SUMMARY.md/ })).toHaveCount(0);
+    await expect(page.getByTestId('workflow-role-row-executor').getByRole('button', { name: /SUMMARY.md/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /workflow-output/ })).toHaveCount(0);
   });
 
@@ -506,15 +506,14 @@ test.describe('项目内需求工作流控制面', () => {
 
     await expect(page.getByTestId('workflow-role-summary')).toBeVisible();
     await expect(page.getByTestId('workflow-role-row-executor')).toContainText('写');
-    // 验证按钮文本显示真实会话 id
-    await expect(page.getByTestId('workflow-role-row-executor').getByRole('button')).toContainText('fixture-project-execution-session');
-    await page.getByTestId('workflow-role-row-executor').getByRole('button').click();
+    await expect(page.getByTestId('workflow-role-row-executor').getByRole('button', { name: /^会话$/ })).toContainText('会话');
+    await page.getByTestId('workflow-role-row-executor').getByRole('button', { name: /^会话$/ }).click();
     await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/execution$/);
 
     await page.goBack({ waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { name: '登录升级' }).last()).toBeVisible();
-    await expect(page.getByTestId('workflow-role-row-reviewer').getByRole('button')).toContainText('workflow-review-1');
-    await page.getByTestId('workflow-role-row-reviewer').getByRole('button').click();
+    await expect(page.getByTestId('workflow-role-row-reviewer').getByRole('button', { name: /^会话$/ })).toContainText('会话');
+    await page.getByTestId('workflow-role-row-reviewer').getByRole('button', { name: /^会话$/ }).click();
     await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/review_1$/);
   });
 
