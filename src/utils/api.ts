@@ -3,14 +3,14 @@
  */
 import { IS_PLATFORM } from "../constants/config";
 
-const getUrlToken = () => {
+const getUrlToken = (): string | null => {
   if (typeof window === 'undefined') {
     return null;
   }
   return new URLSearchParams(window.location.search).get('token');
 };
 
-export const getAuthToken = () => {
+export const getAuthToken = (): string | null => {
   if (typeof window === 'undefined') {
     return null;
   }
@@ -18,10 +18,10 @@ export const getAuthToken = () => {
 };
 
 // Utility function for authenticated API calls
-export const authenticatedFetch = (url, options = {}) => {
+export const authenticatedFetch = (url: string, options: RequestInit = {}): Promise<Response> => {
   const token = getAuthToken();
 
-  const defaultHeaders = {};
+  const defaultHeaders: Record<string, string> = {};
 
   // Only set Content-Type for non-FormData requests
   if (!(options.body instanceof FormData)) {
@@ -36,7 +36,7 @@ export const authenticatedFetch = (url, options = {}) => {
     ...options,
     headers: {
       ...defaultHeaders,
-      ...options.headers,
+      ...options.headers as Record<string, string>,
     },
   });
 };
@@ -45,76 +45,116 @@ export const authenticatedFetch = (url, options = {}) => {
  * PURPOSE: Encode dynamic route segments so project-scoped requests keep
  * working when a derived project name contains URL-sensitive characters.
  */
-const encodeRouteSegment = (value) => encodeURIComponent(String(value));
+const encodeRouteSegment = (value: string): string => encodeURIComponent(String(value));
 
 /**
  * Build the common base path for project-scoped API routes.
  */
-const projectApiPath = (projectName) => `/api/projects/${encodeRouteSegment(projectName)}`;
+const projectApiPath = (projectName: string): string => `/api/projects/${encodeRouteSegment(projectName)}`;
+
+interface SaveFileOptions {
+  projectPath?: string;
+}
+
+interface GetFilesOptions extends RequestInit {
+  path?: string;
+  depth?: number;
+  showHidden?: boolean;
+  projectPath?: string;
+}
+
+interface CreateProjectEntryOptions {
+  projectPath?: string;
+}
+
+interface RenameProjectEntryOptions {
+  projectPath?: string;
+}
+
+interface DeleteProjectEntryOptions {
+  projectPath?: string;
+}
+
+interface UploadProjectEntriesOptions {
+  projectPath?: string;
+}
+
+interface DownloadFileOptions {
+  projectPath?: string;
+}
+
+interface DownloadFolderOptions {
+  projectPath?: string;
+}
 
 // API endpoints
 export const api = {
   // Auth endpoints (no token required)
   auth: {
-    status: () => fetch('/api/auth/status'),
-    login: (username, password) => fetch('/api/auth/login', {
+    status: (): Promise<Response> => fetch('/api/auth/status'),
+    login: (username: string, password: string): Promise<Response> => fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     }),
-    register: (username, password) => fetch('/api/auth/register', {
+    register: (username: string, password: string): Promise<Response> => fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     }),
-    user: () => authenticatedFetch('/api/auth/user'),
-    logout: () => authenticatedFetch('/api/auth/logout', { method: 'POST' }),
+    user: (): Promise<Response> => authenticatedFetch('/api/auth/user'),
+    logout: (): Promise<Response> => authenticatedFetch('/api/auth/logout', { method: 'POST' }),
   },
   settings: {
-    timeContext: () => authenticatedFetch('/api/settings/time-context'),
+    timeContext: (): Promise<Response> => authenticatedFetch('/api/settings/time-context'),
   },
   diagnostics: {
-    runtimeDependencies: () => authenticatedFetch('/api/diagnostics/runtime-dependencies'),
+    runtimeDependencies: (): Promise<Response> => authenticatedFetch('/api/diagnostics/runtime-dependencies'),
   },
 
   // Protected endpoints
-  // config endpoint removed - no longer needed (frontend uses window.location)
-  projects: () => authenticatedFetch('/api/projects'),
-  projectWorkflows: (projectName) =>
+  projects: (): Promise<Response> => authenticatedFetch('/api/projects'),
+  projectWorkflows: (projectName: string): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/workflows`),
-  projectWorkflow: (projectName, workflowId) =>
+  projectWorkflow: (projectName: string, workflowId: string): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}`),
-  projectOpenSpecChanges: (projectName) =>
+  projectOpenSpecChanges: (projectName: string): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/openspec/changes`),
-  createProjectWorkflow: (projectName, payload) =>
+  createProjectWorkflow: (projectName: string, payload: Record<string, unknown>): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/workflows`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  resumeProjectWorkflowRun: (projectName, workflowId) =>
+  resumeProjectWorkflowRun: (projectName: string, workflowId: string): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/resume-run`, {
       method: 'POST',
     }),
-  abortProjectWorkflowRun: (projectName, workflowId) =>
+  abortProjectWorkflowRun: (projectName: string, workflowId: string): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/workflows/${encodeRouteSegment(workflowId)}/abort-run`, {
       method: 'POST',
     }),
-  sessions: (projectName, limit = 5, offset = 0) =>
+  sessions: (projectName: string, limit = 5, offset = 0): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/sessions?limit=${limit}&offset=${offset}`),
-  chatSearch: (query, mode = 'content') =>
+  chatSearch: (query: string, mode = 'content'): Promise<Response> =>
     authenticatedFetch(`/api/chat/search?q=${encodeURIComponent(String(query || ''))}&mode=${encodeURIComponent(String(mode || 'content'))}`),
-  sessionMessages: (projectName, sessionId, limit = null, offset = 0, provider = 'codex', afterLine = null) => {
+  sessionMessages: (
+    projectName: string,
+    sessionId: string,
+    limit: number | null = null,
+    offset = 0,
+    provider = 'codex',
+    afterLine: number | null = null,
+  ): Promise<Response> => {
     const params = new URLSearchParams();
     if (afterLine !== null) {
-      // afterLine 模式：只返回第 N 行之后的增量内容，忽略 limit/offset
-      params.append('afterLine', afterLine);
+      params.append('afterLine', String(afterLine));
     } else if (limit !== null) {
-      params.append('limit', limit);
-      params.append('offset', offset);
+      params.append('limit', String(limit));
+      params.append('offset', String(offset));
     }
     const queryString = params.toString();
 
-    let url;
+    let url: string;
     if (provider === 'codex' && !/^c\d+$/.test(String(sessionId || ''))) {
       url = `/api/codex/sessions/${sessionId}/messages${queryString ? `?${queryString}` : ''}`;
     } else {
@@ -122,7 +162,7 @@ export const api = {
     }
     return authenticatedFetch(url);
   },
-  renameProject: (projectName, displayName, projectPath) =>
+  renameProject: (projectName: string, displayName: string, projectPath: string | null): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/rename`, {
       method: 'PUT',
       body: JSON.stringify({
@@ -130,27 +170,27 @@ export const api = {
         projectPath: typeof projectPath === 'string' ? projectPath : null,
       }),
     }),
-  renameSession: (projectName, sessionId, summary, projectPath = '') =>
+  renameSession: (projectName: string, sessionId: string, summary: string, projectPath = ''): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/sessions/${sessionId}/rename`, {
       method: 'PUT',
       body: JSON.stringify({ summary, projectPath: typeof projectPath === 'string' ? projectPath : '' }),
     }),
-  createManualSessionDraft: (projectName, payload) =>
+  createManualSessionDraft: (projectName: string, payload: Record<string, unknown>): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/manual-sessions`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  finalizeManualSessionDraft: (projectName, sessionId, payload) =>
+  finalizeManualSessionDraft: (projectName: string, sessionId: string, payload: Record<string, unknown>): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/manual-sessions/${encodeRouteSegment(sessionId)}/finalize`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  updateSessionUiState: (projectName, sessionId, payload) =>
+  updateSessionUiState: (projectName: string, sessionId: string, payload: Record<string, unknown>): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/sessions/${sessionId}/ui-state`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
-  sessionModelState: (projectName, sessionId, projectPath = '') => {
+  sessionModelState: (projectName: string, sessionId: string, projectPath = ''): Promise<Response> => {
     const params = new URLSearchParams();
     if (projectPath) {
       params.set('projectPath', projectPath);
@@ -160,42 +200,42 @@ export const api = {
       `${projectApiPath(projectName)}/sessions/${encodeRouteSegment(sessionId)}/model-state${query ? `?${query}` : ''}`,
     );
   },
-  updateSessionModelState: (projectName, sessionId, payload) =>
+  updateSessionModelState: (projectName: string, sessionId: string, payload: Record<string, unknown>): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/sessions/${encodeRouteSegment(sessionId)}/model-state`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
-  renameCodexSession: (sessionId, summary, projectPath = '') =>
+  renameCodexSession: (sessionId: string, summary: string, projectPath = ''): Promise<Response> =>
     authenticatedFetch(`/api/codex/sessions/${sessionId}/rename`, {
       method: 'PUT',
       body: JSON.stringify({ summary, projectPath }),
     }),
-  usageRemaining: (provider = 'codex') =>
+  usageRemaining: (provider = 'codex'): Promise<Response> =>
     authenticatedFetch(`/api/usage/remaining?provider=${encodeURIComponent(provider)}`),
-  deleteSession: (projectName, sessionId) =>
+  deleteSession: (projectName: string, sessionId: string): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/sessions/${sessionId}`, {
       method: 'DELETE',
     }),
-  deleteCodexSession: (sessionId, projectPath = '') =>
+  deleteCodexSession: (sessionId: string, projectPath = ''): Promise<Response> =>
     authenticatedFetch(`/api/codex/sessions/${sessionId}`, {
       method: 'DELETE',
       body: JSON.stringify({ projectPath }),
     }),
-  deleteProject: (projectName, force = false) =>
+  deleteProject: (projectName: string, force = false): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}${force ? '?force=true' : ''}`, {
       method: 'DELETE',
     }),
-  createProject: (path) =>
+  createProject: (path: string): Promise<Response> =>
     authenticatedFetch('/api/projects/create', {
       method: 'POST',
       body: JSON.stringify({ path }),
     }),
-  createWorkspace: (workspaceData) =>
+  createWorkspace: (workspaceData: Record<string, unknown>): Promise<Response> =>
     authenticatedFetch('/api/projects/create-workspace', {
       method: 'POST',
       body: JSON.stringify(workspaceData),
     }),
-  readFile: (projectName, filePath, options = {}) => {
+  readFile: (projectName: string, filePath: string, options: DownloadFileOptions = {}): Promise<Response> => {
     const query = new URLSearchParams({
       filePath: String(filePath),
     });
@@ -206,12 +246,12 @@ export const api = {
 
     return authenticatedFetch(`${projectApiPath(projectName)}/file?${query.toString()}`);
   },
-  saveFile: (projectName, filePath, content, options = {}) =>
+  saveFile: (projectName: string, filePath: string, content: string, options: SaveFileOptions = {}): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/file`, {
       method: 'PUT',
       body: JSON.stringify({ filePath, content, projectPath: options.projectPath }),
     }),
-  getFiles: (projectName, options = {}) => {
+  getFiles: (projectName: string, options: GetFilesOptions = {}): Promise<Response> => {
     const {
       path: targetPath,
       depth,
@@ -242,7 +282,7 @@ export const api = {
     const url = `${projectApiPath(projectName)}/files${queryString ? `?${queryString}` : ''}`;
     return authenticatedFetch(url, fetchOptions);
   },
-  createProjectEntry: (projectName, payload, options = {}) =>
+  createProjectEntry: (projectName: string, payload: Record<string, unknown>, options: CreateProjectEntryOptions = {}): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/files`, {
       method: 'POST',
       body: JSON.stringify({
@@ -250,7 +290,7 @@ export const api = {
         projectPath: options.projectPath ?? payload?.projectPath,
       }),
     }),
-  renameProjectEntry: (projectName, payload, options = {}) =>
+  renameProjectEntry: (projectName: string, payload: Record<string, unknown>, options: RenameProjectEntryOptions = {}): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/files/rename`, {
       method: 'PUT',
       body: JSON.stringify({
@@ -258,7 +298,7 @@ export const api = {
         projectPath: options.projectPath ?? payload?.projectPath,
       }),
     }),
-  deleteProjectEntry: (projectName, payload, options = {}) =>
+  deleteProjectEntry: (projectName: string, payload: Record<string, unknown>, options: DeleteProjectEntryOptions = {}): Promise<Response> =>
     authenticatedFetch(`${projectApiPath(projectName)}/files`, {
       method: 'DELETE',
       body: JSON.stringify({
@@ -266,7 +306,7 @@ export const api = {
         projectPath: options.projectPath ?? payload?.projectPath,
       }),
     }),
-  uploadProjectEntries: (projectName, formData, options = {}) => {
+  uploadProjectEntries: (projectName: string, formData: FormData, options: UploadProjectEntriesOptions = {}): Promise<Response> => {
     const hintedProjectPath = options.projectPath ?? formData.get('projectPath');
     if (typeof hintedProjectPath === 'string' && hintedProjectPath.length > 0) {
       formData.set('projectPath', hintedProjectPath);
@@ -278,7 +318,7 @@ export const api = {
       headers: {},
     });
   },
-  downloadProjectFile: (projectName, filePath, options = {}) => {
+  downloadProjectFile: (projectName: string, filePath: string, options: DownloadFileOptions = {}): Promise<Response> => {
     const query = new URLSearchParams({
       path: String(filePath),
     });
@@ -289,7 +329,7 @@ export const api = {
 
     return authenticatedFetch(`${projectApiPath(projectName)}/files/download?${query.toString()}`);
   },
-  downloadProjectFolder: (projectName, folderPath, options = {}) => {
+  downloadProjectFolder: (projectName: string, folderPath: string, options: DownloadFolderOptions = {}): Promise<Response> => {
     const query = new URLSearchParams({
       path: String(folderPath),
     });
@@ -300,77 +340,83 @@ export const api = {
 
     return authenticatedFetch(`${projectApiPath(projectName)}/folders/download?${query.toString()}`);
   },
-  transcribe: (formData) =>
+  transcribe: (formData: FormData): Promise<Response> =>
     authenticatedFetch('/api/transcribe', {
       method: 'POST',
       body: formData,
-      headers: {}, // Let browser set Content-Type for FormData
+      headers: {},
     }),
 
   // TaskMaster endpoints
   taskmaster: {
-    // Initialize TaskMaster in a project
-    init: (projectName) =>
+    init: (projectName: string): Promise<Response> =>
       authenticatedFetch(`/api/taskmaster/init/${encodeRouteSegment(projectName)}`, {
         method: 'POST',
       }),
 
-    // Add a new task
-    addTask: (projectName, { prompt, title, description, priority, dependencies }) =>
+    addTask: (projectName: string, params: {
+      prompt: string;
+      title: string;
+      description?: string;
+      priority?: string;
+      dependencies?: string[];
+    }): Promise<Response> =>
       authenticatedFetch(`/api/taskmaster/add-task/${encodeRouteSegment(projectName)}`, {
         method: 'POST',
-        body: JSON.stringify({ prompt, title, description, priority, dependencies }),
+        body: JSON.stringify(params),
       }),
 
-    // Parse PRD to generate tasks
-    parsePRD: (projectName, { fileName, numTasks, append }) =>
+    parsePRD: (projectName: string, params: {
+      fileName: string;
+      numTasks?: number;
+      append?: boolean;
+    }): Promise<Response> =>
       authenticatedFetch(`/api/taskmaster/parse-prd/${encodeRouteSegment(projectName)}`, {
         method: 'POST',
-        body: JSON.stringify({ fileName, numTasks, append }),
+        body: JSON.stringify(params),
       }),
 
-    // Get available PRD templates
-    getTemplates: () =>
+    getTemplates: (): Promise<Response> =>
       authenticatedFetch('/api/taskmaster/prd-templates'),
 
-    // Apply a PRD template
-    applyTemplate: (projectName, { templateId, fileName, customizations }) =>
+    applyTemplate: (projectName: string, params: {
+      templateId: string;
+      fileName: string;
+      customizations?: Record<string, unknown>;
+    }): Promise<Response> =>
       authenticatedFetch(`/api/taskmaster/apply-template/${encodeRouteSegment(projectName)}`, {
         method: 'POST',
-        body: JSON.stringify({ templateId, fileName, customizations }),
+        body: JSON.stringify(params),
       }),
 
-    // Update a task
-    updateTask: (projectName, taskId, updates) =>
+    updateTask: (projectName: string, taskId: string, updates: Record<string, unknown>): Promise<Response> =>
       authenticatedFetch(`/api/taskmaster/update-task/${encodeRouteSegment(projectName)}/${taskId}`, {
         method: 'PUT',
         body: JSON.stringify(updates),
       }),
   },
 
-  // Browse filesystem for project suggestions
-  browseFilesystem: (dirPath = null) => {
+  browseFilesystem: (dirPath: string | null = null): Promise<Response> => {
     const params = new URLSearchParams();
     if (dirPath) params.append('path', dirPath);
 
     return authenticatedFetch(`/api/browse-filesystem?${params}`);
   },
 
-  createFolder: (folderPath) =>
+  createFolder: (folderPath: string): Promise<Response> =>
     authenticatedFetch('/api/create-folder', {
       method: 'POST',
       body: JSON.stringify({ path: folderPath }),
     }),
 
-  // User endpoints
   user: {
-    onboardingStatus: () => authenticatedFetch('/api/user/onboarding-status'),
-    completeOnboarding: () =>
+    onboardingStatus: (): Promise<Response> => authenticatedFetch('/api/user/onboarding-status'),
+    completeOnboarding: (): Promise<Response> =>
       authenticatedFetch('/api/user/complete-onboarding', {
         method: 'POST',
       }),
   },
 
   // Generic GET method for any endpoint
-  get: (endpoint) => authenticatedFetch(`/api${endpoint}`),
+  get: (endpoint: string): Promise<Response> => authenticatedFetch(`/api${endpoint}`),
 };

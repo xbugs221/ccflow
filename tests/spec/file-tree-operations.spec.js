@@ -223,7 +223,7 @@ test('files tab create and upload actions work for projects with URL-sensitive n
   await expect(page.getByText('notes.md', { exact: true }).first()).toBeVisible();
 
   const uploadResult = await page.evaluate(async ({ projectName }) => {
-    const { api } = await import('/src/utils/api.js');
+    const { api } = await import('/src/utils/api.ts');
     const formData = new FormData();
     formData.append('targetPath', '.');
     formData.append('relativePaths', JSON.stringify(['uploaded.txt']));

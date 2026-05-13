@@ -7,7 +7,7 @@ import { TasksSettingsProvider } from './contexts/TasksSettingsContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import AppContent from './components/app/AppContent';
-import i18n from './i18n/config.js';
+import i18n from './i18n/config';
 
 export default function App() {
   return (

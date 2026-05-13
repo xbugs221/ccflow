@@ -29,10 +29,10 @@ import zhChat from './locales/zh-CN/chat.json';
 import zhCodeEditor from './locales/zh-CN/codeEditor.json';
 
 // Import supported languages configuration
-import { languages } from './languages.js';
+import { languages } from './languages';
 
 // Get saved language preference from localStorage
-const getSavedLanguage = () => {
+const getSavedLanguage = (): string => {
   try {
     const saved = localStorage.getItem('userLanguage');
     // Validate that the saved language is supported
@@ -118,7 +118,7 @@ i18n
   });
 
 // Save language preference when it changes
-i18n.on('languageChanged', (lng) => {
+i18n.on('languageChanged', (lng: string) => {
   try {
     localStorage.setItem('userLanguage', languages.some(lang => lang.value === lng) ? lng : 'en');
   } catch (error) {

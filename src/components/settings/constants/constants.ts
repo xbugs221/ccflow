@@ -22,7 +22,7 @@ export const DEFAULT_AUTH_STATUS: AuthStatus = {
   baseUrl: null,
 };
 
-export const AUTH_STATUS_ENDPOINTS: Partial<Record<AgentProvider, string>> = {
+export const AUTH_STATUS_ENDPOINTS: Record<AgentProvider, string> = {
   codex: '/api/cli/codex/status',
   opencode: '/api/cli/opencode/status',
 };

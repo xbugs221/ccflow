@@ -5,7 +5,7 @@ import './index.css'
 import 'katex/dist/katex.min.css'
 
 // Initialize i18n
-import './i18n/config.js'
+import './i18n/config'
 
 // Clean up stale service workers on app load to prevent caching issues after builds
 if ('serviceWorker' in navigator) {
