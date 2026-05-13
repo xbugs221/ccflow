@@ -185,6 +185,20 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
       }
 
       const data = await toResponseJson<StatusApiResponse>(response);
+      if (provider === 'opencode') {
+        setAuthStatusByProvider(provider, {
+          available: data.available,
+          authenticated: true,
+          email: data.email || null,
+          loading: false,
+          error: data.error || null,
+          provider: data.provider || null,
+          baseUrl: data.baseUrl || null,
+          providers: normalizeOpenCodeProviders(data.providers),
+        });
+        return;
+      }
+
       setAuthStatusByProvider(provider, {
         available: data.available,
         authenticated: Boolean(data.authenticated),
@@ -193,7 +207,6 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
         error: data.error || null,
         provider: data.provider || null,
         baseUrl: data.baseUrl || null,
-        providers: provider === 'opencode' ? normalizeOpenCodeProviders(data.providers) : undefined,
       });
     } catch (error) {
       console.error(`Error checking ${provider} auth status:`, error);

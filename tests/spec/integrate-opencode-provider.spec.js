@@ -246,16 +246,16 @@ test('server/index.js normalizes co event fields for existing frontend handlers'
   assert.match(source, /payload\.turn_id[\s\S]*?normalized\.turnId/, 'must map turn_id to turnId');
   assert.match(source, /normalizeCoEventPayload\(payload\)/, 'co tail must normalize events before broadcast/finalize');
   assert.match(source, /normalizeCoEventPayload\(JSON\.parse\(line\)\)/, 'co reconnect replay must normalize events before sending');
-  assert.match(source, /ccflowSessionId:\s*turn\.ccflowSessionId/, 'co reconnect replay must preserve route session id');
-  assert.match(source, /turnId:\s*payload\?\.turnId \|\| turn\.turnId/, 'co reconnect replay must preserve turn identity for message keys');
+  assert.match(source, /function buildCoRoutedEventPayload/, 'must centralize route and turn identity enrichment');
+  assert.match(source, /buildCoRoutedEventPayload\(payload,[\s\S]*?ccflowSessionId:\s*turn\.ccflowSessionId[\s\S]*?turnId:\s*turn\.turnId/, 'co reconnect replay must preserve route and turn identity');
 });
 
 test('server/index.js broadcasts co turn events with route and turn identity', async () => {
   const source = await readRepoFile('server/index.js');
-  assert.match(source, /ccflowSessionId:\s*state\.conversation_id/, 'co tail broadcasts must preserve the cN route id');
-  assert.match(source, /ccflow_session_id:\s*state\.conversation_id/, 'co tail broadcasts must preserve snake_case route id');
-  assert.match(source, /turnId:\s*normalizedPayload\?\.turnId \|\| turnKey/, 'co tail broadcasts must include camelCase turn id');
-  assert.match(source, /turn_id:\s*normalizedPayload\?\.turn_id \|\| turnKey/, 'co tail broadcasts must include snake_case turn id');
+  assert.match(source, /ccflowSessionId,[\s\S]*?ccflow_session_id:\s*ccflowSessionId/, 'co routed payloads must preserve both route id spellings');
+  assert.match(source, /turnId:\s*payload\?\.turnId \|\| turnId/, 'co routed payloads must include camelCase turn id');
+  assert.match(source, /turn_id:\s*payload\?\.turn_id \|\| turnId/, 'co routed payloads must include snake_case turn id');
+  assert.match(source, /buildCoRoutedEventPayload\(normalizedPayload,[\s\S]*?ccflowSessionId:\s*state\.conversation_id[\s\S]*?turnId:\s*turnKey/, 'co tail broadcasts must enrich live events with cN route and turn identity');
   assert.match(source, /observer\.idleStartedAt = null/, 'new requests must reset reusable observer idle timing');
   assert.match(source, /function getCoConversationTurnIds/, 'observer must inspect durable conversation turns');
   assert.match(source, /unseenDurableTurnIds[\s\S]*?attachCoTurnTail\(turnId, state/, 'observer must tail new turns even after active_turn_id is cleared');

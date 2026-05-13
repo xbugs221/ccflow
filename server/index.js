@@ -462,19 +462,10 @@ function attachCoTurnTail(turnId, state, sourceUserId = null) {
                         : 'completed';
             }
         }
-        const indexedPayload = state.conversation_id
-            ? {
-                ...normalizedPayload,
-                ccflowSessionId: state.conversation_id,
-                ccflow_session_id: state.conversation_id,
-                turnId: normalizedPayload?.turnId || turnKey,
-                turn_id: normalizedPayload?.turn_id || turnKey,
-            }
-            : {
-                ...normalizedPayload,
-                turnId: normalizedPayload?.turnId || turnKey,
-                turn_id: normalizedPayload?.turn_id || turnKey,
-            };
+        const indexedPayload = buildCoRoutedEventPayload(normalizedPayload, {
+            ccflowSessionId: state.conversation_id,
+            turnId: turnKey,
+        });
         if (state.conversation_id && normalizedPayload?.type === 'session-created' && normalizedPayload?.sessionId) {
             void finalizeCcflowRouteSession({
                 projectName: '',
@@ -521,6 +512,25 @@ function normalizeCoEventPayload(payload) {
 }
 
 /**
+ * Add stable ccflow route and turn identity to one co event before broadcasting.
+ */
+function buildCoRoutedEventPayload(payload, { ccflowSessionId = '', turnId = '' } = {}) {
+    return ccflowSessionId
+        ? {
+            ...payload,
+            ccflowSessionId,
+            ccflow_session_id: ccflowSessionId,
+            turnId: payload?.turnId || turnId,
+            turn_id: payload?.turn_id || turnId,
+        }
+        : {
+            ...payload,
+            turnId: payload?.turnId || turnId,
+            turn_id: payload?.turn_id || turnId,
+        };
+}
+
+/**
  * Replay durable co events to a reconnecting chat client.
  */
 async function replayCoTurnEvents(ws, sourceUserId = null) {
@@ -552,19 +562,10 @@ async function replayCoTurnEvents(ws, sourceUserId = null) {
             }
             try {
                 const payload = normalizeCoEventPayload(JSON.parse(line));
-                const indexedPayload = turn.ccflowSessionId
-                    ? {
-                        ...payload,
-                        ccflowSessionId: turn.ccflowSessionId,
-                        ccflow_session_id: turn.ccflowSessionId,
-                        turnId: payload?.turnId || turn.turnId,
-                        turn_id: payload?.turn_id || turn.turnId,
-                    }
-                    : {
-                        ...payload,
-                        turnId: payload?.turnId || turn.turnId,
-                        turn_id: payload?.turn_id || turn.turnId,
-                    };
+                const indexedPayload = buildCoRoutedEventPayload(payload, {
+                    ccflowSessionId: turn.ccflowSessionId,
+                    turnId: turn.turnId,
+                });
                 ws.send(JSON.stringify(indexedPayload));
             } catch (error) {
                 console.warn('[co] Failed to replay event:', error.message);
@@ -602,13 +603,10 @@ async function replayCoConversationEvents(ws, conversation) {
             }
             try {
                 const payload = normalizeCoEventPayload(JSON.parse(line));
-                ws.send(JSON.stringify({
-                    ...payload,
+                ws.send(JSON.stringify(buildCoRoutedEventPayload(payload, {
                     ccflowSessionId: conversation.conversation_id,
-                    ccflow_session_id: conversation.conversation_id,
-                    turnId: payload?.turnId || turnId,
-                    turn_id: payload?.turn_id || turnId,
-                }));
+                    turnId,
+                })));
             } catch (error) {
                 console.warn('[co] Failed to replay conversation event:', error.message);
             }

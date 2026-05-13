@@ -343,7 +343,9 @@ test('queued follow-up response is broadcast after co switches to the next activ
       && message.data?.message?.content === 'QUEUED_SECOND_OK'
     ));
     assert.equal(response.ccflowSessionId, 'c51');
+    assert.equal(response.ccflow_session_id, 'c51');
     assert.equal(response.turnId, 'turn_2');
+    assert.equal(response.turn_id, 'turn_2');
   } finally {
     await stopServer(child);
   }
@@ -441,7 +443,9 @@ test('fast completed follow-up response is broadcast after state returns to idle
       && message.data?.message?.content === 'FAST_SECOND_OK'
     ));
     assert.equal(response.ccflowSessionId, 'c51');
+    assert.equal(response.ccflow_session_id, 'c51');
     assert.equal(response.turnId, 'turn_2');
+    assert.equal(response.turn_id, 'turn_2');
     assert.equal(received.some((message) => (
       message.type === 'codex-response'
       && message.data?.message?.content === 'FIRST_DONE'
