@@ -62,19 +62,6 @@ test('JSON frontmatter is not parsed through executable engine', async () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. Retired Claude SDK surface
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('retired Claude SDK options mapping rejects runtime use', async () => {
-  const { __mapCliOptionsToSDKForTest } = await import('../../server/claude-sdk.js');
-
-  assert.throws(
-    () => __mapCliOptionsToSDKForTest({ cwd: '/tmp/proj' }),
-    /Claude SDK provider is no longer supported/,
-  );
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 3. Codex permission and workflow auto-run semantics
 // ─────────────────────────────────────────────────────────────────────────────
 

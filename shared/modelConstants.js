@@ -4,17 +4,6 @@
  */
 
 /**
- * Claude-compatible Models
- *
- * Runtime model options are discovered from Claude Code/provider APIs.
- */
-export const CLAUDE_MODELS = {
-  OPTIONS: [],
-
-  DEFAULT: ''
-};
-
-/**
  * Codex (OpenAI) Models
  *
  * Note: Codex models are discovered dynamically from the installed Codex CLI.

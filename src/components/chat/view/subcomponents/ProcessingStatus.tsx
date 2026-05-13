@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { cn } from '../../../../lib/utils';
 
-type ClaudeStatusProps = {
+type ProcessingStatusProps = {
   status: {
     text?: string;
     tokens?: number;
@@ -15,12 +15,12 @@ type ClaudeStatusProps = {
 const ACTION_WORDS = ['Thinking', 'Processing', 'Analyzing', 'Working', 'Computing', 'Reasoning'];
 const SPINNER_CHARS = ['*', '+', 'x', '.'];
 
-export default function ClaudeStatus({
+export default function ProcessingStatus({
   status,
   onAbort,
   isLoading,
   provider: _provider = 'codex',
-}: ClaudeStatusProps) {
+}: ProcessingStatusProps) {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [animationPhase, setAnimationPhase] = useState(0);
   const [fakeTokens, setFakeTokens] = useState(0);

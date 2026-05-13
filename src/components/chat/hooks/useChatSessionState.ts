@@ -355,7 +355,7 @@ export function useChatSessionState({
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [tokenBudget, setTokenBudget] = useState<Record<string, unknown> | null>(null);
   const [visibleMessageCount, setVisibleMessageCount] = useState(INITIAL_VISIBLE_MESSAGES);
-  const [claudeStatus, setClaudeStatus] = useState<{ text: string; tokens: number; can_interrupt: boolean } | null>(null);
+  const [processingStatus, setProcessingStatus] = useState<{ text: string; tokens: number; can_interrupt: boolean } | null>(null);
   const [allMessagesLoaded, setAllMessagesLoaded] = useState(false);
   const [isLoadingAllMessages, setIsLoadingAllMessages] = useState(false);
   const [loadAllJustFinished, setLoadAllJustFinished] = useState(false);
@@ -543,7 +543,7 @@ export function useChatSessionState({
     setIsLoading(false);
     setIsLoadingSessionMessages(false);
     setIsLoadingMoreMessages(false);
-    setClaudeStatus(null);
+    setProcessingStatus(null);
     setCanAbortSession(false);
     setTokenBudget(null);
     messagesOffsetRef.current = 0;
@@ -867,7 +867,7 @@ export function useChatSessionState({
             }
             setSessionMessages([]);
             setSessionMessagesError(null);
-            setClaudeStatus(null);
+            setProcessingStatus(null);
             setCanAbortSession(false);
           }
 
@@ -932,7 +932,7 @@ export function useChatSessionState({
           setChatMessages([]);
          setSessionMessages([]);
           setSessionMessagesError(null);
-          setClaudeStatus(null);
+          setProcessingStatus(null);
           setCanAbortSession(false);
           setIsLoading(false);
         }
@@ -1340,8 +1340,8 @@ export function useChatSessionState({
     isLoadingAllMessages,
     loadAllJustFinished,
     showLoadAllOverlay,
-    claudeStatus,
-    setClaudeStatus,
+    processingStatus,
+    setProcessingStatus,
     createDiff,
     scrollContainerRef,
     scrollToBottom,

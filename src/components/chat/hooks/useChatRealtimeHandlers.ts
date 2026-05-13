@@ -45,7 +45,7 @@ interface UseChatRealtimeHandlersArgs {
   setSessionMessages: Dispatch<SetStateAction<any[]>>;
   setIsLoading: (loading: boolean) => void;
   setCanAbortSession: (canAbort: boolean) => void;
-  setClaudeStatus: (status: { text: string; tokens: number; can_interrupt: boolean } | null) => void;
+  setProcessingStatus: (status: { text: string; tokens: number; can_interrupt: boolean } | null) => void;
   setTokenBudget: (budget: Record<string, unknown> | null) => void;
   setIsSystemSessionChange: (isSystemSessionChange: boolean) => void;
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
@@ -362,7 +362,7 @@ export function useChatRealtimeHandlers({
   setSessionMessages,
   setIsLoading,
   setCanAbortSession,
-  setClaudeStatus,
+  setProcessingStatus,
   setTokenBudget,
   setIsSystemSessionChange,
   setPendingPermissionRequests,
@@ -541,7 +541,7 @@ export function useChatRealtimeHandlers({
       const clearLoadingIndicators = () => {
         setIsLoading(false);
         setCanAbortSession(false);
-        setClaudeStatus(null);
+        setProcessingStatus(null);
       };
 
       const markSessionsAsCompleted = (...sessionIds: Array<string | null | undefined>) => {
@@ -1245,7 +1245,7 @@ export function useChatRealtimeHandlers({
           statusInfo.can_interrupt = statusData.can_interrupt;
         }
 
-        setClaudeStatus(statusInfo);
+        setProcessingStatus(statusInfo);
         setIsLoading(true);
         setCanAbortSession(statusInfo.can_interrupt);
         break;
@@ -1265,7 +1265,7 @@ export function useChatRealtimeHandlers({
     setChatMessages,
     setIsLoading,
     setCanAbortSession,
-    setClaudeStatus,
+    setProcessingStatus,
     setTokenBudget,
     setIsSystemSessionChange,
     setPendingPermissionRequests,

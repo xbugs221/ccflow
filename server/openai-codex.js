@@ -3,7 +3,7 @@
  * =============================
  *
  * This module provides integration with the OpenAI Codex SDK for non-interactive
- * chat sessions. It mirrors the pattern used in claude-sdk.js for consistency.
+ * chat sessions.
  *
  * ## Usage
  *
@@ -502,7 +502,7 @@ async function runCodexCliFallback({
 
 /**
  * Build the environment for one Codex CLI subprocess.
- * Keep shell-derived proxy variables, drop nested Claude markers, and bind
+ * Keep shell-derived proxy variables, strip nested agent marker variables, and bind
  * context-mode MCP servers to the active Codex working directory.
  *
  * @param {object} shellProxyEnv - Proxy-related variables resolved from the login shell.
@@ -511,8 +511,7 @@ async function runCodexCliFallback({
  */
 function buildCodexChildEnv(shellProxyEnv = {}, workingDirectory) {
   const childEnv = { ...process.env, ...shellProxyEnv };
-  // Remove CLAUDECODE so the codex subprocess is not mistaken for a nested
-  // Claude Code session (same guard that caused exit-code-1 in claude-sdk.js).
+  // Remove CLAUDECODE so the codex subprocess is not mistaken for a nested agent session.
   // Preserve the active shell/system proxy configuration rather than forcing a
   // fixed localhost port that may not exist on the current machine.
   delete childEnv.CLAUDECODE;

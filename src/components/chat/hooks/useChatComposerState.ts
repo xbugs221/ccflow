@@ -60,7 +60,7 @@ interface UseChatComposerStateArgs {
   setSessionMessages?: Dispatch<SetStateAction<any[]>>;
   setIsLoading: (loading: boolean) => void;
   setCanAbortSession: (canAbort: boolean) => void;
-  setClaudeStatus: (status: { text: string; tokens: number; can_interrupt: boolean } | null) => void;
+  setProcessingStatus: (status: { text: string; tokens: number; can_interrupt: boolean } | null) => void;
   setIsUserScrolledUp: (isScrolledUp: boolean) => void;
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
   onRequestDispatched?: () => void;
@@ -201,7 +201,7 @@ export function useChatComposerState({
   setSessionMessages,
   setIsLoading,
   setCanAbortSession,
-  setClaudeStatus,
+  setProcessingStatus,
   setIsUserScrolledUp,
   setPendingPermissionRequests,
   onRequestDispatched,
@@ -639,7 +639,7 @@ export function useChatComposerState({
       // abort-session from a previous session racing with the new request.
       setCanAbortSession(false);
       setIsLoading(true);
-      setClaudeStatus({
+      setProcessingStatus({
         text: 'Processing',
         tokens: 0,
         can_interrupt: true,
@@ -808,7 +808,7 @@ export function useChatComposerState({
       sendMessage,
       setCanAbortSession,
       setChatMessages,
-      setClaudeStatus,
+      setProcessingStatus,
       setIsLoading,
       setIsUserScrolledUp,
       slashCommands,

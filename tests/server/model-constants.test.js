@@ -4,18 +4,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { CLAUDE_MODELS, CODEX_MODELS } from '../../shared/modelConstants.js';
+import { CODEX_MODELS } from '../../shared/modelConstants.js';
 
-test('Claude defaults stay native without provider-specific hardcoded model ids', () => {
-  /**
-   * Provider-specific model IDs must come from live model-list APIs.
-   */
-  const modelValues = CLAUDE_MODELS.OPTIONS.map((option) => option.value);
-
-  assert.equal(CLAUDE_MODELS.DEFAULT, '');
-  assert.deepEqual(modelValues, []);
-  assert.equal(modelValues.some((value) => value.toLowerCase().includes('kimi')), false);
-  assert.equal(new Set(modelValues).size, modelValues.length);
+test('model constants no longer export Claude provider entry', async () => {
+  const mod = await import('../../shared/modelConstants.js');
+  assert.equal('CLAUDE_MODELS' in mod, false, 'CLAUDE_MODELS must not be exported');
 });
 
 test('Codex defaults are discovered from the CLI instead of static constants', () => {

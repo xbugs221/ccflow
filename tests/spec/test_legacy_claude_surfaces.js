@@ -45,10 +45,20 @@ test('active session helpers do not fall back to Claude provider', async () => {
   }
 });
 
-test('Claude SDK compatibility module does not import Anthropic SDK package', async () => {
-  const source = await readSource('server/claude-sdk.js');
+test('Claude SDK compatibility module file does not exist and no production imports', async () => {
+  const source = await readOptionalSource('server/claude-sdk.js');
+  assert.equal(source, '', 'server/claude-sdk.js must not exist');
 
-  assert.doesNotMatch(source, /@anthropic-ai\/claude-agent-sdk/);
+  // Confirm no production code imports the removed module.
+  const { execFileSync } = await import('node:child_process');
+  try {
+    const grepResult = execFileSync('rg', ['-l', 'claude-sdk', 'server/'], { encoding: 'utf8', cwd: new URL('../../', import.meta.url).pathname, stdio: 'pipe' });
+    const files = grepResult.trim().split('\n').filter(Boolean);
+    assert.deepEqual(files, [], 'no production code in server/ should reference claude-sdk');
+  } catch (err) {
+    // rg exits 1 when no matches — that's expected
+    assert.equal(err.status, 1, 'rg exited with expected code 1 (no matches)');
+  }
 });
 
 test('OpenCode settings do not use Claude quota fallback', async () => {

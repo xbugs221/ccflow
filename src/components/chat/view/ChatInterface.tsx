@@ -226,8 +226,8 @@ function ChatInterface({
     isLoadingAllMessages,
     loadAllJustFinished,
     showLoadAllOverlay,
-    claudeStatus,
-    setClaudeStatus,
+    processingStatus,
+    setProcessingStatus,
     createDiff,
     scrollContainerRef,
     scrollToBottom,
@@ -317,7 +317,7 @@ function ChatInterface({
     setSessionMessages,
     setIsLoading,
     setCanAbortSession,
-    setClaudeStatus,
+    setProcessingStatus,
     setIsUserScrolledUp,
     setPendingPermissionRequests,
     onRequestDispatched: () => {
@@ -335,7 +335,7 @@ function ChatInterface({
         pendingNetworkTimeoutRef.current = null;
         setIsLoading(false);
         setCanAbortSession(false);
-        setClaudeStatus(null);
+        setProcessingStatus(null);
         setChatMessages((previous) => [
           ...previous,
           {
@@ -540,7 +540,7 @@ function ChatInterface({
     setSessionMessages,
     setIsLoading,
     setCanAbortSession,
-    setClaudeStatus,
+    setProcessingStatus,
     setTokenBudget,
     setIsSystemSessionChange,
     setPendingPermissionRequests,
@@ -912,7 +912,7 @@ function ChatInterface({
         />
 
         <ChatComposer
-          claudeStatus={claudeStatus}
+          processingStatus={processingStatus}
           isLoading={isLoading}
           isComposerSubmitting={isComposerSubmitting}
           onAbortSession={handleAbortSession}

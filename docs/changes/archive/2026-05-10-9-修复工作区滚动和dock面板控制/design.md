@@ -116,7 +116,7 @@ tests/9-修复工作区滚动和dock面板控制-workspace-scroll-and-pane-contr
 需要更新既有测试：
 
 - `tests/2026-05-10-7-重新设计交互布局-workspace-dock-layout.test.js` 中依赖 pane 折叠按钮的测试，改为点击顶部 tab。
-- `tests/2026-05-10-2026-05-10-8-修正dock拉伸方向和源代码管理布局漂移-workspace-dock-regression.test.js` 中终端全屏入口断言应继续成立，但按钮位置应从 pane 顶部获取。
+- `tests/2026-05-10-8-修正dock拉伸方向和源代码管理布局漂移-workspace-dock-regression.test.js` 中终端全屏入口断言应继续成立，但按钮位置应从 pane 顶部获取。
 
 ## 风险
 
