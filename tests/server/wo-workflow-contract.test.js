@@ -393,17 +393,21 @@ test('wo read model emits 0.9 fixed role summary rows with check counts', async 
 
     const [workflow] = await listWoWorkflowReadModels(projectPath);
     const rows = workflow.workflowRoleSummary.rows;
+    assert.equal(rows.length, 5);
     assert.equal(rows.find((r) => r.key === 'planning').label, '规');
     assert.equal(rows.find((r) => r.key === 'planning').placeholder, '未知');
     assert.equal(rows.find((r) => r.key === 'planning').sessionRef, null);
     assert.equal(rows.find((r) => r.key === 'executor').label, '写');
-    assert.equal(rows.find((r) => r.key === 'executor').checkCount, 3);
+    assert.equal(rows.find((r) => r.key === 'executor').checkCount, 1);
     assert.equal(rows.find((r) => r.key === 'executor').sessionRef.sessionId, 'executor-session');
     assert.equal(rows.find((r) => r.key === 'executor').sessionRef.label, 'executor-session');
     assert.equal(rows.find((r) => r.key === 'reviewer').label, '审');
     assert.equal(rows.find((r) => r.key === 'reviewer').checkCount, 2);
     assert.equal(rows.find((r) => r.key === 'reviewer').sessionRef.sessionId, 'reviewer-session');
     assert.equal(rows.find((r) => r.key === 'reviewer').sessionRef.label, 'reviewer-session');
+    assert.equal(rows.find((r) => r.key === 'fixer').label, '修');
+    assert.equal(rows.find((r) => r.key === 'fixer').checkCount, 2);
+    assert.equal(rows.find((r) => r.key === 'fixer').sessionRef, null);
     assert.equal(rows.find((r) => r.key === 'archiver').label, '存');
     assert.equal(rows.find((r) => r.key === 'archiver').checkCount, 1);
     assert.equal(rows.find((r) => r.key === 'archiver').sessionRef.sessionId, 'archiver-session');

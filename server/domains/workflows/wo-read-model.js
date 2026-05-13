@@ -6,6 +6,7 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import {
   formatWoStatePathForDiagnostics,
+  resolveWoBatchesRoot,
   resolveWoRunsRoot,
 } from './wo-runtime-paths.js';
 
@@ -28,6 +29,11 @@ const LEGACY_STAGE_ORDER = {
   ready_for_acceptance: Number.MAX_SAFE_INTEGER - 3,
 };
 const TERMINAL_METADATA_STAGES = new Set(['done']);
+const FIXED_ARTIFACT_PATTERNS = [
+  { regex: /^review-(\d+)\.json$/, stage: (n) => `review_${n}`, type: 'review-result' },
+  { regex: /^fix-(\d+)\.json$/, stage: (n) => `fix_${n}`, type: 'fix-result' },
+  { regex: /^repair-(\d+)\.json$/, stage: (n) => `repair_${n}`, type: 'repair-result' },
+];
 const REVIEW_TITLES = {
   review_1: '需求与范围覆盖',
   review_2: '实现风险与回归',
@@ -180,6 +186,79 @@ function stageDisplayText(stage) {
     return `${Number(reviewMatch[1]) - 1} fix review`;
   }
   return normalized;
+}
+
+/**
+ * Parse a provider-prefixed session key into provider and role.
+ * Examples: "codex:executor" -> { provider: "codex", role: "executor" }
+ *           "opencode:archiver" -> { provider: "opencode", role: "archiver" }
+ *           "pi:executor" -> { provider: "pi", role: "executor" }
+ */
+function parseProviderSessionKey(key) {
+  const normalized = String(key || '').trim();
+  const match = normalized.match(/^([a-z][a-z0-9]*):(.+)$/);
+  if (match) {
+    return { provider: match[1], role: match[2] };
+  }
+  return { provider: null, role: normalized };
+}
+
+/**
+ * Check if a provider is known and can be rendered by ccflow.
+ */
+function isKnownProvider(provider) {
+  return provider === 'codex' || provider === 'opencode';
+}
+
+/**
+ * Normalize wo v1 batch run_ids from the real map contract or legacy arrays.
+ */
+function normalizeBatchRunIds(runIds, changes) {
+  if (Array.isArray(runIds)) {
+    return runIds.map(String);
+  }
+  if (!runIds || typeof runIds !== 'object') {
+    return [];
+  }
+  return changes
+    .map((changeName) => runIds[changeName])
+    .filter((runId) => runId)
+    .map(String);
+}
+
+/**
+ * Convert the 0-based wo current_index into the progress number users see.
+ */
+function displayBatchCurrentIndex(currentIndex, total) {
+  if (total <= 0) {
+    return 0;
+  }
+  return Math.min(Math.max(currentIndex + 1, 1), total);
+}
+
+/**
+ * Preserve wo state.sessions as provider-aware ids for frontend filtering.
+ */
+function buildWorkflowOwnedSessionRefs(state) {
+  const sessions = pick(state, 'sessions') || {};
+  if (!sessions || typeof sessions !== 'object') {
+    return [];
+  }
+  return Object.entries(sessions)
+    .map(([key, value]) => {
+      const sessionId = String(value || '').trim();
+      if (!sessionId) {
+        return null;
+      }
+      const parsed = parseProviderSessionKey(key);
+      return {
+        key,
+        role: parsed.role,
+        provider: parsed.provider || 'codex',
+        sessionId,
+      };
+    })
+    .filter(Boolean);
 }
 
 /**
@@ -565,6 +644,7 @@ function buildWorkflowRoleSummary(state, childSessions) {
 
   let writeCount = 0;
   let reviewCount = 0;
+  let fixCount = 0;
   let archiveCount = 0;
 
   for (const [stageKey, status] of stageEntries) {
@@ -574,8 +654,10 @@ function buildWorkflowRoleSummary(state, childSessions) {
     if (!isDone && !isActive) {
       continue;
     }
-    if (stageKey === 'execution' || parseFixStage(stageKey)) {
+    if (stageKey === 'execution') {
       writeCount += 1;
+    } else if (parseFixStage(stageKey)) {
+      fixCount += 1;
     } else if (/^review_\d+$/.test(stageKey)) {
       reviewCount += 1;
     } else if (stageKey === 'archive') {
@@ -583,19 +665,40 @@ function buildWorkflowRoleSummary(state, childSessions) {
     }
   }
 
+  /**
+   * Resolve a session id by checking all known provider prefixes for a role.
+   */
+  function findSessionByRole(role) {
+    for (const [key, value] of Object.entries(sessions && typeof sessions === 'object' ? sessions : {})) {
+      const parsed = parseProviderSessionKey(key);
+      if (parsed.role === role && value) {
+        return { sessionId: String(value).trim(), provider: parsed.provider || 'codex' };
+      }
+    }
+    return null;
+  }
+
   function resolveSessionRef(role, label) {
-    let sessionId = sessions[role] || sessions[`codex:${role}`] || sessions[`claude:${role}`];
+    let sessionId;
+    let sessionProvider = 'codex';
+
+    const providerMatch = findSessionByRole(role);
+    if (providerMatch) {
+      sessionId = providerMatch.sessionId;
+      sessionProvider = providerMatch.provider;
+    }
     if (!sessionId) {
       const roleFallbacks = {
         executor: ['execution'],
         reviewer: ['review_1', 'review_2', 'review_3'],
+        fixer: ['fix_1', 'fix_2', 'fix_3', 'repair_1', 'repair_2', 'repair_3'],
         archiver: ['archive'],
         planning: ['planning'],
       };
       const fallbacks = roleFallbacks[role] || [];
       for (const key of fallbacks) {
         if (sessions[key]) {
-          sessionId = sessions[key];
+          sessionId = String(sessions[key]).trim();
           break;
         }
       }
@@ -604,17 +707,24 @@ function buildWorkflowRoleSummary(state, childSessions) {
       const childMatch = childSessions.find((s) => s.role === role || s.stageKey === role);
       if (childMatch) {
         sessionId = childMatch.id;
+        sessionProvider = childMatch.provider || 'codex';
       }
     }
     if (!sessionId) {
       return null;
     }
+
+    // Check if provider is known; if not, return unlinked reference
+    if (!isKnownProvider(sessionProvider)) {
+      return { label: label || sessionId, sessionId, provider: sessionProvider, unlinked: true };
+    }
+
     const session = childSessions.find((s) => s.id === sessionId);
     if (session) {
       return {
         label: label || sessionId,
         sessionId,
-        provider: session.provider || 'codex',
+        provider: session.provider || sessionProvider,
         stageKey: session.stageKey,
         address: session.address,
         routePath: session.routePath,
@@ -623,7 +733,7 @@ function buildWorkflowRoleSummary(state, childSessions) {
     return {
       label: label || sessionId,
       sessionId,
-      provider: 'codex',
+      provider: sessionProvider,
       routePath: `/runs/${encodeURIComponent(state?.run_id || '')}/sessions/by-id/${encodeURIComponent(sessionId)}`,
     };
   }
@@ -653,6 +763,13 @@ function buildWorkflowRoleSummary(state, childSessions) {
         role: 'reviewer',
         sessionRef: resolveSessionRef('reviewer', ''),
         checkCount: reviewCount,
+      },
+      {
+        key: 'fixer',
+        label: '修',
+        role: 'fixer',
+        sessionRef: resolveSessionRef('fixer', ''),
+        checkCount: fixCount,
       },
       {
         key: 'archiver',
@@ -710,16 +827,178 @@ function buildStageInspections(stageStatuses, childSessions, artifacts, runnerEr
 }
 
 /**
+ * Scan a run directory for fixed artifact files (review-N.json, fix-N.json, repair-N.json).
+ */
+async function scanRunDirFixedArtifacts(runDir, runId, warnings) {
+  const artifacts = [];
+  let entries = [];
+  try {
+    entries = await fs.readdir(runDir, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      warnings.push(`Cannot read run directory for fixed artifacts: ${error.message}`);
+    }
+    return artifacts;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue;
+    }
+    const name = entry.name;
+    for (const pattern of FIXED_ARTIFACT_PATTERNS) {
+      const match = name.match(pattern.regex);
+      if (match) {
+        const round = Number(match[1]);
+        const stage = pattern.stage(round);
+        const absolutePath = path.join(runDir, name);
+        artifacts.push({
+          id: `fixed:${runId}:${name}`,
+          label: name,
+          type: pattern.type,
+          semanticType: pattern.type,
+          stage,
+          relativePath: absolutePath,
+          path: absolutePath,
+          exists: true,
+          round,
+          source: 'run-dir-scan',
+        });
+        break;
+      }
+    }
+  }
+
+  return artifacts;
+}
+
+/**
+ * Merge run-dir-scanned artifacts with path-based artifacts, deduplicating by label.
+ */
+function mergeArtifacts(pathArtifacts, scannedArtifacts) {
+  const merged = [...pathArtifacts];
+  const pathLabels = new Set(pathArtifacts.map((a) => a.label));
+  for (const scanned of scannedArtifacts) {
+    if (!pathLabels.has(scanned.label)) {
+      merged.push(scanned);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Read and build a batch read model from a batch state.json file.
+ */
+export async function buildBatchReadModel({ projectPath, batchDirName, state, statePath, stateStat }) {
+  const batchId = String(state?.batch_id || batchDirName || '').trim();
+  const status = String(state?.status || '').trim();
+  const changes = Array.isArray(state?.changes) ? state.changes : [];
+  const currentIndex = Number.isInteger(state?.current_index) ? state.current_index : (changes.length > 0 ? changes.length - 1 : 0);
+  const runIds = normalizeBatchRunIds(state?.run_ids, changes);
+  const error = String(state?.error || '').trim();
+  const total = Math.max(changes.length, runIds.length);
+
+  return {
+    id: batchId,
+    status: mapRunState(status),
+    currentIndex,
+    displayCurrentIndex: displayBatchCurrentIndex(currentIndex, total),
+    total,
+    runIds,
+    changes,
+    error: error || undefined,
+    // displayId is assigned after sorting all batches
+    displayId: '',
+  };
+}
+
+/**
+ * Discover all batch state files for a project and return batch read models.
+ */
+export async function listBatchReadModels(projectPath) {
+  if (!projectPath) {
+    return [];
+  }
+  const batchesRoot = resolveWoBatchesRoot(projectPath);
+  let entries = [];
+  try {
+    entries = await fs.readdir(batchesRoot, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+
+  const batches = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const statePath = path.join(batchesRoot, entry.name, 'state.json');
+    try {
+      const stateStat = await fs.stat(statePath);
+      const state = JSON.parse(await fs.readFile(statePath, 'utf8'));
+      batches.push(await buildBatchReadModel({
+        projectPath,
+        batchDirName: entry.name,
+        state,
+        statePath,
+        stateStat,
+      }));
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        console.error(`Failed to read batch state ${statePath}:`, error.message);
+      }
+    }
+  }
+
+  // Assign displayIds by sorting batches (newest first by dir name convention)
+  batches.sort((left, right) => right.id.localeCompare(left.id));
+  batches.forEach((batch, index) => {
+    batch.displayId = `b${index + 1}`;
+  });
+
+  return batches;
+}
+
+/**
+ * Build a map of runId -> batch context for quick lookup during run read model building.
+ */
+export function buildBatchContextMap(batches) {
+  const map = {};
+  for (const batch of batches) {
+    batch.runIds.forEach((runId, index) => {
+      map[runId] = {
+        batchId: batch.id,
+        batchDisplayId: batch.displayId,
+        batchIndex: index + 1,
+        batchTotal: batch.total,
+        batchStatus: batch.status,
+      };
+    });
+  }
+  return map;
+}
+
+/**
  * Convert one parsed state file into a ProjectWorkflow read model.
  */
-export async function buildWoWorkflowReadModel({ projectPath, runDirName, state, statePath, stateStat }) {
+export async function buildWoWorkflowReadModel({ projectPath, runDirName, state, statePath, stateStat, batchContext }) {
   const warnings = [];
   const runId = String(pick(state, 'run_id') || runDirName || '').trim();
   const changeName = String(pick(state, 'change_name') || '').trim();
   const rawStatus = String(pick(state, 'status') || '').trim();
   const rawStage = String(pick(state, 'stage') || '').trim();
   const updatedAt = String(pick(state, 'updated_at') || stateStat?.mtime?.toISOString?.() || runDirName || '').trim();
-  const { artifacts, logsByKey } = await buildPathReadModel(projectPath, state, warnings);
+  const { artifacts: pathArtifacts, logsByKey } = await buildPathReadModel(projectPath, state, warnings);
+
+  // Scan run directory for fixed artifact files
+  const runDir = path.join(resolveWoRunsRoot(projectPath), runDirName);
+  const scannedArtifacts = await scanRunDirFixedArtifacts(runDir, runId, warnings);
+
+  const artifacts = mergeArtifacts(pathArtifacts, scannedArtifacts);
+
   const stageStatuses = buildStageStatuses(state, rawStage, rawStatus, warnings);
   const runnerProcesses = buildRunnerProcesses(state, stageStatuses, logsByKey, warnings);
   const childSessions = buildChildSessions(runId, runnerProcesses, warnings);
@@ -728,6 +1007,7 @@ export async function buildWoWorkflowReadModel({ projectPath, runDirName, state,
   };
   const workflowRoleSummary = buildWorkflowRoleSummary(state, childSessions);
   const runnerError = String(pick(state, 'error') || '').trim();
+  const workflowOwnedSessions = buildWorkflowOwnedSessionRefs(state);
   const diagnostics = {
     statePath: formatWoStatePathForDiagnostics(statePath),
     stateMtime: stateStat?.mtime?.toISOString?.() || null,
@@ -738,12 +1018,14 @@ export async function buildWoWorkflowReadModel({ projectPath, runDirName, state,
     runnerError,
     pathCount: Object.keys(state?.paths || {}).length,
     sessionCount: Object.keys(state?.sessions || {}).length,
+    workflowOwnedSessions,
+    workflowOwnedSessionIds: workflowOwnedSessions.map((session) => session.sessionId),
     processCount: Array.isArray(state?.processes) ? state.processes.length : runnerProcesses.length,
     warnings,
   };
   const stageInspections = buildStageInspections(stageStatuses, childSessions, artifacts, runnerError, diagnostics);
 
-  return {
+  const result = {
     id: runId,
     title: changeName || runId,
     objective: changeName || runId,
@@ -775,6 +1057,13 @@ export async function buildWoWorkflowReadModel({ projectPath, runDirName, state,
     runnerDiagnostics: diagnostics,
     diagnostics,
   };
+
+  // Attach batch context if this run belongs to a batch
+  if (batchContext?.[runId]) {
+    Object.assign(result, batchContext[runId]);
+  }
+
+  return result;
 }
 
 /**
@@ -785,6 +1074,17 @@ export async function listWoWorkflowReadModels(projectPath) {
   if (!projectPath) {
     return [];
   }
+
+  // Load batch context first so we can attach it to individual runs
+  let batchContext;
+  try {
+    const batches = await listBatchReadModels(projectPath);
+    batchContext = buildBatchContextMap(batches);
+  } catch (error) {
+    console.error(`Failed to load batch context for ${projectPath}:`, error.message);
+    batchContext = {};
+  }
+
   const runsRoot = resolveWoRunsRoot(projectPath);
   let entries = [];
   try {
@@ -811,6 +1111,7 @@ export async function listWoWorkflowReadModels(projectPath) {
         state,
         statePath,
         stateStat,
+        batchContext,
       }));
     } catch (error) {
       if (error?.code !== 'ENOENT') {

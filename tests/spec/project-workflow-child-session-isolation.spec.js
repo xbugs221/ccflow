@@ -32,7 +32,7 @@ test.describe('工作流子会话隔离', () => {
 
     await openFixtureProject(page);
     await page.getByTestId('project-workflow-group').getByRole('button', { name: /登录升级/ }).click();
-    await page.getByTestId('workflow-role-row-executor').getByRole('button').click();
+    await page.getByTestId('workflow-role-row-executor').getByRole('button', { name: '会话' }).click();
 
     await expect(page).toHaveURL(new RegExp(`${projectRoutePrefix}/runs/run-fixture/sessions/execution$`));
 

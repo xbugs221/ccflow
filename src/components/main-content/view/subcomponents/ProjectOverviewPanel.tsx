@@ -3,12 +3,12 @@
  * in the main content area before the user opens a concrete page.
  */
 import type React from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, ChevronRight, Clock, FolderOpen, MessageSquarePlus, Star, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../../ui/button';
-import type { ProjectSession, ProjectWorkflow, SessionProvider } from '../../../../types/app';
+import type { Project, ProjectSession, ProjectWorkflow, SessionProvider, WorkflowBatchInfo } from '../../../../types/app';
 import type { ProjectOverviewPanelProps } from '../../types/types';
 import {
   compareSessionsByCardSortMode,
@@ -144,6 +144,190 @@ function compareWorkflowBySortMode(
     });
 }
 
+/**
+ * Batch-aware workflow group component for the auto workflow overview.
+ * Shows a batch header (expandable) with progress, and individual run cards.
+ * Ungrouped runs show under a "单独运行" header.
+ */
+function BatchWorkflowGroup({
+  batch,
+  project,
+  workflows,
+  selectedWorkflow,
+  currentTime,
+  t,
+  onSelectWorkflow,
+  onOpenActionMenu,
+  bindLongPress,
+  handleProtectedClick,
+}: {
+  batch: WorkflowBatchInfo | null;
+  project: Project;
+  workflows: ProjectWorkflow[];
+  selectedWorkflow?: ProjectWorkflow | null;
+  currentTime: Date;
+  t: ReturnType<typeof useTranslation>['t'];
+  onSelectWorkflow: (project: Project, workflow: ProjectWorkflow) => void;
+  onOpenActionMenu: (state: {
+    isOpen: true;
+    x: number;
+    y: number;
+    kind: 'workflow';
+    workflowId: string;
+    workflowTitle: string;
+  }) => void;
+  bindLongPress: (state: {
+    kind: 'workflow';
+    workflowId: string;
+    workflowTitle: string;
+  }) => {
+    onTouchStart: (event: React.TouchEvent<HTMLElement>) => void;
+    onTouchEnd: () => void;
+    onTouchCancel: () => void;
+    onTouchMove: () => void;
+  };
+  handleProtectedClick: (callback: () => void) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  if (!batch) {
+    // Ungrouped runs
+    if (workflows.length === 0) return null;
+    return (
+      <div data-testid="batch-group-ungrouped">
+        <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="font-medium">单独运行</span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {workflows.map((workflow) => renderWorkflowCard(
+            workflow, selectedWorkflow, currentTime, t,
+            onSelectWorkflow, onOpenActionMenu, bindLongPress, handleProtectedClick, project,
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Batch header with progress
+  const batchLabel = batch.displayId || batch.id;
+  const progressCurrent = typeof batch.displayCurrentIndex === 'number'
+    ? batch.displayCurrentIndex
+    : Math.min(Math.max(batch.currentIndex + 1, batch.total > 0 ? 1 : 0), batch.total);
+  const progressLabel = `${progressCurrent}/${batch.total}`;
+  const statusLabel = batch.error ? '阻塞' : batch.status === 'completed' ? '完成' : '运行中';
+
+  return (
+    <div
+      data-testid={`batch-group-${batch.id}`}
+      className="rounded-md border border-border/60 bg-card/60"
+    >
+      <button
+        type="button"
+        className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-accent/30"
+        onClick={() => setExpanded((v) => !v)}
+        data-testid={`batch-header-${batch.id}`}
+      >
+        {expanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+        <span className="text-sm font-semibold text-foreground">
+          批量任务 {batchLabel}
+        </span>
+        <span className={[
+          'text-xs font-medium',
+          batch.error ? 'text-destructive' : batch.status === 'completed' ? 'text-green-500' : 'text-blue-500',
+        ].join(' ')}>
+          {statusLabel}
+        </span>
+        <span className="text-xs text-muted-foreground">{progressLabel}</span>
+      </button>
+      {expanded && (
+        <div className="grid gap-3 border-t border-border/40 px-3 pb-3 pt-3 sm:grid-cols-2 xl:grid-cols-3">
+          {workflows.map((workflow) => renderWorkflowCard(
+            workflow, selectedWorkflow, currentTime, t,
+            onSelectWorkflow, onOpenActionMenu, bindLongPress, handleProtectedClick, project,
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Render a single workflow card used by both batch groups and ungrouped runs.
+ */
+function renderWorkflowCard(
+  workflow: ProjectWorkflow,
+  selectedWorkflow: ProjectWorkflow | null | undefined,
+  currentTime: Date,
+  t: ReturnType<typeof useTranslation>['t'],
+  onSelectWorkflow: (project: Project, workflow: ProjectWorkflow) => void,
+  onOpenActionMenu: (state: {
+    isOpen: true;
+    x: number;
+    y: number;
+    kind: 'workflow';
+    workflowId: string;
+    workflowTitle: string;
+  }) => void,
+  bindLongPress: (state: {
+    kind: 'workflow';
+    workflowId: string;
+    workflowTitle: string;
+  }) => {
+    onTouchStart: (event: React.TouchEvent<HTMLElement>) => void;
+    onTouchEnd: () => void;
+    onTouchCancel: () => void;
+    onTouchMove: () => void;
+  },
+  handleProtectedClick: (callback: () => void) => void,
+  project: Project | null,
+) {
+  const isSelected = selectedWorkflow?.id === workflow.id;
+  const workflowActionState = {
+    kind: 'workflow' as const,
+    workflowId: workflow.id,
+    workflowTitle: workflow.title,
+  };
+  return (
+    <div
+      key={workflow.id}
+      className={[
+        'flex min-h-[132px] flex-col rounded-md border p-4',
+        isSelected ? 'border-primary bg-primary/10' : 'border-border/50 bg-background',
+      ].join(' ')}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onOpenActionMenu({
+          isOpen: true,
+          ...workflowActionState,
+          x: event.clientX,
+          y: event.clientY,
+        });
+      }}
+      {...bindLongPress(workflowActionState)}
+    >
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 flex-col items-start gap-3 text-left"
+        onClick={() => handleProtectedClick(() => {
+          if (project) onSelectWorkflow(project, workflow);
+        })}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="line-clamp-2 text-sm font-medium text-foreground">{workflow.title}</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {workflow.updatedAt
+              ? formatTimeAgo(workflow.updatedAt, currentTime, t)
+              : '未知时间'}
+          </div>
+        </div>
+        <div className="mt-auto flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <WorkflowStageProgress stageStatuses={workflow.stageStatuses} size="md" />
+        </div>
+      </button>
+    </div>
+  );
+}
+
 export default function ProjectOverviewPanel({
   project,
   selectedSession,
@@ -166,6 +350,49 @@ export default function ProjectOverviewPanel({
   const workflowEntries = [...(project.workflows || [])]
     .sort((workflowA, workflowB) => compareWorkflowBySortMode(workflowA, workflowB, workflowSortMode));
   const workflows = workflowEntries;
+
+  // Group workflows by batch for the batch-aware display
+  const batchGroups = useMemo(() => {
+    const batches = project.batches || [];
+    const returnValue: Array<{
+      batch: WorkflowBatchInfo | null;
+      workflows: ProjectWorkflow[];
+    }> = [];
+
+    // Build batchId -> batch lookup
+    const batchById = new Map(batches.map((b) => [b.id, b]));
+
+    // Group by batch
+    const batchedRuns = new Map<string | null, ProjectWorkflow[]>();
+    for (const workflow of workflows) {
+      const key = workflow.batchId || null;
+      if (!batchedRuns.has(key)) {
+        batchedRuns.set(key, []);
+      }
+      batchedRuns.get(key)!.push(workflow);
+    }
+
+    // Sort batched runs by batchIndex
+    for (const [batchId, batchWorkflows] of batchedRuns) {
+      batchWorkflows.sort((a, b) => (a.batchIndex || 0) - (b.batchIndex || 0));
+      returnValue.push({
+        batch: batchId ? (batchById.get(batchId) || null) : null,
+        workflows: batchWorkflows,
+      });
+    }
+
+    // Sort: batched groups first, then unbatched
+    returnValue.sort((a, b) => {
+      if (a.batch && !b.batch) return -1;
+      if (!a.batch && b.batch) return 1;
+      if (a.batch && b.batch) {
+        return (a.batch.displayId || '').localeCompare(b.batch.displayId || '');
+      }
+      return 0;
+    });
+
+    return returnValue;
+  }, [project.batches, workflows]);
   const sessionEntries = [...sessions]
     .map((session) => ({
       ...session,
@@ -669,57 +896,27 @@ export default function ProjectOverviewPanel({
             navigateTo={navigate}
           />
           {workflowExpanded && (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {workflows.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground sm:col-span-2 xl:col-span-3">
+            <div className="mt-4 space-y-4">
+              {batchGroups.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
                   暂无自动工作流
                 </div>
               ) : (
-                workflows.map((workflow) => {
-                  const isSelected = selectedWorkflow?.id === workflow.id;
-                  const workflowActionState: OverviewActionMenuTarget = {
-                    kind: 'workflow',
-                    workflowId: workflow.id,
-                    workflowTitle: workflow.title,
-                  };
-                  return (
-                    <div
-                      key={workflow.id}
-	                      className={[
-	                        'flex min-h-[132px] flex-col rounded-md border p-4',
-	                        isSelected ? 'border-primary bg-primary/10' : 'border-border/50 bg-background',
-	                      ].join(' ')}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        openActionMenu({
-                          isOpen: true,
-                          ...workflowActionState,
-                          x: event.clientX,
-                          y: event.clientY,
-                        });
-                      }}
-                      {...bindLongPress(workflowActionState)}
-                    >
-                      <button
-                        type="button"
-                        className="flex min-w-0 flex-1 flex-col items-start gap-3 text-left"
-                        onClick={() => handleProtectedClick(() => onSelectWorkflow(project, workflow))}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="line-clamp-2 text-sm font-medium text-foreground">{workflow.title}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {workflow.updatedAt
-                              ? formatTimeAgo(workflow.updatedAt, currentTime, t)
-                              : '未知时间'}
-                          </div>
-                        </div>
-                        <div className="mt-auto flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-	                          <WorkflowStageProgress stageStatuses={workflow.stageStatuses} size="md" />
-                        </div>
-                      </button>
-                    </div>
-                  );
-                })
+                batchGroups.map((group) => (
+                  <BatchWorkflowGroup
+                    key={group.batch?.id || 'ungrouped'}
+                    batch={group.batch}
+                    project={project}
+                    workflows={group.workflows}
+                    selectedWorkflow={selectedWorkflow}
+                    currentTime={currentTime}
+                    t={t}
+                    onSelectWorkflow={onSelectWorkflow}
+                    onOpenActionMenu={(state) => openActionMenu(state)}
+                    bindLongPress={bindLongPress}
+                    handleProtectedClick={handleProtectedClick}
+                  />
+                ))
               )}
             </div>
           )}

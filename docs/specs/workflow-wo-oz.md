@@ -33,33 +33,36 @@ Workflow read models are built only from `${XDG_STATE_HOME:-~/.local/state}/wo/r
 Project overview and sidebar workflow cards must not grow endless stage icons with more review/repair rounds.
 
 - All `review_N` stages are aggregated into a single review icon showing `xN` (e.g. `x2`).
-- All `repair_N` / `fix_N` stages are aggregated into a single repair icon showing `xN` (e.g. `x1`).
-- Single-stage icons (planning, execution, archive) keep their original appearance.
+- All `repair_N` / `fix_N` stages are aggregated into a single fix icon showing `xN` (e.g. `x1`).
+- Single-stage icons (planning, execution, archive, fixer) keep their original appearance.
 - Aggregated icon color follows active/failed priority: if any summed stage is `active`, `running`, `blocked`, or `failed`, the aggregated icon shows the active color, never completed color.
 
-### Render wo 0.9 fixed role rows as the primary workflow view
+### Render wo v1.0 five-role rows as the primary workflow view
 
-Workflow detail pages show `workflowRoleSummary.rows` as the main progress surface, matching `wo status -w1` semantics.
+Workflow detail pages show `workflowRoleSummary.rows` as the main progress surface, matching `wo status` semantics.
 
-- Fixed role rows are `规` (planning), `写` (executor), `审` (reviewer), and `存` (archiver).
+- Fixed role rows are `规` (planning), `写` (executor), `审` (reviewer), `修` (fixer), and `存` (archiver).
 - Completion counts use digit notation `xN` (e.g. `x3`) instead of repeated `✓` marks.
 - `写` count includes `execution` and any `fix_N` / `repair_N` stages.
 - `审` count includes all `review_N` stages.
+- `修` count includes all `fix_N` and `repair_N` stages.
 - `存` count includes `archive` stages.
-- `规` shows `未知` when no planning session is present; no invalid link is generated.
+- `规` shows `工作流开始之前就已完成` when no planning session is present; no invalid link is generated.
 - Each row links to its matched workflow child session, with the visible link text as `会话` (not the raw session ID).
 - Each row shows a link to the current-round artifact (e.g. `review-2.json`) after the session link, choosing the latest review/repair/fix stage file.
 - When the current-round artifact does not exist or `exists = false`, no artifact link is rendered.
+- Session resolution must support provider prefixes (`codex:*`, `opencode:*`, `pi:*`); unknown or unsupported providers must not render broken links.
 - `workflowDisplay.lines` remains as a compatibility fallback when `workflowRoleSummary` is absent.
 - `stage=done` and `status=done` are terminal metadata, not workflow display rows.
 
-### Support arbitrary happened review and repair rounds
+### Support arbitrary happened review, repair, and fix rounds
 
-Workflow read models support every `review_N` and `repair_N` stage that appears in the wo user-state `state.json`.
+Workflow read models support every `review_N`, `repair_N`, and `fix_N` stage that appears in the wo user-state `state.json`.
 
-- Dynamic stage ordering is `execution`, then alternating `review_1`, `repair_1`, `review_2`, `repair_2`, and so on for all happened rounds, followed by `archive`.
-- Legal multi-round stages such as `review_4` or `repair_4` must not produce unknown-stage diagnostics.
-- `archive` is ordered after every happened review/repair loop.
+- Dynamic stage ordering is `execution`, then alternating `review_1`, `repair_1` (or `fix_1`), `review_2`, `repair_2` (or `fix_2`), and so on for all happened rounds, followed by `archive`.
+- Legal multi-round stages such as `review_4`, `repair_4`, or `fix_4` must not produce unknown-stage diagnostics.
+- `archive` is ordered after every happened review/repair/fix loop.
+- `fix_N` and `repair_N` stages are both mapped to the `修` role row.
 
 ### Link matched jsonl session labels
 
@@ -89,6 +92,44 @@ Users can start a normal planning conversation before any oz change exists.
 - Planning creates an ordinary Codex manual session with an initial prompt that asks to discuss problem, scope, non-goals, and test strategy before creating an oz change.
 - Planning does not call the workflow creation API, does not run `wo run`, and does not create wo run state.
 - After the planning session creates a new active oz change, that change is discovered by the normal adoptable-change list and can be started through the same dialog.
+
+### Display batch grouping and progress in workflow overview
+
+Batch workflows group multiple runs under a single batch context with progress display.
+
+- The read model reads `batches/<batchId>/state.json` from the wo user-state directory and derives batch metadata: `id`, `displayId` (e.g. `b1`), `status`, `currentIndex`, `total`, `runIds`, and `error`.
+- Each child run carries `batchId`, `batchDisplayId`, `batchIndex`, `batchTotal`, and `batchStatus` so detail pages can show batch context.
+- The frontend groups runs by batch; ungrouped runs appear in a "单独运行" (standalone) section.
+- Batch header shows `批量任务 bN`, status, and `current/total` progress.
+- Clicking the batch header expands or collapses child runs; it does not navigate to a separate batch detail page.
+- Clicking a child run navigates to `/runs/<runId>` detail view.
+- Progress display uses `displayCurrent = currentIndex + 1` for user-visible 1-based indexing.
+
+### Discover fixed artifacts in run directories
+
+In addition to artifacts declared in `state.paths`, the read model discovers fixed-name artifacts from the run directory.
+
+- Scanned artifacts include `review-N.json`, `fix-N.json`, and `repair-N.json`.
+- `review-N.json` artifacts belong to the `审` role; `fix-N.json` and `repair-N.json` belong to the `修` role.
+- Artifact output uses controlled paths so the frontend can open file contents directly.
+- Only the latest-round artifact per role is shown in the role summary; historical rounds are visible in the detail artifact area.
+- Missing artifacts do not produce broken links.
+
+### Filter workflow-owned sessions from manual session area
+
+The "manual sessions" area only shows user-initiated chat sessions, not wo workflow child sessions.
+
+- Backend provider session lists filter out sessions whose id appears in any workflow `childSessions`, `runnerProcesses.sessionId`, or the wo state `sessions` role map.
+- Frontend manual session area retains `isWorkflowOwnedSession` as a fallback filter.
+- Workflow sessions remain accessible from run detail pages via their provider session links.
+
+### Keep batch view read-only
+
+Frontend can display batch and run state but must not mutate it.
+
+- Batch UI does not render skip, reorder, resume, retry, or abort operations.
+- Frontend does not directly write to `batches/.../state.json` or `runs/.../state.json`.
+- Any future batch intervention must go through stable wo commands with explicit confirmation.
 
 ### Cover the migrated business workflow in tests
 

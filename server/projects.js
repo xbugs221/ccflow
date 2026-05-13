@@ -1626,6 +1626,27 @@ function isLikelyWorkflowAutoSession(session, workflows = [], provider = '') {
     && displayText.startsWith('执行 OpenSpec 变更中的任务');
 }
 
+function getWorkflowOwnedProviderSessionIds(workflows = [], provider = '') {
+  /**
+   * PURPOSE: Collect sessions controlled by wo state even when they only appear
+   * in state.sessions and not in childSessions or persisted route metadata.
+   */
+  const sessionIds = new Set();
+  for (const workflow of workflows) {
+    for (const session of workflow?.childSessions || []) {
+      if (session?.provider === provider && session?.id) {
+        sessionIds.add(session.id);
+      }
+    }
+    for (const session of workflow?.runnerDiagnostics?.workflowOwnedSessions || []) {
+      if (session?.provider === provider && session?.sessionId) {
+        sessionIds.add(session.sessionId);
+      }
+    }
+  }
+  return sessionIds;
+}
+
 /**
  * Build the set of route-bucket ids that must not consume project manual cN numbers.
  */
@@ -2659,6 +2680,8 @@ async function getProjects(progressCallback = null) {
       try {
         project.opencodeSessions = await getOpencodeSessions(actualProjectDir, {
           indexRef: opencodeSessionsIndexRef,
+          includeHidden: true,
+          excludeWorkflowChildSessions: true,
         });
       } catch (e) {
         console.warn(`Could not load OpenCode sessions for manual project ${projectName}:`, e.message);
@@ -3886,11 +3909,7 @@ async function getCodexSessions(projectPath, options = {}) {
        * workflow auto-runner orphans out of the manual Codex session list.
        */
       const workflows = await listProjectWorkflows(projectPath);
-      const workflowCodexSessionIds = new Set(
-        workflows.flatMap((workflow) => (workflow.childSessions || []))
-          .filter((session) => session?.provider === 'codex' && session?.id)
-          .map((session) => session.id),
-      );
+      const workflowCodexSessionIds = getWorkflowOwnedProviderSessionIds(workflows, 'codex');
       standaloneSessions = sessions.filter((session) => (
         !workflowCodexSessionIds.has(session.id)
         && !isWorkflowOwnedSession(session, workflowMetadataById)
@@ -4100,11 +4119,7 @@ async function getOpencodeSessions(projectPath, options = {}) {
   let standaloneSessions = sessions;
   if (excludeWorkflowChildSessions) {
     const workflows = await listProjectWorkflows(projectPath);
-    const workflowOpencodeSessionIds = new Set(
-      workflows.flatMap((workflow) => (workflow.childSessions || []))
-        .filter((session) => session?.provider === 'opencode' && session?.id)
-        .map((session) => session.id),
-    );
+    const workflowOpencodeSessionIds = getWorkflowOwnedProviderSessionIds(workflows, 'opencode');
     standaloneSessions = sessions.filter((session) => (
       !workflowOpencodeSessionIds.has(session.id)
       && !isWorkflowOwnedSession(session, workflowMetadataById)
@@ -4181,7 +4196,11 @@ async function populateProjectCollections(project, projectName, actualProjectDir
       includeHidden: true,
       excludeWorkflowChildSessions: true,
     }),
-    getOpencodeSessions(actualProjectDir, { indexRef: opencodeSessionsIndexRef }),
+    getOpencodeSessions(actualProjectDir, {
+      indexRef: opencodeSessionsIndexRef,
+      includeHidden: true,
+      excludeWorkflowChildSessions: true,
+    }),
     detectTaskMasterFolder(actualProjectDir),
   ]);
 

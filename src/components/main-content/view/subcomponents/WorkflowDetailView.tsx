@@ -328,12 +328,14 @@ function getRoleSummaryArtifact(workflow: ProjectWorkflow, rowKey: string): Work
     return getLatestRoundArtifact(workflow, ['review']);
   }
   if (rowKey === 'executor') {
-    return getLatestRoundArtifact(workflow, ['repair', 'fix'])
-      || (workflow.artifacts || []).find((artifact) => (
-        artifact.exists !== false
-        && resolveArtifactType(artifact) === 'file'
-        && (artifact.type === 'summary' || artifact.semanticType === 'summary' || artifact.semanticType === 'workflow_output')
-      )) || null;
+    return (workflow.artifacts || []).find((artifact) => (
+      artifact.exists !== false
+      && resolveArtifactType(artifact) === 'file'
+      && (artifact.type === 'summary' || artifact.semanticType === 'summary' || artifact.semanticType === 'workflow_output')
+    )) || null;
+  }
+  if (rowKey === 'fixer') {
+    return getLatestRoundArtifact(workflow, ['repair', 'fix']);
   }
   if (rowKey === 'archiver') {
     return (workflow.artifacts || []).find((artifact) => (
@@ -543,7 +545,8 @@ function renderWorkflowRoleSummary(
       {rows.map((row) => {
         const sessionRef = row.sessionRef;
         const checks = row.checkCount || 0;
-        const hasLink = Boolean(sessionRef?.sessionId);
+        const unlinked = sessionRef && (sessionRef as any).unlinked === true;
+        const hasLink = Boolean(sessionRef?.sessionId) && !unlinked;
         const currentArtifact = getRoleSummaryArtifact(workflow, row.key);
         const currentArtifactPath = currentArtifact ? resolveArtifactPath(project, currentArtifact) : null;
         return (
@@ -553,7 +556,11 @@ function renderWorkflowRoleSummary(
             data-testid={`workflow-role-row-${row.key}`}
           >
             <span className="w-6 shrink-0 font-medium text-foreground">{row.label}</span>
-            {hasLink && sessionRef ? (
+            {unlinked ? (
+              <span className="truncate text-muted-foreground" title={sessionRef.label || sessionRef.sessionId}>
+                {sessionRef.sessionId || sessionRef.label}
+              </span>
+            ) : hasLink && sessionRef ? (
               <button
                 type="button"
                 className="truncate text-left text-sm font-medium text-primary underline decoration-current underline-offset-2"
@@ -1317,6 +1324,15 @@ export default function WorkflowDetailView({
         <div className="rounded-lg border border-border/50 bg-card p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
+              {currentWorkflow.batchDisplayId && (
+                <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>自动工作流</span>
+                  <span>/</span>
+                  <span>{currentWorkflow.batchDisplayId}</span>
+                  <span>/</span>
+                  <span className="text-foreground">{currentWorkflow.title}</span>
+                </div>
+              )}
               <h2 className="text-xl font-semibold text-foreground">{currentWorkflow.title}</h2>
               {currentWorkflow.runner === 'go' && (
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -1324,6 +1340,9 @@ export default function WorkflowDetailView({
                   <span>阶段: {currentWorkflow.stage}</span>
                   <span>状态: {currentWorkflow.runState}</span>
                   <span>Provider: Codex</span>
+                  {currentWorkflow.batchDisplayId && (
+                    <span>批量: {currentWorkflow.batchDisplayId} {currentWorkflow.batchIndex}/{currentWorkflow.batchTotal}</span>
+                  )}
                   {currentWorkflow.runnerError && <span className="text-destructive">{currentWorkflow.runnerError}</span>}
                 </div>
               )}

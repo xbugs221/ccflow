@@ -9,7 +9,10 @@ import {
   resumeGoWorkflowRun,
   startGoWorkflowRun,
 } from './domains/workflows/go-runner-client.js';
-import { listWoWorkflowReadModels } from './domains/workflows/wo-read-model.js';
+import {
+  listBatchReadModels,
+  listWoWorkflowReadModels,
+} from './domains/workflows/wo-read-model.js';
 
 /**
  * Read active OpenSpec changes through the CLI so ccflow follows OpenSpec's own discovery rules.
@@ -74,6 +77,13 @@ export async function listProjectWorkflows(projectPath) {
   return listWoWorkflowReadModels(projectPath);
 }
 
+export async function listProjectBatches(projectPath) {
+  if (!projectPath) {
+    return [];
+  }
+  return listBatchReadModels(projectPath);
+}
+
 export async function attachWorkflowMetadata(projects) {
   /**
    * Add workflow read models without letting one corrupt project-local config
@@ -91,9 +101,19 @@ export async function attachWorkflowMetadata(projects) {
           error,
         );
       }
+      let batches = [];
+      try {
+        batches = await listProjectBatches(projectPath);
+      } catch (error) {
+        console.error(
+          `Failed to load batches for project ${project.name || projectPath}:`,
+          error,
+        );
+      }
       return {
         ...project,
         workflows,
+        batches,
         hasUnreadActivity: workflows.some((workflow) => workflow.hasUnreadActivity === true),
       };
     }),

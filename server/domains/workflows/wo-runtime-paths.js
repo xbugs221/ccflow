@@ -65,6 +65,20 @@ export function resolveWoRunStatePath(projectPath, runId, env = process.env) {
 }
 
 /**
+ * Resolve the batches directory for a project in the wo user-state tree.
+ */
+export function resolveWoBatchesRoot(projectPath, env = process.env) {
+  return path.join(resolveWoStateRoot(env), 'repos', resolveWoRepoKey(projectPath), 'batches');
+}
+
+/**
+ * Resolve one batch state file path.
+ */
+export function resolveWoBatchStatePath(projectPath, batchId, env = process.env) {
+  return path.join(resolveWoBatchesRoot(projectPath, env), String(batchId || ''), 'state.json');
+}
+
+/**
  * Render state paths compactly in diagnostics when they live under the state root.
  */
 export function formatWoStatePathForDiagnostics(statePath, env = process.env) {

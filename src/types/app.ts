@@ -98,6 +98,7 @@ export interface WorkflowDisplayLine {
     stageKey?: string;
     address?: string;
     routePath?: string;
+    unlinked?: boolean;
   } | null;
 }
 
@@ -112,9 +113,22 @@ export interface WorkflowRoleSummaryRow {
     stageKey?: string;
     address?: string;
     routePath?: string;
+    unlinked?: boolean;
   } | null;
   placeholder?: string;
   checkCount: number;
+}
+
+export interface WorkflowBatchInfo {
+  id: string;
+  displayId: string;
+  status: string;
+  currentIndex: number;
+  displayCurrentIndex?: number;
+  total: number;
+  runIds: string[];
+  changes: string[];
+  error?: string;
 }
 
 export interface ProjectWorkflow {
@@ -161,6 +175,11 @@ export interface ProjectWorkflow {
   activeStep?: string;
   completedSteps?: number;
   totalSteps?: number;
+  batchId?: string;
+  batchDisplayId?: string;
+  batchIndex?: number;
+  batchTotal?: number;
+  batchStatus?: string;
   [key: string]: unknown;
 }
 
@@ -217,6 +236,7 @@ export interface Project {
   codexSessions?: ProjectSession[];
   opencodeSessions?: ProjectSession[];
   workflows?: ProjectWorkflow[];
+  batches?: WorkflowBatchInfo[];
   sessionMeta?: ProjectSessionMeta;
   manualSessionNextRouteIndex?: number;
   taskmaster?: ProjectTaskmasterInfo;
