@@ -30,9 +30,11 @@ const LEGACY_STAGE_ORDER = {
 };
 const TERMINAL_METADATA_STAGES = new Set(['done']);
 const FIXED_ARTIFACT_PATTERNS = [
-  { regex: /^review-(\d+)\.json$/, stage: (n) => `review_${n}`, type: 'review-result' },
-  { regex: /^fix-(\d+)\.json$/, stage: (n) => `fix_${n}`, type: 'fix-result' },
-  { regex: /^repair-(\d+)\.json$/, stage: (n) => `repair_${n}`, type: 'repair-result' },
+  { regex: /^review-(\d+)\.(?:json|md|markdown)$/i, stage: (n) => `review_${n}`, type: 'review-result' },
+  { regex: /^fix-(\d+)\.(?:json|md|markdown)$/i, stage: (n) => `fix_${n}`, type: 'fix-result' },
+  { regex: /^repair-(\d+)\.(?:json|md|markdown)$/i, stage: (n) => `repair_${n}`, type: 'repair-result' },
+  { regex: /^fix-(\d+)-summary\.(?:json|md|markdown)$/i, stage: (n) => `fix_${n}`, type: 'repair-summary' },
+  { regex: /^repair-(\d+)-summary\.(?:json|md|markdown)$/i, stage: (n) => `repair_${n}`, type: 'repair-summary' },
 ];
 const REVIEW_TITLES = {
   review_1: '需求与范围覆盖',
@@ -827,7 +829,7 @@ function buildStageInspections(stageStatuses, childSessions, artifacts, runnerEr
 }
 
 /**
- * Scan a run directory for fixed artifact files (review-N.json, fix-N.json, repair-N.json).
+ * Scan a run directory for fixed artifact files such as review-N.json, fix-N.md, and repair-N.json.
  */
 async function scanRunDirFixedArtifacts(runDir, runId, warnings) {
   const artifacts = [];

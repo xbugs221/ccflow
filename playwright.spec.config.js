@@ -24,5 +24,6 @@ export default {
     '2026-05-11-14-修复前端tab选中和终端细节-workspace-regression.test.js',
     '2026-05-11-16-修正OpenCode设置页状态误报-opencode-settings-status.test.js',
     '2026-05-11-17-修复移动端会话视图和更新dock预期-mobile-session-view-regression.test.js',
+    '2026-05-13-20-优化工作流卡片和详情链接呈现-workflow-presentation.test.js',
   ],
 };

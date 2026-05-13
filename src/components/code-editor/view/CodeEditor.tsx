@@ -77,7 +77,7 @@ export default function CodeEditor({
   const isImageFile = fileType === 'image';
   const isBinaryFile = fileType === 'binary';
   const showDownload = true;
-  const showSave = !isBinaryFile && !isImageFile;
+  const showSave = editable && !isBinaryFile && !isImageFile;
 
   const minimapExtension = useMemo(
     () => (

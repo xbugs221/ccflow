@@ -288,20 +288,32 @@ function getArtifactFileName(artifact: WorkflowArtifact): string {
 
 function getArtifactRound(artifact: WorkflowArtifact, stagePrefix: string): number {
   /**
-   * Extract the wo review/fix round from either stage keys or generated JSON
+   * Extract the wo review/fix round from either stage keys or generated artifact
    * filenames so the role row can link only the latest current-round artifact.
    */
   const stageMatch = String(artifact.stage || '').match(new RegExp(`^${stagePrefix}_(\\d+)$`));
   if (stageMatch) {
     return Number(stageMatch[1]);
   }
-  const nameMatch = getArtifactFileName(artifact).match(new RegExp(`^${stagePrefix}-(\\d+)\\.json$`));
+  const nameMatch = getArtifactFileName(artifact).match(new RegExp(`^${stagePrefix}-(\\d+)\\.(?:json|md|markdown)$`, 'i'));
   return nameMatch ? Number(nameMatch[1]) : 0;
 }
 
-function getLatestRoundArtifact(workflow: ProjectWorkflow, prefixes: string[]): WorkflowArtifact | null {
+function getArtifactExtension(artifact: WorkflowArtifact): string {
   /**
-   * Pick one existing JSON artifact for the latest review/fix round, ignoring
+   * Read the visible artifact extension so equal-round candidates can prefer the
+   * most useful format for a compact role row.
+   */
+  return getArtifactFileName(artifact).split('.').pop()?.toLowerCase() || '';
+}
+
+function getLatestRoundArtifact(
+  workflow: ProjectWorkflow,
+  prefixes: string[],
+  preferredExtensions: string[] = ['json', 'md', 'markdown'],
+): WorkflowArtifact | null {
+  /**
+   * Pick one existing artifact for the latest review/fix round, ignoring
    * directories and missing path references that would open a broken link.
    */
   const candidates = (workflow.artifacts || [])
@@ -309,13 +321,21 @@ function getLatestRoundArtifact(workflow: ProjectWorkflow, prefixes: string[]): 
     .map((artifact) => {
       const matchedPrefix = prefixes.find((prefix) => (
         new RegExp(`^${prefix}_\\d+$`).test(String(artifact.stage || ''))
-        || new RegExp(`^${prefix}-\\d+\\.json$`).test(getArtifactFileName(artifact))
+        || new RegExp(`^${prefix}-\\d+\\.(?:json|md|markdown)$`, 'i').test(getArtifactFileName(artifact))
       ));
       return matchedPrefix ? { artifact, round: getArtifactRound(artifact, matchedPrefix) } : null;
     })
     .filter((candidate): candidate is { artifact: WorkflowArtifact; round: number } => Boolean(candidate && candidate.round > 0));
 
-  candidates.sort((left, right) => right.round - left.round);
+  const extensionPriority = (artifact: WorkflowArtifact) => {
+    const index = preferredExtensions.indexOf(getArtifactExtension(artifact));
+    return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+  };
+  candidates.sort((left, right) => (
+    right.round - left.round
+    || extensionPriority(left.artifact) - extensionPriority(right.artifact)
+    || getArtifactFileName(left.artifact).localeCompare(getArtifactFileName(right.artifact))
+  ));
   return candidates[0]?.artifact || null;
 }
 
@@ -325,7 +345,7 @@ function getRoleSummaryArtifact(workflow: ProjectWorkflow, rowKey: string): Work
    * visible work for that role.
    */
   if (rowKey === 'reviewer') {
-    return getLatestRoundArtifact(workflow, ['review']);
+    return getLatestRoundArtifact(workflow, ['review'], ['json', 'md', 'markdown']);
   }
   if (rowKey === 'executor') {
     return (workflow.artifacts || []).find((artifact) => (
@@ -335,7 +355,7 @@ function getRoleSummaryArtifact(workflow: ProjectWorkflow, rowKey: string): Work
     )) || null;
   }
   if (rowKey === 'fixer') {
-    return getLatestRoundArtifact(workflow, ['repair', 'fix']);
+    return getLatestRoundArtifact(workflow, ['repair', 'fix'], ['md', 'markdown', 'json']);
   }
   if (rowKey === 'archiver') {
     return (workflow.artifacts || []).find((artifact) => (

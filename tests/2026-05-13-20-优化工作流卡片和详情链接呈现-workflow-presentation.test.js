@@ -19,11 +19,15 @@ function writeMultiRoundWorkflowFixture() {
   const projectPath = PLAYWRIGHT_FIXTURE_PROJECT_PATHS[0];
   const reviewOne = '.local/share/wo/run-fixture/review-1.json';
   const reviewTwo = '.local/share/wo/run-fixture/review-2.json';
-  const repairOne = '.local/share/wo/run-fixture/repair-1.json';
+  const repairOne = '.local/share/wo/run-fixture/repair-1.md';
   for (const relativePath of [reviewOne, reviewTwo, repairOne]) {
     const absolutePath = path.join(projectPath, relativePath);
     fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
-    fs.writeFileSync(absolutePath, JSON.stringify({ path: relativePath }), 'utf8');
+    fs.writeFileSync(
+      absolutePath,
+      relativePath.endsWith('.md') ? '# 修复说明\n\n已处理审核问题。\n' : JSON.stringify({ path: relativePath }),
+      'utf8',
+    );
   }
 
   const statePath = resolveWoRunStatePath(projectPath, 'run-fixture');
@@ -91,8 +95,10 @@ test.describe('多轮工作流呈现', () => {
 
     const executorRow = page.getByTestId('workflow-role-row-executor');
     const reviewerRow = page.getByTestId('workflow-role-row-reviewer');
-    await expect(executorRow).toContainText('x2');
+    const fixerRow = page.getByTestId('workflow-role-row-fixer');
+    await expect(executorRow).toContainText('x1');
     await expect(reviewerRow).toContainText('x2');
+    await expect(fixerRow).toContainText('x1');
     await expect(executorRow).not.toContainText('✓✓');
     await expect(reviewerRow).not.toContainText('✓✓');
     await expect(executorRow.getByRole('button', { name: /^会话$/ })).toBeVisible();
@@ -101,6 +107,7 @@ test.describe('多轮工作流呈现', () => {
     await expect(reviewerRow).not.toContainText('reviewer-session-long-id');
     await expect(reviewerRow.getByRole('button', { name: 'review-2.json' })).toBeVisible();
     await expect(reviewerRow).not.toContainText('review-1.json');
+    await expect(fixerRow.getByRole('button', { name: 'repair-1.md' })).toBeVisible();
 
     await reviewerRow.getByRole('button', { name: 'review-2.json' }).click();
     await expect(page.getByRole('heading', { name: 'review-2.json' })).toBeVisible();

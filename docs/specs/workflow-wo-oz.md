@@ -109,8 +109,8 @@ Batch workflows group multiple runs under a single batch context with progress d
 
 In addition to artifacts declared in `state.paths`, the read model discovers fixed-name artifacts from the run directory.
 
-- Scanned artifacts include `review-N.json`, `fix-N.json`, and `repair-N.json`.
-- `review-N.json` artifacts belong to the `审` role; `fix-N.json` and `repair-N.json` belong to the `修` role.
+- Scanned artifacts include `review-N.json`, `fix-N.json`, `repair-N.json`, and matching Markdown files such as `fix-N.md`.
+- `review-N.*` artifacts belong to the `审` role; `fix-N.*` and `repair-N.*` artifacts belong to the `修` role.
 - Artifact output uses controlled paths so the frontend can open file contents directly.
 - Only the latest-round artifact per role is shown in the role summary; historical rounds are visible in the detail artifact area.
 - Missing artifacts do not produce broken links.

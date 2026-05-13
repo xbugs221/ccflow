@@ -8,6 +8,7 @@ import os from 'os';
 import { promises as fsPromises } from 'fs';
 import { spawn } from 'child_process';
 import { extractProjectDirectory } from './projects.js';
+import { resolveWoBatchesRoot, resolveWoRunsRoot } from './domains/workflows/wo-runtime-paths.js';
 
 /**
  * Normalize a relative workspace path into POSIX-style form for API payloads.
@@ -190,6 +191,87 @@ export async function resolveProjectPath(projectRoot, inputPath, options = {}) {
         absolutePath: candidatePath,
         relativePath: toProjectRelativePath(projectRoot, candidatePath),
     };
+}
+
+/**
+ * Check whether an absolute path lives inside a filesystem root after resolving
+ * symlinks where possible.
+ *
+ * @param {string} rootPath
+ * @param {string} targetPath
+ * @returns {Promise<boolean>}
+ */
+async function isPathInsideRoot(rootPath, targetPath) {
+    const resolvedRoot = await fsPromises.realpath(rootPath).catch(() => path.resolve(rootPath));
+    const resolvedTarget = await fsPromises.realpath(targetPath).catch((error) => {
+        if (error?.code === 'ENOENT') {
+            return path.resolve(targetPath);
+        }
+        throw error;
+    });
+    const relativePath = path.relative(resolvedRoot, resolvedTarget);
+    return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
+/**
+ * Return unique project path candidates that can have generated the wo repo key.
+ *
+ * @param {string} projectRoot
+ * @param {string | null | undefined} projectPathHint
+ * @returns {string[]}
+ */
+function buildWorkflowRuntimeProjectPathCandidates(projectRoot, projectPathHint) {
+    const candidates = [projectRoot];
+    const hintedPath = typeof projectPathHint === 'string' ? projectPathHint.trim() : '';
+    if (hintedPath) {
+        candidates.push(path.resolve(hintedPath));
+    }
+    return [...new Set(candidates.filter(Boolean))];
+}
+
+/**
+ * Resolve a readable file path, allowing normal project files plus read-only wo
+ * runtime artifacts generated for the same project.
+ *
+ * @param {string} projectRoot
+ * @param {string} inputPath
+ * @param {{ allowRoot?: boolean, projectPathHint?: string }} [options]
+ * @returns {Promise<{ projectRoot: string, absolutePath: string, relativePath: string, readOnly: boolean, scope: string }>}
+ */
+export async function resolveReadableProjectPath(projectRoot, inputPath, options = {}) {
+    try {
+        const projectTarget = await resolveProjectPath(projectRoot, inputPath, options);
+        return {
+            ...projectTarget,
+            readOnly: false,
+            scope: 'project',
+        };
+    } catch (error) {
+        const trimmedPath = typeof inputPath === 'string' ? inputPath.trim() : '';
+        if (error?.statusCode !== 403 || !path.isAbsolute(trimmedPath)) {
+            throw error;
+        }
+
+        const absolutePath = path.resolve(trimmedPath);
+        const projectCandidates = buildWorkflowRuntimeProjectPathCandidates(projectRoot, options.projectPathHint);
+        const allowedRoots = projectCandidates.flatMap((candidate) => [
+            resolveWoRunsRoot(candidate),
+            resolveWoBatchesRoot(candidate),
+        ]);
+        for (const runtimeRoot of allowedRoots) {
+            if (await isPathInsideRoot(runtimeRoot, absolutePath)) {
+                return {
+                    projectRoot,
+                    absolutePath,
+                    relativePath: absolutePath,
+                    readOnly: true,
+                    scope: 'workflow-runtime',
+                };
+            }
+        }
+
+        throw error;
+    }
 }
 
 /**

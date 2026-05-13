@@ -104,6 +104,7 @@ import {
     createDirectoryArchive,
     joinProjectChildPath,
     resolveProjectPath,
+    resolveReadableProjectPath,
     resolveProjectRoot,
     resolveProjectRootWithHint,
     resolveProjectTarget,
@@ -1986,14 +1987,18 @@ app.get('/api/projects/:projectName/file', authenticateToken, async (req, res) =
     try {
         const { projectName } = req.params;
         const { filePath, projectPath } = req.query;
-        const projectRoot = await resolveProjectRootWithHint(projectName, String(projectPath || ''));
-        const { absolutePath } = await resolveProjectPath(projectRoot, String(filePath || ''));
+        const projectPathHint = String(projectPath || '');
+        const projectRoot = await resolveProjectRootWithHint(projectName, projectPathHint);
+        const { absolutePath, readOnly } = await resolveReadableProjectPath(projectRoot, String(filePath || ''), {
+            projectPathHint,
+        });
         const fullBuffer = await fsPromises.readFile(absolutePath);
         const classification = classifyProjectFile(absolutePath, fullBuffer.subarray(0, TEXT_SAMPLE_BYTES));
+        const responseClassification = readOnly ? { ...classification, editable: false } : classification;
 
-        if (classification.editable) {
+        if (classification.fileType === 'text' || classification.fileType === 'markdown') {
             res.json({
-                ...classification,
+                ...responseClassification,
                 content: fullBuffer.toString('utf8'),
                 path: absolutePath,
             });
@@ -2001,7 +2006,7 @@ app.get('/api/projects/:projectName/file', authenticateToken, async (req, res) =
         }
 
         res.json({
-            ...classification,
+            ...responseClassification,
             path: absolutePath,
         });
     } catch (error) {
@@ -2025,8 +2030,11 @@ app.get('/api/projects/:projectName/files/content', authenticateToken, async (re
     try {
         const { projectName } = req.params;
         const { path: filePath, projectPath } = req.query;
-        const projectRoot = await resolveProjectRootWithHint(projectName, String(projectPath || ''));
-        const { absolutePath } = await resolveProjectPath(projectRoot, String(filePath || ''));
+        const projectPathHint = String(projectPath || '');
+        const projectRoot = await resolveProjectRootWithHint(projectName, projectPathHint);
+        const { absolutePath } = await resolveReadableProjectPath(projectRoot, String(filePath || ''), {
+            projectPathHint,
+        });
 
         // Check if file exists
         try {
@@ -2293,8 +2301,11 @@ app.get('/api/projects/:projectName/files/download', authenticateToken, async (r
     try {
         const { projectName } = req.params;
         const { path: targetPath, projectPath } = req.query;
-        const projectRoot = await resolveProjectRootWithHint(projectName, String(projectPath || ''));
-        const { absolutePath } = await resolveProjectPath(projectRoot, String(targetPath || ''));
+        const projectPathHint = String(projectPath || '');
+        const projectRoot = await resolveProjectRootWithHint(projectName, projectPathHint);
+        const { absolutePath } = await resolveReadableProjectPath(projectRoot, String(targetPath || ''), {
+            projectPathHint,
+        });
         const targetStats = await fsPromises.stat(absolutePath).catch(() => null);
 
         if (!targetStats) {

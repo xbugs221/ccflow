@@ -393,6 +393,7 @@ test('run directory fixed artifacts are discovered', async () => {
     await fs.writeFile(path.join(runDir, 'review-1.json'), JSON.stringify({ result: 'pass' }));
     await fs.writeFile(path.join(runDir, 'review-2.json'), JSON.stringify({ result: 'pass' }));
     await fs.writeFile(path.join(runDir, 'fix-1.json'), JSON.stringify({ result: 'applied' }));
+    await fs.writeFile(path.join(runDir, 'fix-1.md'), '# 修复说明\n\n已处理审核问题。\n', 'utf8');
     await fs.writeFile(path.join(runDir, 'repair-1.json'), JSON.stringify({ result: 'legacy' }));
 
     const workflows = await listWoWorkflowReadModels(projectPath);
@@ -400,6 +401,7 @@ test('run directory fixed artifacts are discovered', async () => {
     assert.ok(artifacts.some((a) => a.label === 'review-1.json' && a.stage === 'review_1'));
     assert.ok(artifacts.some((a) => a.label === 'review-2.json' && a.stage === 'review_2'));
     assert.ok(artifacts.some((a) => a.label === 'fix-1.json' && a.stage === 'fix_1'));
+    assert.ok(artifacts.some((a) => a.label === 'fix-1.md' && a.stage === 'fix_1'));
     assert.ok(artifacts.some((a) => a.label === 'repair-1.json' && a.stage === 'repair_1'));
 
     // All scanned artifacts should have absolute paths

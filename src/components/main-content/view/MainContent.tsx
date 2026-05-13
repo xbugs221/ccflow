@@ -360,7 +360,7 @@ function MainContent({
       onResizeStart={handleResizeStart}
       onCloseEditor={handleCloseEditor}
       onToggleEditorExpand={handleToggleEditorExpand}
-      projectPath={selectedProject?.path}
+      projectPath={selectedProject?.fullPath || selectedProject?.path}
     />
   );
 
@@ -498,7 +498,7 @@ function MainContent({
           onResizeStart={handleResizeStart}
           onCloseEditor={handleCloseEditor}
           onToggleEditorExpand={handleToggleEditorExpand}
-          projectPath={selectedProject.path}
+          projectPath={selectedProject.fullPath || selectedProject.path}
         />
       </>
     );
