@@ -984,6 +984,92 @@ export function buildBatchContextMap(batches) {
 }
 
 /**
+ * Resolve the oz change document directory for a given change name.
+ * Checks active path first, then archive exact match, then archive suffix-scan.
+ * Returns the matching directory name and full path, or null if not found.
+ */
+async function resolveOzChangeDocDir(projectPath, changeName) {
+  if (!projectPath || !changeName) {
+    return null;
+  }
+
+  const activeDir = path.join(projectPath, 'docs', 'changes', changeName);
+  try {
+    await fs.access(activeDir);
+    return { dirName: changeName, fullPath: activeDir };
+  } catch {
+    // not active — try archive
+  }
+
+  // Scan archive for matching directories: exact name or <prefix>-<changeName>
+  // All candidates compete by mtime so a newer suffixed directory can override an older exact match.
+  const archiveRoot = path.join(projectPath, 'docs', 'changes', 'archive');
+  let candidates = [];
+  try {
+    const entries = await fs.readdir(archiveRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      if (entry.name === changeName || entry.name.endsWith(`-${changeName}`)) {
+        const fullPath = path.join(archiveRoot, entry.name);
+        try {
+          const stat = await fs.stat(fullPath);
+          candidates.push({ dirName: entry.name, fullPath, mtime: stat.mtimeMs });
+        } catch {
+          // skip unreadable
+        }
+      }
+    }
+  } catch {
+    // no archive directory at all
+  }
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  // Select the candidate with the latest mtime
+  candidates.sort((a, b) => b.mtime - a.mtime);
+  return { dirName: candidates[0].dirName, fullPath: candidates[0].fullPath };
+}
+
+/**
+ * Build planning artifacts from oz change documents.
+ * Returns an array of WorkflowArtifact entries for proposal.md, design.md, spec.md, task.md.
+ */
+async function buildPlanningArtifacts(projectPath, changeName) {
+  if (!projectPath || !changeName) {
+    return [];
+  }
+
+  const docDir = await resolveOzChangeDocDir(projectPath, changeName);
+  const docNames = ['proposal.md', 'design.md', 'spec.md', 'task.md'];
+
+  return Promise.all(docNames.map(async (docName) => {
+    // Use the relative path derived from the resolved fullPath to handle archive subdirectories
+    const relativeDir = docDir
+      ? path.relative(projectPath, docDir.fullPath).replace(/\\/g, '/')
+      : path.posix.join('docs', 'changes', changeName);
+    const relativePath = path.posix.join(relativeDir, docName);
+    const exists = docDir
+      ? (await pathExists(projectPath, relativePath))
+      : false;
+    return {
+      id: `oz-planning:${changeName}:${docName}`,
+      label: docName,
+      type: 'oz-change-doc',
+      semanticType: 'oz-change-doc',
+      stage: 'planning',
+      substageKey: 'planning',
+      relativePath,
+      path: relativePath,
+      exists,
+    };
+  }));
+}
+
+/**
  * Convert one parsed state file into a ProjectWorkflow read model.
  */
 export async function buildWoWorkflowReadModel({ projectPath, runDirName, state, statePath, stateStat, batchContext }) {
@@ -999,7 +1085,18 @@ export async function buildWoWorkflowReadModel({ projectPath, runDirName, state,
   const runDir = path.join(resolveWoRunsRoot(projectPath), runDirName);
   const scannedArtifacts = await scanRunDirFixedArtifacts(runDir, runId, warnings);
 
-  const artifacts = mergeArtifacts(pathArtifacts, scannedArtifacts);
+  let artifacts = mergeArtifacts(pathArtifacts, scannedArtifacts);
+
+  // Inject planning artifacts from oz change documents
+  const planningArtifacts = await buildPlanningArtifacts(projectPath, changeName);
+  if (planningArtifacts.length > 0) {
+    const pathLabels = new Set(artifacts.map((a) => a.label));
+    for (const planningArtifact of planningArtifacts) {
+      if (!pathLabels.has(planningArtifact.label)) {
+        artifacts.push(planningArtifact);
+      }
+    }
+  }
 
   const stageStatuses = buildStageStatuses(state, rawStage, rawStatus, warnings);
   const runnerProcesses = buildRunnerProcesses(state, stageStatuses, logsByKey, warnings);

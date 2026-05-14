@@ -549,6 +549,62 @@ function renderWorkflowDisplayLines(
   );
 }
 
+/**
+ * Find planning oz-change-doc artifacts for the planning role row.
+ */
+function getPlanningDocArtifacts(workflow: ProjectWorkflow): WorkflowArtifact[] {
+  return (workflow.artifacts || []).filter((artifact) => (
+    (artifact.type === 'oz-change-doc' || artifact.semanticType === 'oz-change-doc')
+    && artifact.stage === 'planning'
+  ));
+}
+
+function renderWorkflowRoleRowPlanningDocs(
+  project: Project,
+  workflow: ProjectWorkflow,
+  onOpenArtifactFile: WorkflowDetailViewProps['onOpenArtifactFile'],
+) {
+  const planningDocs = getPlanningDocArtifacts(workflow);
+  if (planningDocs.length === 0) {
+    return null;
+  }
+
+  const docOrder = ['proposal.md', 'design.md', 'spec.md', 'task.md'];
+  const sortedDocs = [...planningDocs].sort((a, b) => (
+    docOrder.indexOf(a.label) - docOrder.indexOf(b.label)
+  ));
+
+  return (
+    <>
+      {sortedDocs.map((doc) => {
+        const docPath = resolveArtifactPath(project, doc);
+        const canOpen = Boolean(docPath && doc.exists !== false);
+        return (
+          <button
+            key={doc.id}
+            type="button"
+            disabled={!canOpen}
+            className={[
+              'truncate text-left text-sm',
+              canOpen
+                ? 'font-medium text-primary underline decoration-current underline-offset-2'
+                : 'text-muted-foreground cursor-default',
+            ].join(' ')}
+            title={canOpen ? (doc.relativePath || doc.path || doc.label) : `${doc.label} 尚未生成`}
+            onClick={() => {
+              if (docPath && canOpen) {
+                onOpenArtifactFile(docPath);
+              }
+            }}
+          >
+            {doc.label}
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
 function renderWorkflowRoleSummary(
   project: Project,
   workflow: ProjectWorkflow,
@@ -569,6 +625,7 @@ function renderWorkflowRoleSummary(
         const hasLink = Boolean(sessionRef?.sessionId) && !unlinked;
         const currentArtifact = getRoleSummaryArtifact(workflow, row.key);
         const currentArtifactPath = currentArtifact ? resolveArtifactPath(project, currentArtifact) : null;
+        const isPlanning = row.key === 'planning';
         return (
           <div
             key={row.key}
@@ -604,19 +661,23 @@ function renderWorkflowRoleSummary(
               >
                 会话
               </button>
+            ) : isPlanning ? (
+              <span className="text-muted-foreground">{row.placeholder || '—'}</span>
             ) : (
               <span className="text-muted-foreground">{row.placeholder || '—'}</span>
             )}
-            {currentArtifact && currentArtifactPath ? (
-              <button
-                type="button"
-                className="truncate text-left text-sm font-medium text-primary underline decoration-current underline-offset-2"
-                title={currentArtifact.relativePath || currentArtifact.path || currentArtifact.label}
-                onClick={() => onOpenArtifactFile(currentArtifactPath)}
-              >
-                {getArtifactFileName(currentArtifact)}
-              </button>
-            ) : null}
+            {isPlanning
+              ? renderWorkflowRoleRowPlanningDocs(project, workflow, onOpenArtifactFile)
+              : currentArtifact && currentArtifactPath ? (
+                <button
+                  type="button"
+                  className="truncate text-left text-sm font-medium text-primary underline decoration-current underline-offset-2"
+                  title={currentArtifact.relativePath || currentArtifact.path || currentArtifact.label}
+                  onClick={() => onOpenArtifactFile(currentArtifactPath)}
+                >
+                  {getArtifactFileName(currentArtifact)}
+                </button>
+              ) : null}
             {checks ? (
               <span className="ml-auto text-green-500" data-testid={`workflow-role-checks-${row.key}`}>
                 x{checks}

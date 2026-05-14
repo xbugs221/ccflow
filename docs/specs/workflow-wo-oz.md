@@ -47,7 +47,7 @@ Workflow detail pages show `workflowRoleSummary.rows` as the main progress surfa
 - `审` count includes all `review_N` stages.
 - `修` count includes all `fix_N` and `repair_N` stages.
 - `存` count includes `archive` stages.
-- `规` shows `工作流开始之前就已完成` when no planning session is present; no invalid link is generated.
+- `规` shows `工作流开始之前就已完成` when no planning session is present; no invalid link is generated. Regardless of session presence, when the workflow is bound to an oz change, the row also shows `proposal.md`, `design.md`, `spec.md`, and `task.md` document links pointing to the active or archived change directory.
 - Each row links to its matched workflow child session, with the visible link text as `会话` (not the raw session ID).
 - Each row shows a link to the current-round artifact (e.g. `review-2.json`) after the session link, choosing the latest review/repair/fix stage file.
 - When the current-round artifact does not exist or `exists = false`, no artifact link is rendered.
@@ -104,6 +104,19 @@ Batch workflows group multiple runs under a single batch context with progress d
 - Clicking the batch header expands or collapses child runs; it does not navigate to a separate batch detail page.
 - Clicking a child run navigates to `/runs/<runId>` detail view.
 - Progress display uses `displayCurrent = currentIndex + 1` for user-visible 1-based indexing.
+
+### Show oz change planning documents in the 规 role row
+
+When a workflow is bound to an oz change, the `规` role row must display links to the four core planning documents: `proposal.md`, `design.md`, `spec.md`, and `task.md`.
+
+- Active changes resolve to `docs/changes/<change>/`.
+- Archived changes resolve to `docs/changes/archive/<archived-change>/`, supporting both exact directory names and `-<change>` suffix patterns.
+- When multiple archive candidate directories match the same change, the backend selects the directory with the latest `mtime`; older exact matches must not shadow newer date-prefixed directories.
+- Clicking any document link opens the file in the existing file viewer.
+- Missing documents carry `exists: false` so the frontend does not render a link to a broken path.
+- Planning session absence must not prevent document links from being displayed.
+- After a change is archived and the detail page is refreshed, document links must resolve to the archive directory rather than the stale active path.
+- The `写`, `审`, `修`, `存` rows retain their existing compact single-artifact display.
 
 ### Discover fixed artifacts in run directories
 
