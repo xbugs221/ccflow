@@ -121,6 +121,10 @@ export const getSessionName = (session: SessionWithProvider, t: TFunction): stri
     return session.label || session.summary || session.title || session.name || t('projects.codexSession');
   }
 
+  if (session.__provider === 'pi') {
+    return session.label || session.summary || session.title || session.name || t('projects.piSession');
+  }
+
   return session.label || session.summary || session.title || t('projects.newSession');
 };
 
@@ -180,7 +184,14 @@ export const getAllSessions = (
       __provider: 'opencode' as const,
     }));
 
-  return [...codexSessions, ...opencodeSessions].sort(compareSessionsByCreationNumber);
+  const piSessions = (project.piSessions || [])
+    .filter((session) => includeHidden || isVisibleByDefault(session))
+    .map((session) => ({
+      ...session,
+      __provider: 'pi' as const,
+    }));
+
+  return [...codexSessions, ...opencodeSessions, ...piSessions].sort(compareSessionsByCreationNumber);
 };
 
 /**

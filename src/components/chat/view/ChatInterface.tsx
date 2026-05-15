@@ -634,7 +634,7 @@ function ChatInterface({
       return;
     }
 
-    const statusProvider = effectiveProvider === 'opencode' ? 'opencode' : 'codex';
+    const statusProvider = effectiveProvider === 'opencode' ? 'opencode' : effectiveProvider === 'pi' ? 'pi' : 'codex';
     const reconcileSessionStatus = () => {
       sendMessage({
         type: 'check-session-status',
@@ -846,7 +846,9 @@ function ChatInterface({
     const selectedProviderLabel =
       effectiveProvider === 'codex'
         ? t('messageTypes.codex')
-        : t('messageTypes.opencode');
+        : effectiveProvider === 'pi'
+          ? t('messageTypes.pi')
+          : t('messageTypes.opencode');
 
     return (
       <div className="flex-1 min-h-0 flex flex-col">
@@ -976,7 +978,9 @@ function ChatInterface({
               provider:
               effectiveProvider === 'codex'
                 ? t('messageTypes.codex')
-                : t('messageTypes.opencode'),
+                : effectiveProvider === 'pi'
+                  ? t('messageTypes.pi')
+                  : t('messageTypes.opencode'),
           })}
           isTextareaExpanded={isTextareaExpanded}
           sendByCtrlEnter={sendByCtrlEnter}

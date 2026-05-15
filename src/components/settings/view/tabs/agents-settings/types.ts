@@ -14,6 +14,7 @@ export type AgentsSettingsTabProps = {
   usageEnabled?: boolean;
   codexAuthStatus: AuthStatus;
   opencodeAuthStatus: AuthStatus;
+  piAuthStatus: AuthStatus;
   onCodexLogin: () => void;
   onOpencodeLogin: () => void;
 };

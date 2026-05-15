@@ -12,6 +12,7 @@ export default function AgentsSettingsTab({
   usageEnabled = true,
   codexAuthStatus,
   opencodeAuthStatus,
+  piAuthStatus,
   onCodexLogin,
   onOpencodeLogin,
 }: AgentsSettingsTabProps) {
@@ -26,9 +27,14 @@ export default function AgentsSettingsTab({
       authStatus: opencodeAuthStatus,
       onLogin: onOpencodeLogin,
     },
+    pi: {
+      authStatus: piAuthStatus,
+      onLogin: () => {},
+    },
   }), [
     codexAuthStatus,
     opencodeAuthStatus,
+    piAuthStatus,
     onCodexLogin,
     onOpencodeLogin,
   ]);

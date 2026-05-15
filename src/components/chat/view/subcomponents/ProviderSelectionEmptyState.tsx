@@ -49,6 +49,14 @@ const PROVIDERS: ProviderDef[] = [
     ring: 'ring-sky-600/15',
     check: 'bg-sky-600 dark:bg-sky-500 text-white',
   },
+  {
+    id: 'pi',
+    name: 'Pi',
+    infoKey: 'providerSelection.providerInfo.pi',
+    accent: 'border-violet-600 dark:border-violet-400',
+    ring: 'ring-violet-600/15',
+    check: 'bg-violet-600 dark:bg-violet-500 text-white',
+  },
 ];
 
 function getModelOptions(
@@ -125,7 +133,7 @@ export default function ProviderSelectionEmptyState({
           </div>
 
           {/* Provider cards — horizontal row, equal width */}
-          <div className="grid grid-cols-2 gap-2 sm:gap-2.5 mb-6">
+          <div className="grid grid-cols-3 gap-2 sm:gap-2.5 mb-6">
             {PROVIDERS.map((p) => {
               const active = provider === p.id;
               return (
@@ -202,10 +210,12 @@ export default function ProviderSelectionEmptyState({
             <p className="text-center text-sm text-muted-foreground/70">
               {provider === 'opencode'
                 ? t('providerSelection.readyPrompt.opencode')
-                : t('providerSelection.readyPrompt.codex', {
-                  model: codexModel,
-                  effort: codexReasoningEffort,
-                })}
+                : provider === 'pi'
+                  ? t('providerSelection.readyPrompt.pi')
+                  : t('providerSelection.readyPrompt.codex', {
+                    model: codexModel,
+                    effort: codexReasoningEffort,
+                  })}
             </p>
           </div>
 

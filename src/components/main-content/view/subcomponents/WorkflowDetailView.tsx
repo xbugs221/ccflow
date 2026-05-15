@@ -74,7 +74,10 @@ function buildWorkflowSessionRouteOptions(
   const normalizedProvider: SessionProvider = session.provider === 'opencode'
     || (project.opencodeSessions || []).some((candidate) => candidate.id === session.id)
     ? 'opencode'
-    : 'codex';
+    : session.provider === 'pi'
+      || (project.piSessions || []).some((candidate) => candidate.id === session.id)
+      ? 'pi'
+      : 'codex';
   return {
     provider: normalizedProvider,
     projectName: project.name,
@@ -151,8 +154,11 @@ function getWorkflowStageProvider(
   if (stageSession?.provider === 'opencode') {
     return 'opencode';
   }
+  if (stageSession?.provider === 'pi') {
+    return 'pi';
+  }
   const stageProvider = workflow.stageStatuses.find((stage) => stage.key === stageKey)?.provider;
-  return stageProvider === 'opencode' ? 'opencode' : 'codex';
+  return stageProvider === 'opencode' ? 'opencode' : stageProvider === 'pi' ? 'pi' : 'codex';
 }
 
 function renderTodoMarker(status: string) {
@@ -969,7 +975,7 @@ function buildRunnerProcessSession(
     return null;
   }
   return (workflow.childSessions || []).find((session) => (
-    session.id === process.sessionId && (session.provider || 'codex') === 'codex'
+    session.id === process.sessionId
   )) || {
     id: process.sessionId,
     title: process.stage,

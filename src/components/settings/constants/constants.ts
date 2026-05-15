@@ -10,7 +10,7 @@ export const SETTINGS_MAIN_TABS: SettingsMainTab[] = [
   'diagnostics',
 ];
 
-export const AGENT_PROVIDERS: AgentProvider[] = ['codex', 'opencode'];
+export const AGENT_PROVIDERS: AgentProvider[] = ['codex', 'opencode', 'pi'];
 export const DEFAULT_SAVE_STATUS = null;
 
 export const DEFAULT_AUTH_STATUS: AuthStatus = {
@@ -25,4 +25,5 @@ export const DEFAULT_AUTH_STATUS: AuthStatus = {
 export const AUTH_STATUS_ENDPOINTS: Record<AgentProvider, string> = {
   codex: '/api/cli/codex/status',
   opencode: '/api/cli/opencode/status',
+  pi: '/api/cli/pi/status',
 };

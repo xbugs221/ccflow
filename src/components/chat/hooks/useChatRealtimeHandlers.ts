@@ -133,7 +133,7 @@ const appendRealtimeAssistantMessage = (
   setChatMessages: Dispatch<SetStateAction<ChatMessage[]>>,
   latestMessage: LatestChatMessage,
   providerData: any,
-  source: 'codex-realtime' | 'opencode-realtime',
+  source: 'codex-realtime' | 'opencode-realtime' | 'pi-realtime',
 ) => {
   const content = providerData?.message?.content;
   if (typeof content !== 'string' || !content.trim()) {
@@ -479,10 +479,12 @@ export function useChatRealtimeHandlers({
         'claude-complete',
         'codex-complete',
         'opencode-complete',
+        'pi-complete',
         'session-aborted',
         'claude-error',
         'codex-error',
         'opencode-error',
+        'pi-error',
       ]);
 
       const isClaudeSystemInit =
@@ -521,7 +523,8 @@ export function useChatRealtimeHandlers({
         !pendingViewSessionRef.current.sessionId &&
         (latestMessage.type === 'claude-error' ||
           latestMessage.type === 'codex-error' ||
-          latestMessage.type === 'opencode-error');
+          latestMessage.type === 'opencode-error' ||
+          latestMessage.type === 'pi-error');
 
       const handleBackgroundLifecycle = (sessionId?: string) => {
         if (!sessionId) {
@@ -1128,6 +1131,85 @@ export function useChatRealtimeHandlers({
         }
         break;
       }
+
+      case 'pi-response': {
+        const piData = latestMessage.data;
+        if (!piData) {
+          break;
+        }
+
+        if (piData.type === 'item' && !['agent_message', 'command_execution', 'error'].includes(piData.itemType)) {
+          console.log('[Pi] Unhandled item type:', piData.itemType, piData);
+        }
+
+        if (piData.type === 'item' && piData.itemType === 'agent_message') {
+          appendRealtimeAssistantMessage(setChatMessages, latestMessage, piData, 'pi-realtime');
+        }
+
+        if (piData.type === 'turn_complete') {
+          clearLoadingIndicators();
+          setChatMessages((previous) => markUserMessagesPersisted(previous));
+          markSessionsAsCompleted(latestMessage.sessionId, currentSessionId, selectedSession?.id);
+          onTurnOutcome?.({
+            sessionId: latestMessage.sessionId || currentSessionId || selectedSession?.id || null,
+            status: 'completed',
+          });
+        }
+
+        if (piData.type === 'turn_failed') {
+          clearLoadingIndicators();
+          markSessionsAsCompleted(latestMessage.sessionId, currentSessionId, selectedSession?.id);
+          onTurnOutcome?.({
+            sessionId: latestMessage.sessionId || currentSessionId || selectedSession?.id || null,
+            status: 'failed',
+          });
+        }
+        break;
+      }
+
+      case 'pi-complete': {
+        const piPendingSessionId = sessionStorage.getItem('pendingSessionId');
+        const piActualSessionId = latestMessage.actualSessionId || piPendingSessionId;
+        const piCompletedSessionId =
+          latestMessage.sessionId || currentSessionId || piPendingSessionId;
+
+        clearLoadingIndicators();
+        setChatMessages((previous) => markUserMessagesPersisted(previous));
+        markSessionsAsCompleted(
+          piCompletedSessionId,
+          piActualSessionId,
+          currentSessionId,
+          selectedSession?.id,
+          piPendingSessionId,
+        );
+
+        if (piPendingSessionId && !currentSessionId) {
+          setCurrentSessionId(piActualSessionId);
+          setIsSystemSessionChange(true);
+          if (piActualSessionId) {
+            onNavigateToSession?.(piActualSessionId);
+          }
+          sessionStorage.removeItem('pendingSessionId');
+        }
+
+        if (selectedProject) {
+          safeLocalStorage.removeItem(`chat_messages_${selectedProject.name}`);
+        }
+        break;
+      }
+
+      case 'pi-error':
+        setIsLoading(false);
+        setCanAbortSession(false);
+        setChatMessages((previous) => [
+          ...previous,
+          {
+            type: 'error',
+            content: latestMessage.error || 'An error occurred with Pi',
+            timestamp: new Date(),
+          },
+        ]);
+        break;
 
       case 'opencode-error':
         setIsLoading(false);

@@ -768,6 +768,35 @@ export function useChatComposerState({
             attachments: uploadedAttachments,
           },
         });
+      } else if (provider === 'pi') {
+        sendMessage({
+          type: 'pi-command',
+          clientRequestId,
+          command: messageContent,
+          sessionId: effectiveSessionId,
+          ccflowSessionId,
+          ccflow_session_id: ccflowSessionId,
+          startRequestId: clientRequestId,
+          start_request_id: clientRequestId,
+          clientRef: messageContent,
+          client_ref: messageContent,
+          options: {
+            cwd: resolvedProjectPath,
+            projectPath: resolvedProjectPath,
+            projectName: resolvedProjectName,
+            sessionId: effectiveSessionId,
+            ccflowSessionId,
+            ccflow_session_id: ccflowSessionId,
+            clientRequestId,
+            startRequestId: clientRequestId,
+            start_request_id: clientRequestId,
+            clientRef: messageContent,
+            client_ref: messageContent,
+            resume: Boolean(effectiveSessionId),
+            permissionMode,
+            attachments: uploadedAttachments,
+          },
+        });
       }
       // Re-enable abort only after the command has been dispatched.
       setCanAbortSession(true);

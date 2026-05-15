@@ -42,6 +42,14 @@ const agentConfig: Record<AgentProvider, AgentVisualConfig> = {
     subtextClass: 'text-orange-700 dark:text-orange-300',
     buttonClass: 'bg-orange-600 hover:bg-orange-700',
   },
+  pi: {
+    name: 'Pi',
+    bgClass: 'bg-violet-50 dark:bg-violet-900/20',
+    borderClass: 'border-violet-200 dark:border-violet-800',
+    textClass: 'text-violet-900 dark:text-violet-100',
+    subtextClass: 'text-violet-700 dark:text-violet-300',
+    buttonClass: 'bg-violet-600 hover:bg-violet-700',
+  },
 };
 
 /**
@@ -150,6 +158,13 @@ export default function AccountContent({
               <div className={`text-sm ${config.subtextClass}`}>
                 {agent === 'opencode' && !authStatus.loading ? (
                   getOpenCodeConnectionText(authStatus, t)
+                ) : agent === 'pi' && !authStatus.loading ? (
+                  authStatus.available
+                    ? t('agents.account.pi.cliAvailable', {
+                        path: authStatus.commandPath || '',
+                        version: authStatus.version || '',
+                      })
+                    : t('agents.account.pi.cliNotAvailable')
                 ) : authStatus.loading ? (
                   t('agents.authStatus.checkingAuth')
                 ) : authStatus.authenticated ? (
@@ -166,6 +181,16 @@ export default function AccountContent({
                 <Badge variant="secondary" className="bg-gray-100 dark:bg-gray-800">
                   {t('agents.authStatus.checking')}
                 </Badge>
+              ) : agent === 'pi' ? (
+                authStatus.available ? (
+                  <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                    {t('agents.account.pi.available')}
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
+                    {t('agents.account.pi.unavailable')}
+                  </Badge>
+                )
               ) : authStatus.authenticated || (agent === 'opencode' && authStatus.available) ? (
                 <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
                   {agent === 'opencode' ? t('agents.account.opencode.available') : t('agents.authStatus.connected')}
@@ -201,6 +226,15 @@ export default function AccountContent({
                   </div>
                 )}
               </div>
+            ) : agent === 'pi' ? (
+              <div>
+                <div className={`font-medium ${config.textClass}`}>
+                  {t('agents.account.pi.authenticatedUnknown')}
+                </div>
+                <div className={`text-sm ${config.subtextClass}`}>
+                  {t('agents.account.pi.authNotRequired')}
+                </div>
+              </div>
             ) : (
               <div className="flex items-center justify-between">
                 <div>
@@ -233,7 +267,7 @@ export default function AccountContent({
             </div>
           )}
 
-          {agent !== 'opencode' && (
+          {agent !== 'opencode' && agent !== 'pi' && (
             <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
               <UsageProviderQuota provider={agent} enabled={usageEnabled} />
             </div>

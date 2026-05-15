@@ -9,7 +9,11 @@ function getSupportedSessionProvider(session) {
   /**
    * Convert missing or retired provider values to the default supported backend.
    */
-  return session.__provider === 'opencode' || session.provider === 'opencode' ? 'opencode' : 'codex';
+  return session.__provider === 'opencode' || session.provider === 'opencode'
+    ? 'opencode'
+    : session.__provider === 'pi' || session.provider === 'pi'
+      ? 'pi'
+      : 'codex';
 }
 
 export function getViewedSessionKey(projectName, session) {

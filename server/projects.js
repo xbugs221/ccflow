@@ -713,6 +713,7 @@ async function mergeActiveProviderSessionsIntoProjects({
         sessions: [],
         codexSessions: [],
         opencodeSessions: [],
+        piSessions: [],
         sessionMeta: {
           hasMore: false,
           total: 0,
@@ -724,7 +725,7 @@ async function mergeActiveProviderSessionsIntoProjects({
       knownProjectPaths.add(normalizedProjectPath);
     }
 
-    const targetKey = session.provider === 'codex' ? 'codexSessions' : 'sessions';
+    const targetKey = session.provider === 'codex' ? 'codexSessions' : session.provider === 'pi' ? 'piSessions' : 'sessions';
     const targetSessions = Array.isArray(project[targetKey]) ? project[targetKey] : [];
     if (targetSessions.some((existingSession) => existingSession.id === session.id)) {
       continue;
@@ -981,6 +982,7 @@ function normalizeSessionUiState(rawState = {}) {
 function normalizeProjectChatProvider(provider) {
   if (provider === 'claude') return 'claude';
   if (provider === 'opencode') return 'opencode';
+  if (provider === 'pi') return 'pi';
   return 'codex';
 }
 
@@ -1526,7 +1528,7 @@ function buildManualDraftSession(draft) {
     : '新会话';
   const createdAt = draft?.createdAt || new Date().toISOString();
   const updatedAt = draft?.updatedAt || createdAt;
-  const provider = draft?.provider === 'opencode' ? 'opencode' : 'codex';
+  const provider = draft?.provider === 'opencode' ? 'opencode' : draft?.provider === 'pi' ? 'pi' : 'codex';
 
   return {
     id: draft.id,
@@ -2479,8 +2481,8 @@ function mergeWorktreeProjects(projects) {
       };
     }
 
-    // Merge Codex and OpenCode sessions if present
-    for (const key of ['codexSessions', 'opencodeSessions']) {
+    // Merge Codex, OpenCode, and Pi sessions if present
+    for (const key of ['codexSessions', 'opencodeSessions', 'piSessions']) {
       if (wtProject[key]?.length > 0) {
         parent[key] = [
           ...(parent[key] || []),
@@ -2527,7 +2529,8 @@ async function projectHasBusinessData(project) {
   }
   if ((Array.isArray(project?.sessions) && project.sessions.length > 0)
     || (Array.isArray(project?.codexSessions) && project.codexSessions.length > 0)
-    || (Array.isArray(project?.opencodeSessions) && project.opencodeSessions.length > 0)) {
+    || (Array.isArray(project?.opencodeSessions) && project.opencodeSessions.length > 0)
+    || (Array.isArray(project?.piSessions) && project.piSessions.length > 0)) {
     return true;
   }
   const workflows = await listProjectWorkflows(project?.fullPath || project?.path || '');
@@ -2663,7 +2666,8 @@ async function getProjects(progressCallback = null) {
           total: 0
         },
         codexSessions: [],
-        opencodeSessions: []
+        opencodeSessions: [],
+        piSessions: []
       };
 
       // Try to fetch Codex sessions for manual projects too
@@ -2685,6 +2689,11 @@ async function getProjects(progressCallback = null) {
         });
       } catch (e) {
         console.warn(`Could not load OpenCode sessions for manual project ${projectName}:`, e.message);
+      }
+      try {
+        project.piSessions = await getPiSessions(actualProjectDir);
+      } catch (e) {
+        console.warn(`Could not load Pi sessions for manual project ${projectName}:`, e.message);
       }
       await attachManualSessionNextRouteIndex(project, actualProjectDir);
 
@@ -2774,6 +2783,7 @@ async function getProjects(progressCallback = null) {
         excludeWorkflowChildSessions: true,
       }),
       opencodeSessions: [],
+      piSessions: await getPiSessions(inferredProjectPath).catch(() => []),
       sessionMeta: {
         hasMore: false,
         total: 0
@@ -3137,7 +3147,7 @@ async function renameProject(projectName, newDisplayName, projectPath = null) {
  * PURPOSE: Persist cross-device UI flags for one Claude or Codex session.
  */
 async function updateSessionUiState(projectName, sessionId, provider = 'codex', uiState = {}) {
-  const normalizedProvider = provider === 'opencode' ? 'opencode' : 'codex';
+  const normalizedProvider = provider === 'opencode' ? 'opencode' : provider === 'pi' ? 'pi' : 'codex';
   const projectPath = await extractProjectDirectory(projectName);
   const stateKey = buildSessionUiStateKey(projectPath, normalizedProvider, sessionId);
 
@@ -3244,8 +3254,10 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'co
       providerSessions = await getCodexSessions(resolvedProjectPath, { limit: 0, includeHidden: true, excludeWorkflowChildSessions: true });
     } else if (provider === 'opencode') {
       providerSessions = await getOpencodeSessions(resolvedProjectPath, { limit: 0, includeHidden: true, excludeWorkflowChildSessions: true });
+    } else if (provider === 'pi') {
+      providerSessions = await getPiSessions(resolvedProjectPath);
     } else {
-      throw new Error('provider must be "codex" or "opencode"');
+      throw new Error('provider must be "codex", "opencode", or "pi"');
     }
     config = await loadProjectConfig(resolvedProjectPath);
     const otherProviderDraftCount = Object.values(getManualSessionDraftMap(config)).filter((draft) => (
@@ -3293,8 +3305,8 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'co
  * PURPOSE: Claim a manual cN chat route for one first-message request.
  */
 async function startManualSessionDraft(projectName, projectPath, draftSessionId, provider = 'codex', startRequestId = '') {
-  if (provider !== 'codex' && provider !== 'opencode') {
-    throw new Error('provider must be "codex" or "opencode"');
+  if (provider !== 'codex' && provider !== 'opencode' && provider !== 'pi') {
+    throw new Error('provider must be "codex", "opencode", or "pi"');
   }
   if (typeof draftSessionId !== 'string' || !draftSessionId.trim()) {
     throw new Error('Draft session ID is required');
@@ -3427,8 +3439,8 @@ async function getManualSessionDraftRuntime(projectName, projectPath, draftSessi
  * PURPOSE: Bind a stored manual draft label to the first real provider session id.
  */
 async function finalizeManualSessionDraft(projectName, draftSessionId, actualSessionId, provider = 'codex', projectPath = '') {
-  if (provider !== 'codex' && provider !== 'opencode') {
-    throw new Error('provider must be "codex" or "opencode"');
+  if (provider !== 'codex' && provider !== 'opencode' && provider !== 'pi') {
+    throw new Error('provider must be "codex", "opencode", or "pi"');
   }
   /**
    * Bind a ccflow route id to the provider session once the first message starts.
@@ -3524,10 +3536,15 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
  */
 async function deleteManualSessionDraft(sessionId, provider = null, projectPath = '') {
   const config = await loadProjectConfig(projectPath);
+
+  // Check the chat-route-based manual draft map (v2 config.chat entries)
   const manualDraftMap = {
     ...getManualSessionDraftMap(config),
   };
-  const draft = manualDraftMap[sessionId];
+  const rawDrafts = config[MANUAL_SESSION_DRAFTS_KEY];
+  const rawDraft = rawDrafts && typeof rawDrafts === 'object' ? rawDrafts[sessionId] : null;
+
+  const draft = manualDraftMap[sessionId] || rawDraft;
   if (!draft) {
     return false;
   }
@@ -3535,7 +3552,7 @@ async function deleteManualSessionDraft(sessionId, provider = null, projectPath 
     return false;
   }
 
-  await cleanupDeletedSessionConfig(sessionId, projectPath, provider);
+  await cleanupDeletedSessionConfig(sessionId, projectPath, provider || draft.provider || null);
   clearProjectDirectoryCache();
   return true;
 }
@@ -3544,6 +3561,14 @@ async function deleteManualSessionDraft(sessionId, provider = null, projectPath 
 async function deleteSession(projectName, sessionId) {
   try {
     const projectPath = await extractProjectDirectory(projectName);
+
+    // Try to delete as a manual session draft first (works for all providers)
+    const deletedDraft = await deleteManualSessionDraft(sessionId, null, projectPath);
+    if (deletedDraft) {
+      return true;
+    }
+
+    // Fall back to Codex session file deletion
     await deleteCodexSession(sessionId, projectPath);
     return true;
   } catch (error) {
@@ -3563,7 +3588,7 @@ function hasManualDraftsForProject(config, { projectName, projectPath, localProj
       return false;
     }
 
-    if (draft.provider !== 'codex' && draft.provider !== 'opencode') {
+    if (draft.provider !== 'codex' && draft.provider !== 'opencode' && draft.provider !== 'pi') {
       return false;
     }
 
@@ -3607,7 +3632,12 @@ async function isProjectEmpty(projectName) {
     }
 
     const opencodeSessions = await getOpencodeSessions(projectPath);
-    return opencodeSessions.length === 0;
+    if (opencodeSessions.length > 0) {
+      return false;
+    }
+
+    const piSessions = await getPiSessions(projectPath);
+    return piSessions.length === 0;
   } catch (error) {
     console.error(`Error checking if project ${projectName} is empty:`, error);
     return false;
@@ -3732,7 +3762,8 @@ async function addProjectManually(projectPath, displayName = null) {
     isManuallyAdded: true,
     sessions: [],
     codexSessions: [],
-    opencodeSessions: []
+    opencodeSessions: [],
+    piSessions: []
   };
 }
 
@@ -4157,6 +4188,67 @@ async function getOpencodeSessions(projectPath, options = {}) {
 }
 
 /**
+ * Collect Pi manual sessions from project config.
+ * Pi sessions are managed through co via cN routes and do not have their own
+ * filesystem session directories like Codex or OpenCode.
+ */
+async function getPiSessions(projectPath, options = {}) {
+  const {
+    limit = PROJECT_OVERVIEW_SESSION_LIMIT,
+    includeHidden = false,
+    excludeWorkflowChildSessions = false,
+  } = options;
+  const config = await loadProjectConfig(projectPath);
+  const summaryOverrideById = getSessionSummaryOverrideMap(config);
+  const workflowMetadataById = getSessionWorkflowMetadataMap(config);
+  const modelStateById = getSessionModelStateMap(config);
+  const normalizedProjectPath = normalizeComparablePath(projectPath);
+  if (!normalizedProjectPath) {
+    return [];
+  }
+
+  let drafts = getManualDraftSessionsForProject(config, {
+    projectName: null,
+    projectPath,
+    provider: 'pi',
+  });
+
+  if (excludeWorkflowChildSessions) {
+    drafts = drafts.filter((session) => !isWorkflowOwnedDraft({
+      id: session.id,
+      workflowId: session.workflowId,
+      stageKey: session.stageKey,
+      provider: 'pi',
+    }));
+  }
+
+  const sessionsWithMetadata = drafts
+    .map((session) => applySessionMetadataOverrides(session, summaryOverrideById, workflowMetadataById, 'pi'))
+    .map((session) => applySessionModelState(session, modelStateById));
+  const annotatedSessions = await annotateSessionCollectionVisibility(sessionsWithMetadata, projectPath);
+  const sessionsWithUiState = annotatedSessions.map((session) => applySessionUiState(
+    session,
+    projectPath,
+    'pi',
+    config,
+  ));
+  const visibleSessions = includeHidden
+    ? sessionsWithUiState
+    : filterHiddenArchivedSessions(sessionsWithUiState);
+  const indexedVisibleSessions = attachSessionRouteIndices(
+    config,
+    projectPath,
+    'pi',
+    visibleSessions,
+  );
+  if (indexedVisibleSessions.changed) {
+    await saveProjectConfig(config, projectPath);
+  }
+
+  return limit > 0 ? indexedVisibleSessions.sessions.slice(0, limit) : [...indexedVisibleSessions.sessions];
+}
+
+/**
  * Attach the next non-recycled manual session route number to a project payload.
  */
 async function attachManualSessionNextRouteIndex(project, projectPath) {
@@ -4165,6 +4257,7 @@ async function attachManualSessionNextRouteIndex(project, projectPath) {
     (Array.isArray(project.sessions) ? project.sessions.length : 0)
     + (Array.isArray(project.codexSessions) ? project.codexSessions.length : 0)
     + (Array.isArray(project.opencodeSessions) ? project.opencodeSessions.length : 0)
+    + (Array.isArray(project.piSessions) ? project.piSessions.length : 0)
   );
   project.manualSessionNextRouteIndex = getNextManualSessionRouteIndex(
     config,
@@ -4201,10 +4294,11 @@ async function populateProjectCollections(project, projectName, actualProjectDir
       includeHidden: true,
       excludeWorkflowChildSessions: true,
     }),
+    getPiSessions(actualProjectDir),
     detectTaskMasterFolder(actualProjectDir),
   ]);
 
-  const [claudeResult, codexResult, opencodeResult, taskMasterResult] = results;
+  const [claudeResult, codexResult, opencodeResult, piResult, taskMasterResult] = results;
 
   if (includeClaudeSessions) {
     if (claudeResult.status === 'fulfilled' && claudeResult.value) {
@@ -4234,6 +4328,13 @@ async function populateProjectCollections(project, projectName, actualProjectDir
   } else {
     console.warn(`Could not load OpenCode sessions for project ${projectName}:`, opencodeResult.reason?.message || opencodeResult.reason);
     project.opencodeSessions = [];
+  }
+
+  if (piResult.status === 'fulfilled') {
+    project.piSessions = piResult.value;
+  } else {
+    console.warn(`Could not load Pi sessions for project ${projectName}:`, piResult.reason?.message || piResult.reason);
+    project.piSessions = [];
   }
 
   if (taskMasterResult.status === 'fulfilled') {
@@ -5212,6 +5313,7 @@ export {
   refreshMissingProjectPathCache,
   getCodexSessions,
   getOpencodeSessions,
+  getPiSessions,
   getCodexSessionMessages,
   searchChatHistory,
   deleteCodexSession,

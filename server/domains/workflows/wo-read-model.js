@@ -209,7 +209,7 @@ function parseProviderSessionKey(key) {
  * Check if a provider is known and can be rendered by ccflow.
  */
 function isKnownProvider(provider) {
-  return provider === 'codex' || provider === 'opencode';
+  return provider === 'codex' || provider === 'opencode' || provider === 'pi';
 }
 
 /**
@@ -472,7 +472,25 @@ function buildRunnerProcesses(state, stageStatuses, logsByKey, warnings) {
 /**
  * Build non-conflicting child session addresses for runner-owned sessions.
  */
-function buildChildSessions(runId, processes, warnings) {
+function buildChildSessions(runId, processes, warnings, sessions = {}) {
+  /**
+   * Resolve the provider for a session id by scanning state.sessions provider
+   * prefixes. Returns the matching prefix provider, or falls back to 'codex'.
+   */
+  function resolveSessionProvider(sessionId) {
+    if (!sessionId) return 'codex';
+    const targetId = String(sessionId).trim();
+    for (const [key, value] of Object.entries(sessions && typeof sessions === 'object' ? sessions : {})) {
+      if (String(value).trim() === targetId) {
+        const parsed = parseProviderSessionKey(key);
+        if (parsed.provider) {
+          return parsed.provider;
+        }
+      }
+    }
+    return 'codex';
+  }
+
   const withSession = processes.filter((process) => process.sessionId);
   const baseCounts = new Map();
   for (const process of withSession) {
@@ -495,7 +513,7 @@ function buildChildSessions(runId, processes, warnings) {
       id: process.sessionId,
       title,
       summary: title,
-      provider: 'codex',
+      provider: resolveSessionProvider(process.sessionId),
       role,
       workflowId: runId,
       stageKey: process.stage,
@@ -726,7 +744,7 @@ function buildWorkflowRoleSummary(state, childSessions) {
       return {
         label: label || sessionId,
         sessionId,
-        provider: session.provider || sessionProvider,
+        provider: sessionProvider || session.provider || 'codex',
         stageKey: session.stageKey,
         address: session.address,
         routePath: session.routePath,
@@ -1100,7 +1118,7 @@ export async function buildWoWorkflowReadModel({ projectPath, runDirName, state,
 
   const stageStatuses = buildStageStatuses(state, rawStage, rawStatus, warnings);
   const runnerProcesses = buildRunnerProcesses(state, stageStatuses, logsByKey, warnings);
-  const childSessions = buildChildSessions(runId, runnerProcesses, warnings);
+  const childSessions = buildChildSessions(runId, runnerProcesses, warnings, pick(state, 'sessions') || {});
   const workflowDisplay = {
     lines: buildWorkflowDisplayLines(state, stageStatuses, childSessions, runnerProcesses, warnings),
   };

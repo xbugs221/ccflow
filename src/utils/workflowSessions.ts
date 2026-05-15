@@ -21,7 +21,9 @@ function getChildSessionProvider(provider: unknown): string {
   /**
    * PURPOSE: Treat missing or retired provider values as Codex ownership.
    */
-  return provider === 'opencode' ? 'opencode' : 'codex';
+  if (provider === 'opencode') return 'opencode';
+  if (provider === 'pi') return 'pi';
+  return 'codex';
 }
 
 export function isWorkflowOwnedSession(project: Pick<Project, 'workflows'>, session: SessionLike): boolean {

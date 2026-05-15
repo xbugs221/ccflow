@@ -3,6 +3,8 @@ import express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { spawnSync } from 'child_process';
+import { resolveExecutablePath } from '../executable-resolver.js';
 
 const router = express.Router();
 
@@ -13,6 +15,57 @@ router.get('/claude/status', async (req, res) => {
     error: 'Claude CLI authentication is no longer supported'
   });
 });
+
+router.get('/opencode/status', async (req, res) => {
+  res.json({
+    available: true,
+    authenticated: true,
+    email: null,
+    error: null,
+  });
+});
+
+/**
+ * Pi CLI status check: only verifies the pi binary is visible to the service
+ * process. Does NOT return API keys, tokens, or credentials.
+ */
+router.get('/pi/status', async (req, res) => {
+  try {
+    const commandPath = resolveExecutablePath('pi');
+    if (!commandPath) {
+      return res.json({
+        available: false,
+        authenticated: null,
+        commandPath: '',
+        error: 'pi CLI not found in service PATH',
+      });
+    }
+
+    // Lightweight version check only - no sensitive data
+    const result = spawnSync(commandPath, ['--version'], {
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+
+    const version = (result.stdout || '').trim() || 'unknown';
+
+    res.json({
+      available: true,
+      authenticated: null,
+      commandPath,
+      version,
+      error: null,
+    });
+  } catch (error) {
+    res.json({
+      available: false,
+      authenticated: null,
+      commandPath: '',
+      error: error instanceof Error ? error.message : 'Failed to check Pi CLI',
+    });
+  }
+});
+
 router.get('/codex/status', async (req, res) => {
   try {
     const result = await checkCodexCredentials();

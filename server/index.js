@@ -49,6 +49,7 @@ import {
     getSessions,
     getSessionMessages,
     getCodexSessions,
+    getPiSessions,
     getCodexSessionMessages,
     searchChatHistory,
     renameProject,
@@ -162,10 +163,10 @@ function isCcflowRouteSessionId(sessionId) {
  * Accept only providers supported by manual chat turns.
  */
 function normalizeManualProvider(provider) {
-    if (provider === 'codex' || provider === 'opencode') {
+    if (provider === 'codex' || provider === 'opencode' || provider === 'pi') {
         return provider;
     }
-    throw new Error('provider must be "codex" or "opencode"');
+    throw new Error('provider must be "codex", "opencode", or "pi"');
 }
 
 /**
@@ -1639,7 +1640,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
         const parsedOffset = offset ? parseInt(offset, 10) : 0;
         const parsedAfterLine = afterLine != null ? parseInt(afterLine, 10) : null;
 
-        let resolvedProvider = provider === 'opencode' ? 'opencode' : provider === 'codex' ? 'codex' : null;
+        let resolvedProvider = provider === 'opencode' ? 'opencode' : provider === 'codex' ? 'codex' : provider === 'pi' ? 'pi' : null;
         let projectPath = null;
 
         if (isCcflowRouteSessionId(sessionId)) {
@@ -1655,12 +1656,13 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
                 }
 
                 const providerSessionId = runtimeContext.pendingProviderSessionId;
-                const indexedProvider = runtimeContext.provider === 'opencode' ? 'opencode' : 'codex';
-                const nativeResult = (resolvedProvider || indexedProvider) === 'codex'
+                const indexedProvider = runtimeContext.provider === 'opencode' ? 'opencode' : runtimeContext.provider === 'pi' ? 'pi' : 'codex';
+                const fetchProvider = resolvedProvider || indexedProvider;
+                const nativeResult = fetchProvider === 'codex'
                     ? await getCodexSessionMessages(providerSessionId, parsedLimit, parsedOffset, parsedAfterLine)
                     : await readCoConversationMessages(
                         await findCoConversationForSession(sessionId),
-                        'opencode',
+                        fetchProvider === 'pi' ? 'pi' : 'opencode',
                         parsedLimit,
                         parsedOffset,
                     );
@@ -1672,7 +1674,12 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
             try {
                 projectPath = projectPath || await extractProjectDirectory(projectName);
                 const codexSessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true });
-                resolvedProvider = codexSessions.some((session) => session.id === sessionId) ? 'codex' : 'opencode';
+                if (codexSessions.some((session) => session.id === sessionId)) {
+                    resolvedProvider = 'codex';
+                } else {
+                    const piSessions = await getPiSessions(projectPath);
+                    resolvedProvider = piSessions.some((session) => session.id === sessionId) ? 'pi' : 'opencode';
+                }
             } catch (providerDetectionError) {
                 console.warn(
                     `Unable to detect provider for session ${sessionId} in project ${projectName}:`,
@@ -1686,7 +1693,7 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
             ? await getCodexSessionMessages(sessionId, parsedLimit, parsedOffset, parsedAfterLine)
             : await readCoConversationMessages(
                 await findCoConversationForSession(sessionId),
-                'opencode',
+                resolvedProvider === 'pi' ? 'pi' : 'opencode',
                 parsedLimit,
                 parsedOffset,
             );
@@ -1745,7 +1752,7 @@ app.put('/api/projects/:projectName/sessions/:sessionId/rename', authenticateTok
 
 app.put('/api/projects/:projectName/sessions/:sessionId/ui-state', authenticateToken, async (req, res) => {
     try {
-        const provider = req.body?.provider === 'opencode' ? 'opencode' : 'codex';
+        const provider = normalizeManualProvider(req.body?.provider || 'codex');
         const state = await updateSessionUiState(req.params.projectName, req.params.sessionId, provider, {
             favorite: req.body?.favorite === true,
             pending: req.body?.pending === true,
@@ -1796,7 +1803,7 @@ app.put('/api/projects/:projectName/sessions/:sessionId/model-state', authentica
             projectName: req.params.projectName,
             projectPath,
             sessionId: req.params.sessionId,
-            provider: req.body?.provider === 'opencode' ? 'opencode' : 'codex',
+            provider: normalizeManualProvider(req.body?.provider || 'codex'),
             state,
         });
         res.json({ success: true, state });
@@ -2628,6 +2635,7 @@ function handleChatConnection(ws, request) {
         try {
             data = JSON.parse(message);
 
+            console.log('📨 Chat message received:', data.type);
             if (data.type === 'claude-command') {
                 writer.send({ type: 'claude-error', error: 'Provider "claude" is no longer supported' });
             } else if (data.type === 'codex-command') {
@@ -2872,9 +2880,122 @@ function handleChatConnection(ws, request) {
                     excludeTurnId: previousActiveTurnId,
                     excludeTurnIds: previousTurnIds,
                 });
+            } else if (data.type === 'pi-command') {
+                if (!acceptChatRequestId(data.clientRequestId || data.options?.clientRequestId)) {
+                    console.warn('[DEBUG] Ignoring duplicate Pi request:', data.clientRequestId || data.options?.clientRequestId);
+                    return;
+                }
+                const resolvedOptions = await resolveChatProjectOptions(data.options, extractProjectDirectory);
+                const {
+                    ccflowSessionId,
+                    startRequestId,
+                    clientRef,
+                } = resolveCcflowSessionStartContext(data, resolvedOptions);
+                const shouldStartCcflowDraft = ccflowSessionId && (
+                    (!resolvedOptions?.sessionId || isCcflowRouteSessionId(resolvedOptions.sessionId))
+                    && (!data.sessionId || isCcflowRouteSessionId(data.sessionId))
+                );
+                const piProviderOptions = shouldStartCcflowDraft
+                    ? { ...resolvedOptions, sessionId: undefined, resume: false }
+                    : resolvedOptions;
+                await ensureCoAvailable('pi');
+                writer.setSessionIndexContext(ccflowSessionId ? {
+                    projectName: piProviderOptions?.projectName || data.options?.projectName || '',
+                    projectPath: piProviderOptions?.projectPath || piProviderOptions?.cwd || '',
+                    provider: 'pi',
+                    ccflowSessionId,
+                    startRequestId,
+                } : null);
+                if (shouldStartCcflowDraft) {
+                    const startResult = await startManualSessionDraft(
+                        piProviderOptions?.projectName || data.options?.projectName || '',
+                        piProviderOptions?.projectPath || piProviderOptions?.cwd || '',
+                        ccflowSessionId,
+                        'pi',
+                        startRequestId,
+                    );
+                    const existingConversation = !startResult.started && startResult.reason === 'missing-draft'
+                        ? await readCoConversationState(ccflowSessionId).catch(() => null)
+                        : null;
+                    const canContinueExistingConversation = startResult.reason === 'already-started' || Boolean(existingConversation?.conversation_id);
+                    if (!startResult.started && !canContinueExistingConversation) {
+                        writer.send({
+                            type: 'session-start-rejected',
+                            sessionId: ccflowSessionId,
+                            ccflowSessionId,
+                            provider: 'pi',
+                            reason: startResult.reason,
+                            startRequestId: startResult.startRequestId,
+                        });
+                        return;
+                    }
+                }
+                console.log('[DEBUG] Pi request:', data.command || '[Continue/Resume]');
+                console.log('📁 Project:', piProviderOptions?.projectPath || piProviderOptions?.cwd || 'Unknown');
+                const sessionIdForRoute = piProviderOptions?.sessionId || data.sessionId;
+                const resolvedRoute = await resolveCoConversationId({
+                    ccflowSessionId,
+                    sessionId: sessionIdForRoute,
+                    projectName: piProviderOptions?.projectName || data.options?.projectName || '',
+                    projectPath: piProviderOptions?.projectPath || piProviderOptions?.cwd || '',
+                    provider: 'pi',
+                });
+                if (!resolvedRoute.conversationId) {
+                    writer.send({
+                        type: 'pi-error',
+                        error: resolvedRoute.error || 'Cannot determine co conversation route',
+                        provider: 'pi',
+                        sessionId: sessionIdForRoute,
+                    });
+                    return;
+                }
+                const coRequest = buildCoRequest({
+                    provider: 'pi',
+                    requestId: startRequestId || data.clientRequestId || data.options?.clientRequestId || '',
+                    conversationId: resolvedRoute.conversationId,
+                    projectPath: piProviderOptions?.projectPath || piProviderOptions?.cwd || '',
+                    text: data.command || '',
+                    activePolicy: data.activePolicy || data.active_policy || data.options?.activePolicy || 'queue',
+                    targetTurnId: data.targetTurnId || data.target_turn_id || data.options?.targetTurnId || '',
+                    providerSessionIdHint: piProviderOptions?.sessionId || '',
+                    options: {
+                        permissionMode: piProviderOptions?.permissionMode || '',
+                    },
+                    attachments: piProviderOptions?.attachments || [],
+                    actor: {
+                        userId: request?.user?.id || 'local',
+                        deviceId: data.deviceId || data.options?.deviceId || '',
+                        windowId: data.windowId || data.options?.windowId || '',
+                    },
+                });
+                const previousConversationState = await readCoConversationState(coRequest.conversation_id).catch(() => null);
+                const previousActiveTurnId = previousConversationState?.active_turn_id || '';
+                const previousTurnIds = getCoConversationTurnIds(previousConversationState);
+                await writeCoRequest(coRequest);
+                sendMessageAccepted(writer, {
+                    sessionId: resolvedRoute.conversationId || piProviderOptions?.sessionId || data.sessionId,
+                    ccflowSessionId: resolvedRoute.conversationId,
+                    provider: 'pi',
+                    clientRequestId: startRequestId,
+                    startRequestId,
+                });
+                const recovered = await recoverCoConversation(coRequest.conversation_id, request?.user?.id || null);
+                if (recovered?.active_turn_id) {
+                    writer.send({
+                        type: 'session-status',
+                        sessionId: coRequest.conversation_id,
+                        provider: 'pi',
+                        isProcessing: true,
+                        turnId: recovered.active_turn_id,
+                    });
+                }
+                observeCoConversationTurns(coRequest.conversation_id, writer, 'pi', request?.user?.id || null, {
+                    excludeTurnId: previousActiveTurnId,
+                    excludeTurnIds: previousTurnIds,
+                });
             } else if (data.type === 'abort-session') {
                 console.log('[DEBUG] Abort session request:', data.sessionId);
-                const provider = data.provider === 'opencode' ? 'opencode' : 'codex';
+                const provider = normalizeManualProvider(data.provider || 'codex');
                 const ccflowSessionId = isCcflowRouteSessionId(data.ccflowSessionId || data.sessionId)
                     ? (data.ccflowSessionId || data.sessionId)
                     : null;
@@ -2953,7 +3074,7 @@ function handleChatConnection(ws, request) {
                 writer.send({ type: 'claude-error', error: 'Provider "claude" is no longer supported' });
             } else if (data.type === 'check-session-status') {
                 // Check if a specific session is currently processing
-                const provider = data.provider === 'opencode' ? 'opencode' : 'codex';
+                const provider = normalizeManualProvider(data.provider || 'codex');
                 const sessionId = data.ccflowSessionId || data.ccflow_session_id || data.sessionId;
                 const conversation = await recoverCoConversation(sessionId, request?.user?.id || null);
                 const isActive = conversation?.status === 'running' || Boolean(conversation?.active_turn_id);
@@ -2983,6 +3104,7 @@ function handleChatConnection(ws, request) {
                 const activeSessions = {
                     codex: activeTurns.filter((turn) => turn.provider === 'codex'),
                     opencode: activeTurns.filter((turn) => turn.provider === 'opencode'),
+                    pi: activeTurns.filter((turn) => turn.provider === 'pi'),
                 };
                 writer.send({
                     type: 'active-sessions',
@@ -3003,6 +3125,8 @@ function handleChatConnection(ws, request) {
                 errorType = 'codex-error';
             } else if (data?.type === 'opencode-command') {
                 errorType = 'opencode-error';
+            } else if (data?.type === 'pi-command') {
+                errorType = 'pi-error';
             }
             writer.send({
                 type: errorType,

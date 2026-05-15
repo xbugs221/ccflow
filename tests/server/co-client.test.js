@@ -33,6 +33,7 @@ test('co doctor boolean provider schema marks OpenCode available', () => {
   assert.deepEqual(normalized, {
     codex: { available: true },
     opencode: { available: true },
+    pi: { available: false },
   });
   assert.equal(isCoProviderAvailable({ providers: { opencode: true } }, 'opencode'), true);
 });
@@ -49,6 +50,24 @@ test('OpenCode provider false fails before callers write pending requests', () =
   } finally {
     process.env.PATH = previousPath;
   }
+});
+
+test('Pi provider normalization includes pi in PROVIDERS set', () => {
+  const normalized = normalizeCoProviders({
+    pi: true,
+  });
+
+  assert.equal(normalized.pi.available, true);
+  assert.equal(isCoProviderAvailable({ providers: { pi: true } }, 'pi'), true);
+});
+
+test('Pi provider unavailable blocks send gate', () => {
+  assert.equal(isCoProviderAvailable({ providers: { pi: false } }, 'pi'), false);
+  assert.equal(isCoProviderAvailable({ providers: {} }, 'pi'), false);
+  assert.throws(
+    () => assertCoProviderAvailable({ error: 'pi not found', providers: { pi: false } }, 'pi'),
+    /co provider "pi" is unavailable/,
+  );
 });
 
 test('co doctor failures include subcommand and PATH for invalid JSON and nonzero exits', async () => {

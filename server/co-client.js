@@ -15,18 +15,21 @@ export const CO_EVENT_TYPES = new Set([
     'session-created',
     'codex-response',
     'opencode-response',
+    'pi-response',
     'token-budget',
     'codex-complete',
     'opencode-complete',
+    'pi-complete',
     'codex-error',
     'opencode-error',
+    'pi-error',
     'session-aborted',
     'steer-rejected',
     'message-rejected',
 ]);
 const MESSAGE_POLICIES = new Set(['queue', 'reject', 'abort_and_send', 'steer']);
 const REQUEST_OPS = new Set(['message', 'abort']);
-const PROVIDERS = new Set(['codex', 'opencode']);
+const PROVIDERS = new Set(['codex', 'opencode', 'pi']);
 
 /**
  * Build one actionable co doctor failure summary for diagnostics and send gates.
@@ -198,8 +201,8 @@ export function buildCoRequest({
     if (!projectPath) {
         throw new Error('project_path is required');
     }
-    if (provider !== 'codex' && provider !== 'opencode') {
-        throw new Error('provider must be "codex" or "opencode"');
+    if (!PROVIDERS.has(provider)) {
+        throw new Error(`provider must be one of: ${[...PROVIDERS].join(', ')}`);
     }
     if (!MESSAGE_POLICIES.has(activePolicy)) {
         throw new Error(`unsupported co active_policy: ${activePolicy}`);

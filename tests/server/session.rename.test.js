@@ -358,7 +358,7 @@ test('manual Claude draft sessions are rejected by the provider contract', { con
     const project = await addProjectManually(projectPath, 'Claude Draft Rejected Demo');
     await assert.rejects(
       () => createManualSessionDraft(project.name, projectPath, 'claude', '会话1'),
-      /provider must be "codex" or "opencode"/,
+      /provider must be "codex", "opencode", or "pi"/,
     );
   });
 });

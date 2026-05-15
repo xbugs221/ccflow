@@ -82,7 +82,8 @@ const projectsHaveChanges = (
 
     return (
       serialize(nextProject.codexSessions) !== serialize(prevProject.codexSessions) ||
-      serialize(nextProject.opencodeSessions) !== serialize(prevProject.opencodeSessions)
+      serialize(nextProject.opencodeSessions) !== serialize(prevProject.opencodeSessions) ||
+      serialize(nextProject.piSessions) !== serialize(prevProject.piSessions)
     );
   });
 };
@@ -92,6 +93,7 @@ const getProjectSessions = (project: Project): ProjectSession[] => {
     ...(project.sessions ?? []),
     ...(project.codexSessions ?? []),
     ...(project.opencodeSessions ?? []),
+    ...(project.piSessions ?? []),
   ];
 
   return visibleSessions.filter((session) => {
@@ -159,7 +161,9 @@ const findRefreshedSelectedSession = (
     ? (project.codexSessions || [])
     : selectedSession.__provider === 'opencode'
       ? (project.opencodeSessions || [])
-      : (project.sessions || []);
+      : selectedSession.__provider === 'pi'
+        ? (project.piSessions || [])
+        : (project.sessions || []);
 
   return providerSessions.find((session) => (
     session.routeIndex === selectedSession.routeIndex
@@ -336,7 +340,13 @@ const resolveRouteSelection = (
               || (matchedProject.opencodeSessions || []).some((entry) => entry.id === (childSession?.id || projectSession?.id))
             )
               ? 'opencode'
-              : 'codex';
+              : (
+                childSession?.provider === 'pi'
+                || projectSession?.__provider === 'pi'
+                || (matchedProject.piSessions || []).some((entry) => entry.id === (childSession?.id || projectSession?.id))
+              )
+                ? 'pi'
+                : 'codex';
           const baseSession = projectSession || {
             id: childSession?.id || runnerProcess?.sessionId || `${workflow.id}-${childAddress}`,
             title: childSession?.title,
@@ -426,6 +436,7 @@ const withSessionProjectMetadata = (
 const providerToSessionsKey = (provider: SessionProvider): keyof Project => {
   if (provider === 'codex') return 'codexSessions';
   if (provider === 'opencode') return 'opencodeSessions';
+  if (provider === 'pi') return 'piSessions';
   throw new Error(`Unsupported session provider: ${String(provider)}`);
 };
 
@@ -690,7 +701,7 @@ export function useProjectsState({
       const searchParams = new URLSearchParams(locationSearch);
       const hintedProjectPath = searchParams.get('projectPath') || '';
       const rawProvider = searchParams.get('provider');
-      const hintedProvider: SessionProvider = rawProvider === 'opencode' ? 'opencode' : 'codex';
+      const hintedProvider: SessionProvider = rawProvider === 'opencode' ? 'opencode' : rawProvider === 'pi' ? 'pi' : 'codex';
       const decodedSessionId = decodeURIComponent(legacySessionMatch[1]);
       const requestedSessionSummary = String(searchParams.get('sessionSummary') || '').trim();
       const matchedProject = projects.find((project) => (
@@ -1020,6 +1031,7 @@ export function useProjectsState({
           sessions: project.sessions?.filter((session) => session.id !== sessionIdToDelete) ?? [],
           codexSessions: project.codexSessions?.filter((session) => session.id !== sessionIdToDelete) ?? [],
           opencodeSessions: project.opencodeSessions?.filter((session) => session.id !== sessionIdToDelete) ?? [],
+          piSessions: project.piSessions?.filter((session) => session.id !== sessionIdToDelete) ?? [],
           sessionMeta: {
             ...project.sessionMeta,
             total: Math.max(0, (project.sessionMeta?.total as number | undefined ?? 0) - 1),

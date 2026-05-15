@@ -234,7 +234,7 @@ test('server/index.js handles opencode-command WebSocket messages', async () => 
 
 test('server/index.js handles opencode in abort-session', async () => {
   const source = await readRepoFile('server/index.js');
-  assert.match(source, /provider = data\.provider === 'opencode' \? 'opencode' : 'codex'/, 'must preserve opencode provider on abort');
+  assert.match(source, /provider = normalizeManualProvider\(data\.provider \|\| 'codex'\)/, 'must preserve provider via normalizeManualProvider on abort');
   assert.match(source, /target_turn_id is required for abort/, 'must reject abort without target turn id');
   assert.match(source, /op: 'abort'[\s\S]*?await writeCoRequest\(coRequest\)/, 'must submit abort through co');
 });
@@ -264,7 +264,7 @@ test('server/index.js broadcasts co turn events with route and turn identity', a
 
 test('server/index.js handles opencode in check-session-status', async () => {
   const source = await readRepoFile('server/index.js');
-  assert.match(source, /provider = data\.provider === 'opencode' \? 'opencode' : 'codex'/, 'must preserve opencode provider in status checks');
+  assert.match(source, /provider = normalizeManualProvider\(data\.provider \|\| 'codex'\)/, 'must preserve provider via normalizeManualProvider in status checks');
   assert.match(source, /data\.ccflowSessionId \|\| data\.ccflow_session_id \|\| data\.sessionId/, 'status checks must prefer ccflow route conversation id');
   assert.match(source, /recoverCoConversation\(sessionId/, 'must recover status from co conversation state');
   assert.match(source, /turnId:\s*conversation\?\.active_turn_id/, 'status response must include active turn id for abort target');
@@ -397,5 +397,5 @@ test('useSettingsController sets opencode auth status to authenticated', async (
 test('AccountContent hides unavailable quota and login for local OpenCode', async () => {
   const source = await readRepoFile('src/components/settings/view/tabs/agents-settings/sections/content/AccountContent.tsx');
   assert.match(source, /agent\s*===\s*'opencode'\s*\?\s*\(/, 'must render local OpenCode status without login action');
-  assert.match(source, /agent\s*!==\s*'opencode'\s*&&\s*\([\s\S]*?<UsageProviderQuota/, 'must skip UsageProviderQuota for opencode');
+  assert.match(source, /agent\s*!==\s*'opencode'\s*&&\s*agent\s*!==\s*'pi'\s*&&\s*\([\s\S]*?<UsageProviderQuota/, 'must skip UsageProviderQuota for opencode and pi');
 });

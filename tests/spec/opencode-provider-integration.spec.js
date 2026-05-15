@@ -83,8 +83,8 @@ test('SessionProvider type literal includes opencode and Project carries opencod
   const source = await readRepoFile('src/types/app.ts');
   assert.match(
     source,
-    /export\s+type\s+SessionProvider\s*=\s*'codex'\s*\|\s*'opencode'\s*;/,
-    'SessionProvider must list only codex | opencode',
+    /export\s+type\s+SessionProvider\s*=\s*'codex'\s*\|\s*'opencode'\s*\|\s*'pi'\s*;/,
+    'SessionProvider must list codex | opencode | pi',
   );
   assert.match(
     source,
@@ -97,8 +97,8 @@ test('AgentProvider settings type includes opencode', async () => {
   const source = await readRepoFile('src/components/settings/types/types.ts');
   assert.match(
     source,
-    /export\s+type\s+AgentProvider\s*=\s*'codex'\s*\|\s*'opencode'\s*;/,
-    'AgentProvider must list only codex | opencode',
+    /export\s+type\s+AgentProvider\s*=\s*'codex'\s*\|\s*'opencode'\s*\|\s*'pi'\s*;/,
+    'AgentProvider must list codex | opencode | pi',
   );
 });
 
@@ -106,8 +106,8 @@ test('AGENT_PROVIDERS constant lists opencode and AUTH_STATUS_ENDPOINTS register
   const source = await readRepoFile('src/components/settings/constants/constants.ts');
   assert.match(
     source,
-    /AGENT_PROVIDERS:\s*AgentProvider\[\]\s*=\s*\[\s*'codex'\s*,\s*'opencode'\s*\]/,
-    'AGENT_PROVIDERS must include only supported manual providers',
+    /AGENT_PROVIDERS:\s*AgentProvider\[\]\s*=\s*\[\s*'codex'\s*,\s*'opencode'\s*,\s*'pi'\s*\]/,
+    'AGENT_PROVIDERS must include codex, opencode, pi',
   );
   assert.match(
     source,
@@ -408,8 +408,8 @@ test('AccountContent hides the login button for opencode and skips UsageProvider
   );
   assert.match(
     source,
-    /\{\s*agent\s*!==\s*'opencode'\s*&&\s*\([\s\S]*?<UsageProviderQuota[\s\S]*?\)\s*\}/,
-    'AccountContent must guard <UsageProviderQuota /> with agent !== \'opencode\'',
+    /\{\s*agent\s*!==\s*'opencode'\s*&&\s*agent\s*!==\s*'pi'\s*&&\s*\([\s\S]*?<UsageProviderQuota[\s\S]*?\)\s*\}/,
+    'AccountContent must guard <UsageProviderQuota /> with agent !== \'opencode\' && agent !== \'pi\'',
   );
 });
 

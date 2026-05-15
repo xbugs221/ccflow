@@ -22,6 +22,17 @@ export default function SessionProviderLogo({
     return <OpenCodeLogo className={className} />;
   }
 
+  if (provider === 'pi') {
+    return (
+      <span
+        className={`${className} inline-flex items-center justify-center rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-[0.65em] font-semibold`}
+        aria-label="Pi provider"
+      >
+        Pi
+      </span>
+    );
+  }
+
   const modelLabel = (model || '').toLowerCase();
   if (modelLabel.includes('kimi')) {
     return <KimiLogo className={className} />;

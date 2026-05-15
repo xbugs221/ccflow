@@ -33,6 +33,8 @@ type StatusApiResponse = {
   error?: string | null;
   provider?: string | null;
   baseUrl?: string | null;
+  commandPath?: string | null;
+  version?: string | null;
   providers?: Array<{
     name?: string;
     connected?: boolean;
@@ -151,6 +153,10 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
     ...DEFAULT_AUTH_STATUS,
     loading: true,
   });
+  const [piAuthStatus, setPiAuthStatus] = useState<AuthStatus>({
+    ...DEFAULT_AUTH_STATUS,
+    loading: true,
+  });
 
   /**
    * PURPOSE: Route auth status updates to the correct provider's state slot so
@@ -164,6 +170,11 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
 
     if (provider === 'opencode') {
       setOpencodeAuthStatus(status);
+      return;
+    }
+
+    if (provider === 'pi') {
+      setPiAuthStatus(status);
       return;
     }
   }, []);
@@ -195,6 +206,21 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
           provider: data.provider || null,
           baseUrl: data.baseUrl || null,
           providers: normalizeOpenCodeProviders(data.providers),
+        });
+        return;
+      }
+
+      if (provider === 'pi') {
+        setAuthStatusByProvider(provider, {
+          available: data.available,
+          authenticated: Boolean(data.authenticated),
+          email: data.email || null,
+          loading: false,
+          error: data.error || null,
+          provider: data.provider || null,
+          baseUrl: data.baseUrl || null,
+          commandPath: typeof data.commandPath === 'string' ? data.commandPath : null,
+          version: typeof data.version === 'string' ? data.version : null,
         });
         return;
       }
@@ -290,6 +316,7 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
     void loadSettings();
     void checkAuthStatus('codex');
     void checkAuthStatus('opencode');
+    void checkAuthStatus('pi');
   }, [checkAuthStatus, initialTab, isOpen, loadSettings]);
 
   useEffect(() => () => {
@@ -310,6 +337,7 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
     setCodexPermissionMode,
     codexAuthStatus,
     opencodeAuthStatus,
+    piAuthStatus,
     openLoginForProvider,
     showLoginModal,
     setShowLoginModal,

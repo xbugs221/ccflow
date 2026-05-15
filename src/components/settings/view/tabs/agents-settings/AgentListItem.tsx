@@ -24,6 +24,10 @@ const agentConfig: Record<AgentProvider, AgentConfig> = {
     name: 'OpenCode',
     color: 'orange',
   },
+  pi: {
+    name: 'Pi',
+    color: 'blue',
+  },
 };
 
 const colorClasses = {
@@ -70,7 +74,7 @@ export default function AgentListItem({
         <div className="flex flex-col items-center gap-1">
           <SessionProviderLogo provider={agentId} className="w-5 h-5" />
           <span className="text-xs font-medium text-foreground">{config.name}</span>
-          {authStatus.authenticated && (
+          {(agentId === 'pi' ? authStatus.available : authStatus.authenticated) && (
             <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`} />
           )}
         </div>
@@ -93,6 +97,18 @@ export default function AgentListItem({
       <div className="text-xs text-muted-foreground pl-6">
         {authStatus.loading ? (
           <span className="text-gray-400">{t('agents.authStatus.checking')}</span>
+        ) : agentId === 'pi' ? (
+          authStatus.available ? (
+            <div className="flex items-center gap-1">
+              <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`} />
+              <span>{t('agents.account.pi.available')}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+              <span>{t('agents.account.pi.unavailable')}</span>
+            </div>
+          )
         ) : authStatus.authenticated ? (
           <div className="flex items-center gap-1">
             <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`} />
