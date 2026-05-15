@@ -65,6 +65,8 @@ import {
     deleteSession,
     deleteProject,
     addProjectManually,
+    loadProjectConfig,
+    findProjectChatRecord,
     extractProjectDirectory,
     clearProjectDirectoryCache,
     refreshMissingProjectPathCache
@@ -196,6 +198,63 @@ function resolveCcflowSessionStartContext(data = {}, resolvedOptions = {}) {
         ),
         clientRef: pickString(data.clientRef, data.client_ref, options.clientRef, options.client_ref, data.command),
     };
+}
+
+/**
+ * Resolve the stable co conversation_id for a chat or abort request.
+ *
+ * Priority:
+ * 1. Explicit ccflowSessionId (cN)
+ * 2. current sessionId if it is already cN
+ * 3. Project chat config lookup by provider session id → routeIndex → cN
+ * 4. Co conversation state scan by provider_session_id
+ * 5. Not found → error (caller must not write pending request)
+ */
+async function resolveCoConversationId({
+    ccflowSessionId,
+    sessionId,
+    projectName = '',
+    projectPath = '',
+    provider = 'codex',
+}) {
+    // 1. Explicit ccflowSessionId already resolved as cN
+    if (ccflowSessionId && isCcflowRouteSessionId(ccflowSessionId)) {
+        return { conversationId: ccflowSessionId, source: 'explicit' };
+    }
+
+    // 2. Current sessionId is already a cN route
+    if (sessionId && isCcflowRouteSessionId(sessionId)) {
+        return { conversationId: sessionId, source: 'session-id-is-cn' };
+    }
+
+    // 3. sessionId is a provider session id – try project chat config
+    if (sessionId && projectPath) {
+        try {
+            const config = await loadProjectConfig(projectPath);
+            const location = findProjectChatRecord(config, sessionId, provider);
+            if (location?.scope === 'chat' && location.routeIndex) {
+                const cn = `c${location.routeIndex}`;
+                return { conversationId: cn, source: 'project-config' };
+            }
+        } catch (error) {
+            // Config read can fail; fall through to co state scan
+        }
+    }
+
+    // 4. Co conversation state scan by provider_session_id
+    if (sessionId) {
+        try {
+            const coState = await findCoConversationForSession(sessionId);
+            if (coState?.conversation_id && isCcflowRouteSessionId(coState.conversation_id)) {
+                return { conversationId: coState.conversation_id, source: 'co-state' };
+            }
+        } catch (error) {
+            // Fall through to error
+        }
+    }
+
+    // 5. Cannot determine route
+    return { conversationId: null, error: `Cannot determine co conversation route from session id: ${sessionId || '(none)'}` };
 }
 
 /**
@@ -2634,10 +2693,27 @@ function handleChatConnection(ws, request) {
                     ...codexProviderOptions,
                     reasoningEffort: sessionModelState.reasoningEffort || codexProviderOptions?.reasoningEffort,
                 };
+                const sessionIdForRoute = codexOptions?.sessionId || data.sessionId;
+                const resolvedRoute = await resolveCoConversationId({
+                    ccflowSessionId,
+                    sessionId: sessionIdForRoute,
+                    projectName: codexProviderOptions?.projectName || data.options?.projectName || '',
+                    projectPath: codexOptions?.projectPath || codexOptions?.cwd || '',
+                    provider: 'codex',
+                });
+                if (!resolvedRoute.conversationId) {
+                    writer.send({
+                        type: 'codex-error',
+                        error: resolvedRoute.error || 'Cannot determine co conversation route',
+                        provider: 'codex',
+                        sessionId: sessionIdForRoute,
+                    });
+                    return;
+                }
                 const coRequest = buildCoRequest({
                     provider: 'codex',
                     requestId: startRequestId || data.clientRequestId || data.options?.clientRequestId || '',
-                    conversationId: ccflowSessionId || codexOptions?.conversationId || codexOptions?.sessionId || data.sessionId,
+                    conversationId: resolvedRoute.conversationId,
                     projectPath: codexOptions?.projectPath || codexOptions?.cwd || '',
                     text: data.command || '',
                     activePolicy: data.activePolicy || data.active_policy || data.options?.activePolicy || 'queue',
@@ -2661,8 +2737,8 @@ function handleChatConnection(ws, request) {
                 const previousTurnIds = getCoConversationTurnIds(previousConversationState);
                 await writeCoRequest(coRequest);
                 sendMessageAccepted(writer, {
-                    sessionId: ccflowSessionId || codexProviderOptions?.sessionId || data.sessionId || data.options?.sessionId,
-                    ccflowSessionId,
+                    sessionId: resolvedRoute.conversationId || codexProviderOptions?.sessionId || data.sessionId,
+                    ccflowSessionId: resolvedRoute.conversationId,
                     provider: 'codex',
                     clientRequestId: startRequestId,
                     startRequestId,
@@ -2733,10 +2809,27 @@ function handleChatConnection(ws, request) {
                 }
                 console.log('[DEBUG] OpenCode request:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || 'Unknown');
+                const sessionIdForRoute = opencodeProviderOptions?.sessionId || data.sessionId;
+                const resolvedRoute = await resolveCoConversationId({
+                    ccflowSessionId,
+                    sessionId: sessionIdForRoute,
+                    projectName: opencodeProviderOptions?.projectName || data.options?.projectName || '',
+                    projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
+                    provider: 'opencode',
+                });
+                if (!resolvedRoute.conversationId) {
+                    writer.send({
+                        type: 'opencode-error',
+                        error: resolvedRoute.error || 'Cannot determine co conversation route',
+                        provider: 'opencode',
+                        sessionId: sessionIdForRoute,
+                    });
+                    return;
+                }
                 const coRequest = buildCoRequest({
                     provider: 'opencode',
                     requestId: startRequestId || data.clientRequestId || data.options?.clientRequestId || '',
-                    conversationId: ccflowSessionId || opencodeProviderOptions?.conversationId || opencodeProviderOptions?.sessionId || data.sessionId,
+                    conversationId: resolvedRoute.conversationId,
                     projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
                     text: data.command || '',
                     activePolicy: data.activePolicy || data.active_policy || data.options?.activePolicy || 'queue',
@@ -2759,8 +2852,8 @@ function handleChatConnection(ws, request) {
                 const previousTurnIds = getCoConversationTurnIds(previousConversationState);
                 await writeCoRequest(coRequest);
                 sendMessageAccepted(writer, {
-                    sessionId: ccflowSessionId || opencodeProviderOptions?.sessionId || data.sessionId || data.options?.sessionId,
-                    ccflowSessionId,
+                    sessionId: resolvedRoute.conversationId || opencodeProviderOptions?.sessionId || data.sessionId,
+                    ccflowSessionId: resolvedRoute.conversationId,
                     provider: 'opencode',
                     clientRequestId: startRequestId,
                     startRequestId,
@@ -2797,12 +2890,33 @@ function handleChatConnection(ws, request) {
                 }
                 await ensureCoAvailable(provider);
                 const resolvedOptions = await resolveChatProjectOptions(data.options, extractProjectDirectory).catch(() => ({}));
-                const conversationId = ccflowSessionId || data.conversationId || data.conversation_id || data.sessionId;
+                const sessionIdForRoute = data.sessionId;
+                const routeResult = ccflowSessionId
+                    ? { conversationId: ccflowSessionId }
+                    : await resolveCoConversationId({
+                        ccflowSessionId: null,
+                        sessionId: data.conversationId || data.conversation_id || sessionIdForRoute,
+                        projectName: data.projectName || resolvedOptions?.projectName || '',
+                        projectPath: data.projectPath || resolvedOptions?.projectPath || resolvedOptions?.cwd || '',
+                        provider,
+                    });
+                const conversationId = routeResult.conversationId || '';
                 const targetTurnId = data.targetTurnId || data.target_turn_id || data.options?.targetTurnId || '';
+                if (!conversationId) {
+                    writer.send({
+                        type: 'session-aborted',
+                        sessionId: sessionIdForRoute,
+                        ccflowSessionId,
+                        provider,
+                        success: false,
+                        error: routeResult.error || 'Cannot determine co conversation route for abort',
+                    });
+                    return;
+                }
                 if (!targetTurnId) {
                     writer.send({
                         type: 'session-aborted',
-                        sessionId: data.sessionId,
+                        sessionId: sessionIdForRoute,
                         actualSessionId: conversationId,
                         ccflowSessionId,
                         provider,

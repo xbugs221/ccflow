@@ -30,6 +30,39 @@ The web service does not directly own Codex/OpenCode CLI child processes for man
 - When provider gating fails, the browser shows an actionable error and the server does not create a manual-session draft, write a pending request, or send `message-accepted`.
 - The web service tails co `events.jsonl` files and broadcasts existing frontend-consumed chat events; it must not hold Codex/OpenCode stdout or stderr pipes as the turn execution parent.
 
+### co continuation conversation_id must resolve to stable cN route
+
+When ccflow writes a co message request, `conversation_id` must be a stable `cN` route and must never use a raw provider session id from the browser.
+
+#### Scenario: browser explicitly provides ccflowSessionId
+
+- **Given** the browser sends a Codex or OpenCode message with `ccflowSessionId = "c51"`
+- **When** ccflow writes the co request
+- **Then** the pending request `conversation_id` must be `"c51"`
+- **And** it must not be overwritten by `sessionId` or provider session id
+
+#### Scenario: browser only provides provider session id that maps through project config
+
+- **Given** the project config maps a provider session id to `conversation_id = "c51"`
+- **When** the browser sends a continuation message with only the provider session id
+- **Then** ccflow must write `conversation_id = "c51"`
+- **And** WebSocket relay events must carry `ccflowSessionId = "c51"`
+
+#### Scenario: browser only provides provider session id that maps through co conversation state
+
+- **Given** a co conversation state maps a provider session id to `conversation_id = "c51"`
+- **When** the browser sends a continuation message with only the provider session id
+- **Then** ccflow must write `conversation_id = "c51"`
+- **And** WebSocket relay events must carry `ccflowSessionId = "c51"`
+
+#### Scenario: provider session id cannot be resolved to any route
+
+- **Given** the browser sends a continuation message with only a provider session id
+- **And** the backend cannot find a matching `cN` from project config or co conversation state
+- **When** ccflow processes the request
+- **Then** the request must fail with a clear error
+- **And** no request file must be written to `requests/pending/`
+
 ### Persist only minimal co state
 
 Each running turn persists only the data needed to recover streaming state and coordinate with co.
@@ -95,6 +128,7 @@ Running-turn interventions target the co conversation and must be guarded by the
 
 - Sending another message while a conversation is active writes a message request with an explicit `active_policy`, such as `queue` or `abort_and_send`.
 - Aborting a running Codex or OpenCode turn writes an `op = abort` co request with `conversation_id` and the UI-observed `target_turn_id`.
+- When the browser only holds a provider session id, the abort request must use the same `conversation_id` resolution logic as message requests, resolving through project config or co conversation state.
 - co must reject or ignore stale interventions whose `target_turn_id` does not match the current active turn.
 - Successful aborts update co turn state and emit `session-aborted`.
 - Abort handling does not depend on only the web service's in-memory AbortController state.

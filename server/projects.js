@@ -5196,6 +5196,7 @@ export {
   addProjectManually,
   loadProjectConfig,
   saveProjectConfig,
+  findProjectChatRecord,
   getSessionModelState,
   updateSessionModelState,
   createDefaultProjectArchiveIndex,
