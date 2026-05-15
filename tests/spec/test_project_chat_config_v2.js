@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import {
@@ -17,6 +18,7 @@ import {
   updateSessionModelState,
   updateSessionUiState,
 } from '../../server/projects.js';
+import { getProjectLocalConfigPath } from '../../server/project-config-store.js';
 import {
   readProjectConf,
   withIsolatedProject,
@@ -50,7 +52,7 @@ test('Scenario: 重复保存相同项目配置不会刷新 conf.json', async () 
       },
     }, projectPath);
 
-    const confPath = new URL(`file://${projectPath}/.ccflow/conf.json`);
+    const confPath = getProjectLocalConfigPath(projectPath);
     const firstStat = await fs.stat(confPath);
     await saveProjectConfig(await loadProjectConfig(projectPath), projectPath);
     const secondStat = await fs.stat(confPath);

@@ -27,7 +27,7 @@ docs/           OpenSpec 配置、当前 specs、设计文档和已归档 change
 public/         PWA、图标、截图和公开静态页面
 ```
 
-`dist/`、`node_modules/`、`.ccflow/`、`.wo/`、测试输出、数据库、缓存和本地环境文件都是生成物或运行时状态，不应提交到仓库。
+`dist/`、`node_modules/`、`.wo/`、测试输出、数据库、缓存和本地环境文件都是生成物或运行时状态，不应提交到仓库。ccflow 运行时项目状态和 UI 配置现在写入 `${XDG_STATE_HOME:-~/.local/state}/ccflow/`，之前版本的 `.ccflow/` 目录不再产生新写入但也不会被自动删除。
 
 内置斜杠命令放在 `server/commands/aliases/`，当前包含 OpenSpec 工作流和仓库维护常用提示词。用户仍可在 `~/.config/ccflow-alias/` 放自己的 Markdown 命令，两类命令会一起出现在命令菜单里。
 

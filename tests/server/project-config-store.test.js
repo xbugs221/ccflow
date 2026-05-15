@@ -1,13 +1,17 @@
 /**
  * PURPOSE: Covers project-local config persistence behavior that protects
  * workflow/session reads from partial writes and concurrent writer collisions.
+ * Updated: config now writes to XDG state directory, not project .ccflow.
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writeProjectLocalConfig } from '../../server/project-config-store.js';
+import {
+  writeProjectLocalConfig,
+  getProjectLocalConfigPath,
+} from '../../server/project-config-store.js';
 
 test('project config concurrent writes use unique temp files', async () => {
   /**
@@ -23,7 +27,8 @@ test('project config concurrent writes use unique temp files', async () => {
       })),
     );
 
-    const rawConfig = await readFile(join(projectPath, '.ccflow', 'conf.json'), 'utf8');
+    const configPath = getProjectLocalConfigPath(projectPath);
+    const rawConfig = await readFile(configPath, 'utf8');
     const parsedConfig = JSON.parse(rawConfig);
     assert.equal(parsedConfig.schemaVersion, 2);
     assert.equal(Number.isInteger(parsedConfig.marker), true);

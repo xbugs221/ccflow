@@ -136,12 +136,13 @@ export async function writeActiveOpenSpecChange(projectPath, changeName = 'conf-
 }
 
 /**
- * Read the project-local ccflow config JSON.
+ * Read the project-local ccflow config JSON from the XDG state directory.
  * @param {string} projectPath - Project root path.
  * @returns {Promise<object>} Parsed config.
  */
 export async function readProjectConf(projectPath) {
-  const confPath = path.join(projectPath, '.ccflow', 'conf.json');
+  const { getProjectLocalConfigPath } = await import('../../../server/project-config-store.js');
+  const confPath = getProjectLocalConfigPath(projectPath);
   return JSON.parse(await fs.readFile(confPath, 'utf8'));
 }
 
