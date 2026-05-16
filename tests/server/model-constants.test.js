@@ -4,10 +4,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { CODEX_MODELS } from '../../shared/modelConstants.js';
+import { CODEX_MODELS } from '../../shared/modelConstants.ts';
 
 test('model constants no longer export Claude provider entry', async () => {
-  const mod = await import('../../shared/modelConstants.js');
+  const mod = await import('../../shared/modelConstants.ts');
   assert.equal('CLAUDE_MODELS' in mod, false, 'CLAUDE_MODELS must not be exported');
 });
 

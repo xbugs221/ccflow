@@ -10,7 +10,7 @@ import {
   getMessageHistoryTailSequence,
   getPendingSocketMessages,
   reduceProjectsUpdatedMessages,
-} from '../../shared/socket-message-utils.js';
+} from '../../shared/socket-message-utils.ts';
 
 /**
  * Build a minimal project session for project-state reduction tests.

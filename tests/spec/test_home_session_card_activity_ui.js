@@ -10,7 +10,7 @@ import {
   getSessionProjectName,
   getViewedSessionKey,
   hasUnreadSessionActivity,
-} from '../../src/components/main-content/view/subcomponents/sessionActivityState.js';
+} from '../../src/components/main-content/view/subcomponents/sessionActivityState.ts';
 
 test('historical project-home sessions are read on first visit until activity changes', () => {
   /**

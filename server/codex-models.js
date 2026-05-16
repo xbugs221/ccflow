@@ -7,7 +7,7 @@ import { access, readdir, readFile, realpath } from 'fs/promises';
 import path from 'path';
 import { promisify } from 'util';
 
-import { CODEX_REASONING_EFFORTS } from '../shared/modelConstants.js';
+import { CODEX_REASONING_EFFORTS } from '../shared/modelConstants.ts';
 
 const execFile = promisify(execFileCallback);
 const DISCOVERY_TIMEOUT_MS = 15_000;

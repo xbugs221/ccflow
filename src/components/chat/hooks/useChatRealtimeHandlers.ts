@@ -5,7 +5,7 @@
 import { useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { SocketMessageEnvelope } from '../../../contexts/WebSocketContext';
-import { getPendingSocketMessages } from '../../../../shared/socket-message-utils.js';
+import { getPendingSocketMessages } from '../../../../shared/socket-message-utils';
 import { decodeHtmlEntities, formatUsageLimitText } from '../utils/chatFormatting';
 import { safeLocalStorage } from '../utils/chatStorage';
 import type { ChatMessage, PendingPermissionRequest } from '../types/types';

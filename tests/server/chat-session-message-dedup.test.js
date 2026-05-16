@@ -8,7 +8,7 @@ import test from 'node:test';
 import {
   dedupeSessionMessagesByIdentity,
   getUniqueIncomingSessionMessages,
-} from '../../src/components/chat/utils/sessionMessageDedup.js';
+} from '../../src/components/chat/utils/sessionMessageDedup.ts';
 
 test('getUniqueIncomingSessionMessages skips rows already loaded by JSONL identity', () => {
   const existingMessages = [

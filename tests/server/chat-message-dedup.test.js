@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { dedupeAdjacentChatMessages } from '../../src/components/chat/utils/messageDedup.js';
+import { dedupeAdjacentChatMessages } from '../../src/components/chat/utils/messageDedup.ts';
 
 test('dedupeAdjacentChatMessages collapses adjacent duplicate user messages from session restore', () => {
   const messages = [

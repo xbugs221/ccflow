@@ -66,6 +66,7 @@ test('index.html does not reference deleted favicon files', async () => {
 test('index.html does not reference deleted PWA icons or manifest', async () => {
   const content = await readRepoFile('index.html');
   assert.doesNotMatch(content, /apple-touch-icon/);
+  // manifest.json link was already absent in change 29; change 30 deleted the file entirely.
   assert.doesNotMatch(content, /manifest\.json/);
 });
 
@@ -74,13 +75,14 @@ test('index.html still loads the app entry script', async () => {
   assert.match(content, /src\/main\.jsx/);
 });
 
-test('manifest.json does not contain deleted icon references', async () => {
-  const content = await readRepoFile('public/manifest.json');
-  const manifest = JSON.parse(content);
-  if (manifest.icons) {
-    assert.equal(manifest.icons.length, 0);
-  }
-  assert.ok(manifest.name);
+test('manifest.json is removed — no PWA manifest entry in index.html', async () => {
+  // Change 30 deleted public/manifest.json because index.html has no
+  // <link rel="manifest"> and the app no longer publishes a PWA manifest.
+  assert.equal(await exists('public/manifest.json'), false,
+    'public/manifest.json must no longer exist');
+  const html = await readRepoFile('index.html');
+  assert.doesNotMatch(html, /manifest\.json/,
+    'index.html must not reference manifest.json');
 });
 
 // --- Asset reference contract checks ---

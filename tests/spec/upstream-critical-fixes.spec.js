@@ -166,103 +166,35 @@ test('Frontend download flow uses blob/arrayBuffer rather than text() (no UTF-8 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Service Worker activation clears legacy caches and does not pin assets
+// 5. Service Worker cleanup (retired via frontend unregistration)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('Service worker activation clears legacy caches and does not return cached assets', async () => {
-  const swSource = await readFile(resolvePath(REPO_ROOT, 'public/sw.js'), 'utf8');
-
-  // Build a sandboxed self with a recording caches API.
-  const deletedCaches = [];
-  const cachesStub = {
-    keys: async () => ['legacy-html-v1', 'legacy-assets-v2'],
-    delete: async (name) => {
-      deletedCaches.push(name);
-      return true;
-    },
-    match: async () => undefined,
-  };
-
-  const listeners = new Map();
-  const fetchEvents = [];
-  let unregistered = false;
-  let claimed = false;
-  let skipWaitingCalled = false;
-
-  const selfStub = {
-    addEventListener(eventName, handler) {
-      listeners.set(eventName, handler);
-    },
-    skipWaiting() {
-      skipWaitingCalled = true;
-      return Promise.resolve();
-    },
-    registration: {
-      unregister: async () => {
-        unregistered = true;
-        return true;
-      },
-    },
-    clients: {
-      claim: async () => {
-        claimed = true;
-      },
-    },
-  };
-
-  const sandbox = {
-    self: selfStub,
-    caches: cachesStub,
-    Promise,
-    console,
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(swSource, sandbox);
-
-  // The script must register at minimum activate + fetch handlers.
-  assert.ok(listeners.has('activate'), 'sw.js must register an activate listener');
-  assert.ok(listeners.has('fetch'), 'sw.js must register a fetch listener');
-
-  // Drive activate.
-  let waitedFor = null;
-  await new Promise((resolve, reject) => {
-    listeners.get('activate')({
-      waitUntil(promise) {
-        waitedFor = Promise.resolve(promise)
-          .then(resolve)
-          .catch(reject);
-      },
-    });
-  });
-  await waitedFor;
-
-  // Activation MUST clear every legacy cache.
-  assert.deepEqual(
-    deletedCaches.sort(),
-    ['legacy-assets-v2', 'legacy-html-v1'],
-    'every legacy cache name must be deleted',
-  );
-  assert.equal(unregistered, true, 'old worker must unregister itself');
-  assert.equal(claimed, true, 'worker must claim clients to take over immediately');
-
-  // The fetch handler must NOT call respondWith with cached responses; we
-  // simulate a navigate request and assert respondWith is never invoked.
-  let respondedWith = null;
-  listeners.get('fetch')({
-    request: { url: 'https://example.test/index.html', mode: 'navigate' },
-    respondWith(promise) {
-      respondedWith = promise;
-      fetchEvents.push('respondWith');
-    },
-  });
-  assert.equal(respondedWith, null, 'fetch handler must be a no-op so the network serves latest');
-  assert.equal(fetchEvents.length, 0);
-
-  // skipWaiting on install is a nice-to-have but expected by the design.
-  if (listeners.has('install')) {
-    listeners.get('install')({
-      waitUntil() {},
-    });
-    assert.equal(skipWaitingCalled, true, 'install handler should call skipWaiting');
+test('Legacy service worker file is removed; frontend unregisters stale workers', async () => {
+  // Change 30 deleted public/sw.js because no entry point registers it.
+  // Instead, src/main.jsx unregisters every existing service worker on load.
+  const swPath = resolvePath(REPO_ROOT, 'public/sw.js');
+  let swExists = false;
+  try {
+    await readFile(swPath, 'utf8');
+    swExists = true;
+  } catch {
+    // Expected: file is deleted.
   }
+  assert.equal(swExists, false, 'public/sw.js must no longer exist');
+
+  // The frontend entry point must unregister stale workers.
+  const mainJsx = await readFile(resolvePath(REPO_ROOT, 'src/main.jsx'), 'utf8');
+  assert.match(mainJsx, /getRegistrations/, 'main.jsx must call getRegistrations to find stale workers');
+  assert.match(mainJsx, /\.unregister\(\)/, 'main.jsx must unregister each stale service worker');
+
+  // Build output must not contain sw.js.
+  const distSwPath = resolvePath(REPO_ROOT, 'dist', 'sw.js');
+  let distSwExists = false;
+  try {
+    const distSw = await readFile(distSwPath, 'utf8');
+    distSwExists = !!distSw;
+  } catch {
+    // Expected: not published.
+  }
+  assert.equal(distSwExists, false, 'dist/sw.js must not be published');
 });

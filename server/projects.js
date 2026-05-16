@@ -51,7 +51,7 @@ import {
   normalizeCodexFunctionCall,
   normalizeCodexRealtimeItem,
   normalizeCodexToolOutput,
-} from '../shared/codex-message-normalizer.js';
+} from '../shared/codex-message-normalizer.ts';
 
 
 // Cache for extracted project directories

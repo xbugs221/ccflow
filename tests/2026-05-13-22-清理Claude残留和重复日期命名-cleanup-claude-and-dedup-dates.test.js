@@ -59,8 +59,8 @@ test('tests/server/claude-sdk.unsupported.test.js does not exist', async () => {
 // 2. CLAUDE_MODELS removed from shared constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('shared/modelConstants.js does not export CLAUDE_MODELS', async () => {
-  const source = await readSource('shared/modelConstants.js');
+test('shared/modelConstants.ts does not export CLAUDE_MODELS', async () => {
+  const source = await readSource('shared/modelConstants.ts');
   assert.doesNotMatch(source, /CLAUDE_MODELS/);
   assert.doesNotMatch(source, /Claude-compatible/);
 });

@@ -5,10 +5,26 @@
 
 const ADJACENT_DUPLICATE_WINDOW_MS = 5000;
 
+export interface ChatMessage {
+  type: string;
+  content?: string;
+  timestamp?: string | number | Date;
+  reasoning?: string;
+  clientRequestId?: string;
+  deliveryStatus?: string;
+  isToolUse?: boolean;
+  isStreaming?: boolean;
+  isInteractivePrompt?: boolean;
+  isThinking?: boolean;
+  isTaskNotification?: boolean;
+  attachments?: unknown[];
+  images?: unknown[];
+}
+
 /**
  * Normalize freeform text so whitespace-only differences do not block deduping.
  */
-function normalizeText(value) {
+function normalizeText(value: unknown): string {
   if (typeof value !== 'string') {
     return '';
   }
@@ -19,15 +35,15 @@ function normalizeText(value) {
 /**
  * Convert a timestamp-like value into epoch milliseconds when possible.
  */
-function toTimestampMs(value) {
-  const timestamp = new Date(value).getTime();
+function toTimestampMs(value: unknown): number | null {
+  const timestamp = new Date(value as string | number | Date).getTime();
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 /**
  * Build a stable attachment identity so attachment messages only dedupe exact echoes.
  */
-function getAttachmentSignature(message) {
+function getAttachmentSignature(message: ChatMessage): string {
   const attachments = [
     ...(Array.isArray(message.attachments) ? message.attachments : []),
     ...(Array.isArray(message.images) ? message.images : []),
@@ -43,12 +59,12 @@ function getAttachmentSignature(message) {
         return normalizeText(String(attachment));
       }
       return normalizeText(
-        attachment.absolutePath
-        || attachment.path
-        || attachment.relativePath
-        || attachment.url
-        || attachment.name
-        || attachment.id
+        (attachment as Record<string, unknown>).absolutePath
+        || (attachment as Record<string, unknown>).path
+        || (attachment as Record<string, unknown>).relativePath
+        || (attachment as Record<string, unknown>).url
+        || (attachment as Record<string, unknown>).name
+        || (attachment as Record<string, unknown>).id
         || JSON.stringify(attachment),
       );
     })
@@ -59,7 +75,7 @@ function getAttachmentSignature(message) {
 /**
  * Restrict deduping to transcript entries that do not represent tool/runtime UI.
  */
-function isPlainTranscriptMessage(message) {
+function isPlainTranscriptMessage(message: ChatMessage): boolean {
   if (!message || (message.type !== 'user' && message.type !== 'assistant')) {
     return false;
   }
@@ -74,7 +90,7 @@ function isPlainTranscriptMessage(message) {
 /**
  * Decide whether two adjacent transcript messages represent the same payload.
  */
-function isAdjacentDuplicate(previousMessage, nextMessage) {
+function isAdjacentDuplicate(previousMessage: ChatMessage, nextMessage: ChatMessage): boolean {
   if (!isPlainTranscriptMessage(previousMessage) || !isPlainTranscriptMessage(nextMessage)) {
     return false;
   }
@@ -116,7 +132,7 @@ function isAdjacentDuplicate(previousMessage, nextMessage) {
 /**
  * Build a same-turn user key for non-adjacent realtime duplicates.
  */
-function getUserTurnKey(message) {
+function getUserTurnKey(message: ChatMessage): string | null {
   if (!isPlainTranscriptMessage(message) || message.type !== 'user') {
     return null;
   }
@@ -139,7 +155,7 @@ function getUserTurnKey(message) {
 /**
  * Rank delivery states so duplicate local rows keep the most complete status.
  */
-function getDeliveryStatusRank(status) {
+function getDeliveryStatusRank(status: string | undefined): number {
   switch (status) {
     case 'persisted':
       return 4;
@@ -157,7 +173,7 @@ function getDeliveryStatusRank(status) {
 /**
  * Preserve the stronger user delivery status when dropping a duplicate row.
  */
-function mergeDuplicateMessage(previousMessage, nextMessage) {
+function mergeDuplicateMessage(previousMessage: ChatMessage, nextMessage: ChatMessage): ChatMessage {
   if (previousMessage.type !== 'user') {
     return previousMessage;
   }
@@ -181,10 +197,18 @@ function mergeDuplicateMessage(previousMessage, nextMessage) {
   };
 }
 
+interface SeenUserTurnDetail {
+  timestamp: number;
+  content: string;
+  reasoning: string;
+  attachmentSignature: string;
+  dedupedIndex: number;
+}
+
 /**
  * Check whether a non-adjacent user row is the same send replayed in memory.
  */
-function findSeenUserTurnIndex(seenUserTurns, message) {
+function findSeenUserTurnIndex(seenUserTurns: SeenUserTurnDetail[], message: ChatMessage): number {
   if (!isPlainTranscriptMessage(message) || message.type !== 'user') {
     return -1;
   }
@@ -208,14 +232,14 @@ function findSeenUserTurnIndex(seenUserTurns, message) {
 /**
  * Remove adjacent duplicate transcript entries while preserving original order.
  */
-export function dedupeAdjacentChatMessages(messages) {
+export function dedupeAdjacentChatMessages(messages: ChatMessage[]): ChatMessage[] {
   if (!Array.isArray(messages) || messages.length < 2) {
     return Array.isArray(messages) ? messages : [];
   }
 
-  const dedupedMessages = [];
-  const seenUserTurns = new Set();
-  const seenUserTurnDetails = [];
+  const dedupedMessages: ChatMessage[] = [];
+  const seenUserTurns = new Set<string>();
+  const seenUserTurnDetails: SeenUserTurnDetail[] = [];
 
   for (const message of messages) {
     const userTurnKey = getUserTurnKey(message);
@@ -236,8 +260,9 @@ export function dedupeAdjacentChatMessages(messages) {
 
     if (userTurnKey) {
       seenUserTurns.add(userTurnKey);
+      const ts = toTimestampMs(message.timestamp);
       seenUserTurnDetails.push({
-        timestamp: toTimestampMs(message.timestamp),
+        timestamp: ts ?? 0,
         content: normalizeText(message.content),
         reasoning: normalizeText(message.reasoning),
         attachmentSignature: getAttachmentSignature(message),

@@ -9,7 +9,7 @@ import {
   getMessageHistoryTailSequence,
   getPendingSocketMessages,
   reduceProjectsUpdatedMessages,
-} from '../../shared/socket-message-utils.js';
+} from '../../shared/socket-message-utils';
 import { api } from '../utils/api';
 import type { SessionProvider } from '../types/app';
 import {

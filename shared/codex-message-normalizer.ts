@@ -4,10 +4,8 @@
 
 /**
  * Parse JSON strings when Codex encodes tool arguments or results as text.
- * @param {unknown} value - Candidate JSON string or structured value.
- * @returns {unknown} Parsed value when possible.
  */
-export function parseCodexJsonMaybe(value) {
+export function parseCodexJsonMaybe(value: unknown): unknown {
   if (typeof value !== 'string') {
     return value;
   }
@@ -26,10 +24,8 @@ export function parseCodexJsonMaybe(value) {
 
 /**
  * Convert mixed Codex tool output values to a stable text payload.
- * @param {unknown} value - Tool output envelope, array, object, or string.
- * @returns {string} Renderable output text.
  */
-export function normalizeCodexToolOutput(value) {
+export function normalizeCodexToolOutput(value: unknown): string {
   const parsed = parseCodexJsonMaybe(value);
   if (parsed === null || parsed === undefined) {
     return '';
@@ -47,7 +43,7 @@ export function normalizeCodexToolOutput(value) {
   }
 
   if (typeof parsed === 'object') {
-    const nested = parsed.content ?? parsed.output ?? parsed.text ?? parsed.result ?? parsed.stdout ?? parsed.stderr;
+    const nested = (parsed as Record<string, unknown>).content ?? (parsed as Record<string, unknown>).output ?? (parsed as Record<string, unknown>).text ?? (parsed as Record<string, unknown>).result ?? (parsed as Record<string, unknown>).stdout ?? (parsed as Record<string, unknown>).stderr;
     if (nested !== undefined && nested !== parsed) {
       return normalizeCodexToolOutput(nested);
     }
@@ -61,25 +57,29 @@ export function normalizeCodexToolOutput(value) {
   return String(parsed);
 }
 
+export interface FileChange {
+  kind: string;
+  path: string;
+}
+
 /**
  * Extract the first changed path from an apply_patch text block.
- * @param {string} patch - Raw apply_patch content.
- * @returns {string} Changed path or fallback.
  */
-function extractPatchPath(patch) {
+function extractPatchPath(patch: string): string {
   const match = patch.match(/^\*\*\* (?:Update|Add|Delete) File:\s*(.+)$/m);
   return match?.[1]?.trim() || 'unknown';
 }
 
 /**
  * Convert apply_patch arguments into the FileChanges renderer payload.
- * @param {unknown} argumentsValue - Codex function_call arguments.
- * @returns {{status: string, changes: Array<{kind: string, path: string}>}} File change rows.
  */
-export function normalizeCodexFileChangesInput(argumentsValue) {
+export function normalizeCodexFileChangesInput(argumentsValue: unknown): {
+  status: string;
+  changes: FileChange[];
+} {
   const parsed = parseCodexJsonMaybe(argumentsValue);
   const patch = typeof parsed === 'object' && parsed
-    ? String(parsed.patch ?? parsed.input ?? '')
+    ? String((parsed as Record<string, unknown>).patch ?? (parsed as Record<string, unknown>).input ?? '')
     : String(parsed ?? '');
   const changes = patch
     .split('\n')
@@ -91,7 +91,7 @@ export function normalizeCodexFileChangesInput(argumentsValue) {
       const kind = match[1] === 'Add' ? 'added' : match[1] === 'Delete' ? 'deleted' : 'edit';
       return { kind, path: match[2].trim() };
     })
-    .filter(Boolean);
+    .filter((c): c is FileChange => c !== null);
 
   return {
     status: 'Edit file',
@@ -99,18 +99,22 @@ export function normalizeCodexFileChangesInput(argumentsValue) {
   };
 }
 
+export interface ApplyPatchInput {
+  file_path: string;
+  old_string: string;
+  new_string: string;
+}
+
 /**
  * Convert apply_patch arguments into the existing edit renderer input shape.
- * @param {unknown} argumentsValue - Codex function_call arguments.
- * @returns {{file_path: string, old_string: string, new_string: string}} Edit renderer payload.
  */
-export function normalizeCodexApplyPatchInput(argumentsValue) {
+export function normalizeCodexApplyPatchInput(argumentsValue: unknown): ApplyPatchInput {
   const parsed = parseCodexJsonMaybe(argumentsValue);
   const patch = typeof parsed === 'object' && parsed
-    ? String(parsed.patch ?? parsed.input ?? '')
+    ? String((parsed as Record<string, unknown>).patch ?? (parsed as Record<string, unknown>).input ?? '')
     : String(parsed ?? '');
-  const oldLines = [];
-  const newLines = [];
+  const oldLines: string[] = [];
+  const newLines: string[] = [];
 
   patch.split('\n').forEach((line) => {
     if (line.startsWith('---') || line.startsWith('+++') || line.startsWith('***')) {
@@ -133,17 +137,21 @@ export function normalizeCodexApplyPatchInput(argumentsValue) {
   };
 }
 
+export interface NormalizedFunctionCall {
+  toolName: string;
+  toolInput: unknown;
+  toolCallId: unknown;
+}
+
 /**
  * Normalize a Codex function_call payload into an existing ChatMessage tool shape.
- * @param {Record<string, unknown>} payload - Codex response_item function_call payload.
- * @returns {{toolName: string, toolInput: unknown, toolCallId: unknown}} Tool message data.
  */
-export function normalizeCodexFunctionCall(payload) {
+export function normalizeCodexFunctionCall(payload: Record<string, unknown>): NormalizedFunctionCall {
   const rawName = String(payload?.name || 'UnknownTool');
 
   if (rawName === 'shell_command') {
     const parsed = parseCodexJsonMaybe(payload.arguments);
-    const command = parsed && typeof parsed === 'object' ? parsed.command : payload.arguments;
+    const command = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>).command : payload.arguments;
     return {
       toolName: 'Bash',
       toolInput: JSON.stringify({ command: command || '' }),
@@ -168,10 +176,8 @@ export function normalizeCodexFunctionCall(payload) {
 
 /**
  * Normalize realtime Codex item events into the same UI fragment as JSONL replay.
- * @param {Record<string, unknown>} item - WebSocket codex-response item data.
- * @returns {Record<string, unknown> | null} ChatMessage-compatible fragment.
  */
-export function normalizeCodexRealtimeItem(item) {
+export function normalizeCodexRealtimeItem(item: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
   if (!item || typeof item !== 'object') {
     return null;
   }
@@ -240,7 +246,7 @@ export function normalizeCodexRealtimeItem(item) {
       toolCallId: item.itemId,
       toolResult: item.result || item.error
         ? {
-            content: normalizeCodexToolOutput(item.result ?? item.error?.message),
+            content: normalizeCodexToolOutput(item.result ?? (item.error as Record<string, unknown>)?.message),
             isError: Boolean(item.error),
           }
         : null,

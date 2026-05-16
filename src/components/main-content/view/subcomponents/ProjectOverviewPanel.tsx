@@ -36,7 +36,7 @@ import {
   hasUnreadSessionActivity,
   readViewedSessionSignature,
   writeViewedSessionSignature,
-} from './sessionActivityState.js';
+} from './sessionActivityState';
 
 const ITEM_ACTION_LONG_PRESS_MS = 450;
 type WorkflowCardSortMode = 'created' | 'updated' | 'title' | 'provider';

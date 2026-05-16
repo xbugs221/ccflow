@@ -69,51 +69,65 @@ test('src/i18n/languages.ts exists with typed Language interface', async () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. Shared files used by server keep .js + gain .d.ts types
+// 2. Shared files migrated to .ts (change 30 simplified JS + .d.ts pairs)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('shared/socket-message-utils.js retains runtime + has .d.ts', async () => {
-  assert.equal(await fileExists('shared/socket-message-utils.js'), true,
-    'socket-message-utils.js must be kept for node test runtime');
+test('shared/socket-message-utils.ts exists as unified TS module', async () => {
+  assert.equal(await fileExists('shared/socket-message-utils.ts'), true,
+    'socket-message-utils.ts must exist');
+  assert.equal(await fileExists('shared/socket-message-utils.js'), false,
+    'socket-message-utils.js must be removed');
+  assert.equal(await fileExists('shared/socket-message-utils.d.ts'), false,
+    'socket-message-utils.d.ts must be removed');
 
-  const dts = await readSource('shared/socket-message-utils.d.ts');
-  assert.match(dts, /export declare function getMessageHistoryTailSequence/);
-  assert.match(dts, /export declare function getPendingSocketMessages/);
-  assert.match(dts, /export declare function reduceProjectsUpdatedMessages/);
-  assert.match(dts, /export interface ReduceProjectsUpdatedParams/);
-  assert.match(dts, /export interface ReduceProjectsUpdatedResult/);
+  const source = await readSource('shared/socket-message-utils.ts');
+  assert.match(source, /export function getMessageHistoryTailSequence/);
+  assert.match(source, /export function getPendingSocketMessages/);
+  assert.match(source, /export function reduceProjectsUpdatedMessages/);
+  assert.match(source, /export interface ReduceProjectsUpdatedParams/);
+  assert.match(source, /export interface ReduceProjectsUpdatedResult/);
 });
 
-test('shared/codex-message-normalizer.js retains runtime + has .d.ts', async () => {
-  assert.equal(await fileExists('shared/codex-message-normalizer.js'), true,
-    'codex-message-normalizer.js must be kept for server runtime');
+test('shared/codex-message-normalizer.ts exists as unified TS module', async () => {
+  assert.equal(await fileExists('shared/codex-message-normalizer.ts'), true,
+    'codex-message-normalizer.ts must exist');
+  assert.equal(await fileExists('shared/codex-message-normalizer.js'), false,
+    'codex-message-normalizer.js must be removed');
+  assert.equal(await fileExists('shared/codex-message-normalizer.d.ts'), false,
+    'codex-message-normalizer.d.ts must be removed');
 
-  const dts = await readSource('shared/codex-message-normalizer.d.ts');
-  assert.match(dts, /export declare function parseCodexJsonMaybe/);
-  assert.match(dts, /export declare function normalizeCodexToolOutput/);
-  assert.match(dts, /export declare function normalizeCodexRealtimeItem/);
+  const source = await readSource('shared/codex-message-normalizer.ts');
+  assert.match(source, /export function parseCodexJsonMaybe/);
+  assert.match(source, /export function normalizeCodexToolOutput/);
+  assert.match(source, /export function normalizeCodexRealtimeItem/);
 });
 
-test('shared/modelConstants.js retains runtime + has .d.ts', async () => {
-  assert.equal(await fileExists('shared/modelConstants.js'), true,
-    'modelConstants.js must be kept for server runtime');
+test('shared/modelConstants.ts exists as unified TS module', async () => {
+  assert.equal(await fileExists('shared/modelConstants.ts'), true,
+    'modelConstants.ts must exist');
+  assert.equal(await fileExists('shared/modelConstants.js'), false,
+    'modelConstants.js must be removed');
+  assert.equal(await fileExists('shared/modelConstants.d.ts'), false,
+    'modelConstants.d.ts must be removed');
 
-  const dts = await readSource('shared/modelConstants.d.ts');
-  assert.match(dts, /export declare const CODEX_MODELS/);
-  assert.match(dts, /export declare const CODEX_REASONING_EFFORTS/);
-  assert.match(dts, /export interface ReasoningEffort/);
+  const source = await readSource('shared/modelConstants.ts');
+  assert.match(source, /export const CODEX_MODELS/);
+  assert.match(source, /export const CODEX_REASONING_EFFORTS/);
+  assert.match(source, /export interface ReasoningEffort/);
 });
 
-test('frontend dedup and activity helpers keep .js + gain .d.ts', async () => {
-  const dtsFiles = [
-    'src/components/chat/utils/messageDedup.d.ts',
-    'src/components/chat/utils/sessionMessageDedup.d.ts',
-    'src/components/main-content/view/subcomponents/sessionActivityState.d.ts',
+test('frontend dedup and activity helpers migrated to .ts', async () => {
+  const tsFiles = [
+    'src/components/chat/utils/messageDedup.ts',
+    'src/components/chat/utils/sessionMessageDedup.ts',
+    'src/components/main-content/view/subcomponents/sessionActivityState.ts',
   ];
 
-  for (const dtsFile of dtsFiles) {
-    assert.equal(await fileExists(dtsFile), true,
-      `${dtsFile} must exist to provide type coverage`);
+  for (const tsFile of tsFiles) {
+    assert.equal(await fileExists(tsFile), true,
+      `${tsFile} must exist as unified TS module`);
+    assert.equal(await fileExists(tsFile.replace('.ts', '.js')), false,
+      `${tsFile.replace('.ts', '.js')} must be removed`);
   }
 });
 
@@ -147,14 +161,14 @@ test('server/index.js does not import .ts files', async () => {
     'server/index.js must not import .ts files directly');
 });
 
-test('server files that depend on shared still import .js', async () => {
+test('server files that depend on shared now import .ts', async () => {
   const projectsSource = await readSource('server/projects.js');
-  assert.match(projectsSource, /codex-message-normalizer\.js/,
-    'server/projects.js must continue importing codex-message-normalizer.js');
+  assert.match(projectsSource, /codex-message-normalizer\.ts/,
+    'server/projects.js must now import codex-message-normalizer.ts');
 
   const codexModelsSource = await readSource('server/codex-models.js');
-  assert.match(codexModelsSource, /modelConstants\.js/,
-    'server/codex-models.js must continue importing modelConstants.js');
+  assert.match(codexModelsSource, /modelConstants\.ts/,
+    'server/codex-models.js must now import modelConstants.ts');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -180,15 +194,15 @@ test('LanguageSelector still imports languages', async () => {
 // 5. Node server tests can still import shared runtime
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('node test for socket-message-utils imports .js successfully', async () => {
-  const mod = await import('../shared/socket-message-utils.js');
+test('node test for socket-message-utils imports .ts successfully', async () => {
+  const mod = await import('../shared/socket-message-utils.ts');
   assert.equal(typeof mod.getMessageHistoryTailSequence, 'function');
   assert.equal(typeof mod.getPendingSocketMessages, 'function');
   assert.equal(typeof mod.reduceProjectsUpdatedMessages, 'function');
 });
 
-test('node test for model-constants imports .js successfully', async () => {
-  const mod = await import('../shared/modelConstants.js');
+test('node test for model-constants imports .ts successfully', async () => {
+  const mod = await import('../shared/modelConstants.ts');
   assert.ok('CODEX_MODELS' in mod);
   assert.ok('CODEX_REASONING_EFFORTS' in mod);
 });

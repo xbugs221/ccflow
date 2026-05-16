@@ -36,7 +36,7 @@ test('active session helpers do not fall back to Claude provider', async () => {
     readSource('src/components/main-content/view/subcomponents/MainContentTitle.tsx'),
     readSource('src/components/shell/hooks/useShellConnection.ts'),
     readSource('src/utils/workflowSessions.ts'),
-    readSource('src/components/main-content/view/subcomponents/sessionActivityState.js'),
+    readSource('src/components/main-content/view/subcomponents/sessionActivityState.ts'),
   ]);
 
   for (const source of helperSources) {
@@ -73,11 +73,11 @@ test('OpenCode settings do not use Claude quota fallback', async () => {
 test('OpenCode chat composer does not reuse Claude model or thinking controls', async () => {
   const modelControls = await readSource('src/components/chat/view/subcomponents/SessionModelControls.tsx');
   const chatComposer = await readSource('src/components/chat/view/subcomponents/ChatComposer.tsx');
-  const chatInputControls = await readSource('src/components/chat/view/subcomponents/ChatInputControls.tsx');
+  // Note: ChatInputControls.tsx was removed in change 30 (0 imports) -
+  // its provider guard is now inlined in the composer.
 
   assert.doesNotMatch(modelControls, /ClaudeLogo|claudeModel|thinkingModes|sessionControls\.claudeDescription/);
   assert.match(chatComposer, /provider\s*===\s*'codex'\s*&&\s*\(/);
-  assert.match(chatInputControls, /provider\s*===\s*'codex'\s*&&\s*\(/);
 });
 
 test('assistant message labels do not fall back to Claude for OpenCode', async () => {

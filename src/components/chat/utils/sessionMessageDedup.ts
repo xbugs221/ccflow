@@ -2,12 +2,25 @@
  * PURPOSE: Deduplicate raw session transcript rows by backend JSONL identity.
  */
 
+export interface SessionMessage {
+  type?: string;
+  messageKey?: string;
+  sessionId?: string;
+  __lineNumber?: number;
+  __provider?: string;
+  content?: unknown;
+  timestamp?: unknown;
+  message?: {
+    role?: string;
+    content?: unknown;
+  };
+  [key: string]: unknown;
+}
+
 /**
  * Build the stable transcript identity used by pagination and refresh merges.
- * @param {Record<string, unknown> | null | undefined} message - Raw session message.
- * @returns {string | null} Stable identity, or null when the backend gave no cursor.
  */
-export function getSessionMessageIdentity(message) {
+export function getSessionMessageIdentity(message: SessionMessage | null | undefined): string | null {
   if (!message || typeof message !== 'object') {
     return null;
   }
@@ -25,26 +38,29 @@ export function getSessionMessageIdentity(message) {
   return null;
 }
 
+interface UserTurnParts {
+  normalizedContent: string;
+  timestamp: number;
+}
+
 /**
- * Build a same-turn user key for Codex records that echo one prompt twice.
- * @param {Record<string, unknown> | null | undefined} message - Raw session message.
- * @returns {string | null} Same-turn user key.
+ * Extract normalized user turn parts for duplicate detection.
  */
-function getUserTurnParts(message) {
+function getUserTurnParts(message: SessionMessage): UserTurnParts | null {
   if (!message || typeof message !== 'object') {
     return null;
   }
 
-  const isUserMessage = message.type === 'user' || message.message?.role === 'user';
+  const isUserMessage = message.type === 'user' || (message.message as Record<string, unknown> | undefined)?.role === 'user';
   if (!isUserMessage) {
     return null;
   }
 
-  let rawContent = message.content;
-  if (typeof message.message?.content === 'string') {
-    rawContent = message.message.content;
-  } else if (Array.isArray(message.message?.content)) {
-    rawContent = message.message.content
+  let rawContent: unknown = message.content;
+  if (typeof (message.message as Record<string, unknown> | undefined)?.content === 'string') {
+    rawContent = (message.message as Record<string, unknown>)?.content;
+  } else if (Array.isArray((message.message as Record<string, unknown> | undefined)?.content)) {
+    rawContent = ((message.message as Record<string, unknown>)?.content as Array<Record<string, unknown>>)
       .filter((part) => part?.type === 'text' && typeof part.text === 'string')
       .map((part) => part.text)
       .join('\n');
@@ -59,7 +75,7 @@ function getUserTurnParts(message) {
     return null;
   }
 
-  const timestamp = new Date(message.timestamp).getTime();
+  const timestamp = new Date(message.timestamp as string | number | Date).getTime();
   if (!Number.isFinite(timestamp)) {
     return null;
   }
@@ -68,10 +84,8 @@ function getUserTurnParts(message) {
 
 /**
  * Build a same-turn user key for Codex records that echo one prompt twice.
- * @param {Record<string, unknown> | null | undefined} message - Raw session message.
- * @returns {string | null} Same-turn user key.
  */
-function getUserTurnKey(message) {
+function getUserTurnKey(message: SessionMessage): string | null {
   const userTurn = getUserTurnParts(message);
   if (!userTurn) {
     return null;
@@ -81,26 +95,21 @@ function getUserTurnKey(message) {
 
 /**
  * Detect Codex duplicate prompt echoes whose JSONL timestamps differ slightly.
- * @param {{ normalizedContent: string, timestamp: number } | null} userTurn - User turn parts.
- * @param {Map<string, number>} recentUserTurnTimestamps - Last timestamp per prompt text.
- * @returns {boolean} True when the message is a near-duplicate user echo.
  */
-function isRecentDuplicateUserTurn(userTurn, recentUserTurnTimestamps) {
+function isRecentDuplicateUserTurn(userTurn: UserTurnParts | null, recentUserTurnTimestamps: Map<string, number>): boolean {
   if (!userTurn) {
     return false;
   }
 
-  const recentTimestamp = recentUserTurnTimestamps.get(userTurn.normalizedContent);
+  const recentTimestamp = recentUserTurnTimestamps.get(userTurn.normalizedContent) ?? 0;
   return Number.isFinite(recentTimestamp)
     && Math.abs(userTurn.timestamp - recentTimestamp) <= 1000;
 }
 
 /**
  * Remember the latest timestamp for a normalized user turn text.
- * @param {{ normalizedContent: string, timestamp: number } | null} userTurn - User turn parts.
- * @param {Map<string, number>} recentUserTurnTimestamps - Last timestamp per prompt text.
  */
-function rememberUserTurn(userTurn, recentUserTurnTimestamps) {
+function rememberUserTurn(userTurn: UserTurnParts | null, recentUserTurnTimestamps: Map<string, number>): void {
   if (userTurn) {
     recentUserTurnTimestamps.set(userTurn.normalizedContent, userTurn.timestamp);
   }
@@ -108,14 +117,12 @@ function rememberUserTurn(userTurn, recentUserTurnTimestamps) {
 
 /**
  * Remove repeated raw transcript rows before conversion into UI messages.
- * @param {Array<Record<string, unknown>>} messages - Raw transcript rows.
- * @returns {Array<Record<string, unknown>>} Rows with duplicate identities removed.
  */
-export function dedupeSessionMessagesByIdentity(messages) {
-  const seen = new Set();
-  const seenUserTurns = new Set();
-  const recentUserTurnTimestamps = new Map();
-  const dedupedMessages = [];
+export function dedupeSessionMessagesByIdentity(messages: SessionMessage[]): SessionMessage[] {
+  const seen = new Set<string>();
+  const seenUserTurns = new Set<string>();
+  const recentUserTurnTimestamps = new Map<string, number>();
+  const dedupedMessages: SessionMessage[] = [];
 
   (Array.isArray(messages) ? messages : []).forEach((message) => {
     const identity = getSessionMessageIdentity(message);
@@ -146,17 +153,17 @@ export function dedupeSessionMessagesByIdentity(messages) {
 
 /**
  * Keep only incoming raw transcript rows that are not already loaded.
- * @param {Array<Record<string, unknown>>} existingMessages - Current raw transcript rows.
- * @param {Array<Record<string, unknown>>} incomingMessages - Newly fetched transcript rows.
- * @returns {Array<Record<string, unknown>>} New rows not already represented.
  */
-export function getUniqueIncomingSessionMessages(existingMessages, incomingMessages) {
+export function getUniqueIncomingSessionMessages(
+  existingMessages: SessionMessage[],
+  incomingMessages: SessionMessage[],
+): SessionMessage[] {
   const existingRows = Array.isArray(existingMessages) ? existingMessages : [];
-  const existingIdentities = new Set(existingRows.map(getSessionMessageIdentity).filter(Boolean));
-  const existingUserTurns = new Set(existingRows.map(getUserTurnKey).filter(Boolean));
-  const recentUserTurnTimestamps = new Map();
+  const existingIdentities = new Set(existingRows.map(getSessionMessageIdentity).filter(Boolean) as string[]);
+  const existingUserTurns = new Set(existingRows.map(getUserTurnKey).filter(Boolean) as string[]);
+  const recentUserTurnTimestamps = new Map<string, number>();
   existingRows.map(getUserTurnParts).filter(Boolean).forEach((userTurn) => {
-    rememberUserTurn(userTurn, recentUserTurnTimestamps);
+    if (userTurn) rememberUserTurn(userTurn, recentUserTurnTimestamps);
   });
 
   return (Array.isArray(incomingMessages) ? incomingMessages : []).filter((message) => {
