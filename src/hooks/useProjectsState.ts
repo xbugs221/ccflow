@@ -69,8 +69,7 @@ const projectsHaveChanges = (
       serialize(nextProject.sessionMeta) !== serialize(prevProject.sessionMeta) ||
       serialize(nextProject.sessions) !== serialize(prevProject.sessions) ||
       serialize(nextProject.workflows) !== serialize(prevProject.workflows) ||
-      serialize(nextProject.hasUnreadActivity) !== serialize(prevProject.hasUnreadActivity) ||
-      serialize(nextProject.taskmaster) !== serialize(prevProject.taskmaster);
+      serialize(nextProject.hasUnreadActivity) !== serialize(prevProject.hasUnreadActivity);
 
     if (baseChanged) {
       return true;
@@ -497,7 +496,7 @@ const isUpdateAdditive = (
   );
 };
 
-const VALID_TABS: Set<string> = new Set(['chat', 'files', 'shell', 'git', 'tasks', 'preview']);
+const VALID_TABS: Set<string> = new Set(['chat', 'files', 'shell', 'git', 'preview']);
 
 const readPersistedTab = (): AppTab => {
   /**
@@ -858,7 +857,7 @@ export function useProjectsState({
       setSelectedSession(session);
       setSelectedWorkflow(null);
 
-      if (activeTab === 'tasks' || activeTab === 'preview') {
+      if (activeTab === 'preview') {
         setActiveTab('chat');
       }
 

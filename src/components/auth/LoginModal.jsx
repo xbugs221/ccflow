@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+const X = ({ className: cls }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
 import StandaloneShell from '../standalone-shell/view/StandaloneShell';
 import { IS_PLATFORM } from '../../constants/config';
 

@@ -453,7 +453,7 @@ export function useChatRealtimeHandlers({
           ? (latestMessage.data as Record<string, any>)
           : null;
 
-      const globalMessageTypes = ['projects_updated', 'taskmaster-project-updated', 'session-created'];
+      const globalMessageTypes = ['projects_updated', 'session-created'];
       const isGlobalMessage = globalMessageTypes.includes(String(latestMessage.type));
       const projectsUpdateProvider = latestMessage.provider || latestMessage.watchProvider;
       if (

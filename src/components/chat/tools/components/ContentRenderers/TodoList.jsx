@@ -1,7 +1,8 @@
 import React from 'react';
 import { Badge } from '../../../../ui/badge';
-import { CheckCircle2, Clock, Circle } from 'lucide-react';
-
+const CheckCircle2 = ({ className: cls }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 6-6"/></svg>;
+const Clock = ({ className: cls }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>;
+const Circle = ({ className: cls }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>;
 const TodoList = ({ todos, isResult = false }) => {
   if (!todos || !Array.isArray(todos)) {
     return null;

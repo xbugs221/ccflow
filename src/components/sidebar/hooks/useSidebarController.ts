@@ -35,7 +35,7 @@ type UseSidebarControllerArgs = {
   onSessionSelect: (session: ProjectSession) => void;
   onSessionDelete?: (sessionId: string) => void;
   onProjectDelete?: (projectName: string) => void;
-  setCurrentProject: (project: Project) => void;
+  setCurrentProject?: (project: Project) => void;
   setSidebarVisible: (visible: boolean) => void;
   sidebarVisible: boolean;
 };
@@ -456,7 +456,7 @@ export function useSidebarController({
   const handleProjectSelect = useCallback(
     (project: Project) => {
       onProjectSelect(project);
-      setCurrentProject(project);
+      setCurrentProject?.(project);
     },
     [onProjectSelect, setCurrentProject],
   );

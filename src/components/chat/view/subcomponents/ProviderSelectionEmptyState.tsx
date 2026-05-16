@@ -1,8 +1,8 @@
 import React from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+const Check = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>;
+const ChevronDown = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>;
 import { useTranslation } from 'react-i18next';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
-import NextTaskBanner from '../../../taskmaster/view/NextTaskBanner.jsx';
 import type { ProjectSession, SessionProvider } from '../../../../types/app';
 
 interface ProviderSelectionEmptyStateProps {
@@ -17,9 +17,6 @@ interface ProviderSelectionEmptyStateProps {
   codexReasoningEffort: string;
   setCodexReasoningEffort: (effort: string) => void;
   codexReasoningOptions: Array<{ value: string; label: string; description?: string }>;
-  tasksEnabled: boolean;
-  isTaskMasterInstalled: boolean | null;
-  onShowAllTasks?: (() => void) | null;
   setInput: React.Dispatch<React.SetStateAction<string>>;
 }
 
@@ -87,13 +84,9 @@ export default function ProviderSelectionEmptyState({
   codexReasoningEffort,
   setCodexReasoningEffort,
   codexReasoningOptions,
-  tasksEnabled,
-  isTaskMasterInstalled,
-  onShowAllTasks,
   setInput,
 }: ProviderSelectionEmptyStateProps) {
   const { t } = useTranslation('chat');
-  const nextTaskPrompt = t('tasks.nextTaskPrompt', { defaultValue: 'Start the next task' });
 
   const selectProvider = (next: SessionProvider) => {
     setProvider(next);
@@ -220,11 +213,6 @@ export default function ProviderSelectionEmptyState({
           </div>
 
           {/* Task banner */}
-          {provider && tasksEnabled && isTaskMasterInstalled && (
-            <div className="mt-5">
-              <NextTaskBanner onStartTask={() => setInput(nextTaskPrompt)} onShowAllTasks={onShowAllTasks} />
-            </div>
-          )}
         </div>
       </div>
     );
@@ -237,12 +225,6 @@ export default function ProviderSelectionEmptyState({
         <div className="text-center px-6 max-w-md">
           <p className="text-lg font-semibold text-foreground mb-1.5">{t('session.continue.title')}</p>
           <p className="text-sm text-muted-foreground leading-relaxed">{t('session.continue.description')}</p>
-
-          {tasksEnabled && isTaskMasterInstalled && (
-            <div className="mt-5">
-              <NextTaskBanner onStartTask={() => setInput(nextTaskPrompt)} onShowAllTasks={onShowAllTasks} />
-            </div>
-          )}
         </div>
       </div>
     );

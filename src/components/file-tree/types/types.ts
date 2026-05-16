@@ -1,8 +1,8 @@
+import type { ComponentType } from 'react';
+
 /**
  * PURPOSE: Shared types for file-tree rendering, operations, and feedback state.
  */
-import type { LucideIcon } from 'lucide-react';
-
 export type FileTreeViewMode = 'simple' | 'compact' | 'detailed';
 
 export type FileTreeItemType = 'file' | 'directory';
@@ -28,7 +28,7 @@ export interface FileTreeImageSelection {
 }
 
 export interface FileIconData {
-  icon: LucideIcon;
+  icon: ComponentType<{ className?: string }>;
   color: string;
 }
 

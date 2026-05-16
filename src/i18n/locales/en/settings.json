@@ -61,8 +61,7 @@
   "mainTabs": {
     "agents": "Agents",
     "appearance": "Appearance",
-    "diagnostics": "Diagnostics",
-    "tasks": "Tasks"
+    "diagnostics": "Diagnostics"
   },
   "usage": {
     "title": "Usage",
@@ -86,25 +85,6 @@
   "footerActions": {
     "save": "Save Settings",
     "cancel": "Cancel"
-  },
-  "tasks": {
-    "checking": "Checking TaskMaster installation...",
-    "notInstalled": {
-      "title": "TaskMaster AI CLI Not Installed",
-      "description": "TaskMaster CLI is required to use task management features. Install it to get started:",
-      "installCommand": "pnpm add -g task-master-ai",
-      "viewOnGitHub": "View on GitHub",
-      "afterInstallation": "After installation:",
-      "steps": {
-        "restart": "Restart this application",
-        "autoAvailable": "TaskMaster features will automatically become available",
-        "initCommand": "Use pnpm dlx task-master-ai init in your project directory"
-      }
-    },
-    "settings": {
-      "enableLabel": "Enable TaskMaster Integration",
-      "enableDescription": "Show TaskMaster tasks, banners, and sidebar indicators across the interface"
-    }
   },
   "agents": {
     "authStatus": {

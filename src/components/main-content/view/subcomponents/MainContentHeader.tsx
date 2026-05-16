@@ -9,7 +9,6 @@ export default function MainContentHeader({
   selectedProject,
   selectedSession,
   selectedWorkflow,
-  shouldShowTasksTab,
   isMobile,
   onMenuClick,
   leadingContent,
@@ -31,7 +30,6 @@ export default function MainContentHeader({
               selectedProject={selectedProject}
               selectedSession={selectedSession}
               selectedWorkflow={selectedWorkflow}
-              shouldShowTasksTab={shouldShowTasksTab}
             />
           </div>
         </div>
@@ -40,7 +38,6 @@ export default function MainContentHeader({
           <MainContentTabSwitcher
             activeTab={activeTab}
             setActiveTab={setActiveTab}
-            shouldShowTasksTab={shouldShowTasksTab}
             compact={isMobile}
             dockLayout={dockLayout}
           />

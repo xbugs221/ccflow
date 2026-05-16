@@ -119,5 +119,4 @@ export interface ChatInterfaceProps {
   sendByCtrlEnter?: boolean;
   externalMessageUpdate?: number;
   onTaskClick?: (...args: unknown[]) => void;
-  onShowAllTasks?: (() => void) | null;
 }

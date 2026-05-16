@@ -1,5 +1,5 @@
 // PURPOSE: Render account connection details and provider-scoped quota for one agent.
-import { LogIn } from 'lucide-react';
+const LogIn = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10,17 15,12 10,7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>;
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '../../../../../../ui/badge';

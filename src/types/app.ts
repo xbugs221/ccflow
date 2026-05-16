@@ -4,7 +4,7 @@
  */
 export type SessionProvider = 'codex' | 'opencode' | 'pi';
 
-export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'tasks' | 'preview';
+export type AppTab = 'chat' | 'files' | 'shell' | 'git' | 'preview';
 
 export interface WorkflowStageStatus {
   key: string;
@@ -219,13 +219,6 @@ export interface ProjectSessionMeta {
   [key: string]: unknown;
 }
 
-export interface ProjectTaskmasterInfo {
-  hasTaskmaster?: boolean;
-  status?: string;
-  metadata?: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
 export interface Project {
   name: string;
   displayName: string;
@@ -240,7 +233,6 @@ export interface Project {
   batches?: WorkflowBatchInfo[];
   sessionMeta?: ProjectSessionMeta;
   manualSessionNextRouteIndex?: number;
-  taskmaster?: ProjectTaskmasterInfo;
   hasUnreadActivity?: boolean;
   [key: string]: unknown;
 }

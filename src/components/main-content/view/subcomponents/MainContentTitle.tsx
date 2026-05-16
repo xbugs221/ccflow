@@ -11,20 +11,15 @@ type MainContentTitleProps = {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
   selectedWorkflow?: ProjectWorkflow | null;
-  shouldShowTasksTab: boolean;
 };
 
-function getTabTitle(activeTab: AppTab, shouldShowTasksTab: boolean, t: (key: string) => string) {
+function getTabTitle(activeTab: AppTab, t: (key: string) => string) {
   if (activeTab === 'files') {
     return t('mainContent.projectFiles');
   }
 
   if (activeTab === 'git') {
     return t('tabs.git');
-  }
-
-  if (activeTab === 'tasks' && shouldShowTasksTab) {
-    return 'TaskMaster';
   }
 
   return 'Project';
@@ -81,7 +76,6 @@ export default function MainContentTitle({
   selectedProject,
   selectedSession,
   selectedWorkflow,
-  shouldShowTasksTab,
 }: MainContentTitleProps) {
   const { t } = useTranslation();
   const showMessagePlaceholder = activeTab === 'chat' && !selectedSession && !selectedWorkflow;
@@ -114,7 +108,7 @@ export default function MainContentTitle({
           <h2 className="text-base font-semibold text-foreground leading-tight">{t('tabs.chat')}</h2>
         ) : (
           <h2 className="text-sm font-semibold text-foreground leading-tight">
-            {getTabTitle(activeTab, shouldShowTasksTab, t)}
+            {getTabTitle(activeTab, t)}
           </h2>
         )}
       </div>

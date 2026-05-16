@@ -4,7 +4,6 @@ import type { LoadingProgress, Project, ProjectSession, ProjectWorkflow, Session
 import type { NewSessionHandler } from '../../../main-content/types/types';
 import type {
   LoadingSessionsByProject,
-  MCPServerStatus,
   SessionWithProvider,
   TouchHandlerFactory,
 } from '../../types/types';
@@ -28,8 +27,6 @@ export type SidebarProjectListProps = {
   editingSession: string | null;
   editingSessionName: string;
   deletingProjects: Set<string>;
-  tasksEnabled: boolean;
-  mcpServerStatus: MCPServerStatus;
   getProjectSessions: (project: Project) => SessionWithProvider[];
   isSessionStarred: (session: SessionWithProvider, projectName: string) => boolean;
   isSessionPending: (session: SessionWithProvider, projectName: string) => boolean;
@@ -79,8 +76,6 @@ export default function SidebarProjectList({
   editingSession,
   editingSessionName,
   deletingProjects,
-  tasksEnabled,
-  mcpServerStatus,
   getProjectSessions,
   isSessionStarred,
   isSessionPending,
@@ -164,8 +159,6 @@ export default function SidebarProjectList({
               currentTime={currentTime}
               editingSession={editingSession}
               editingSessionName={editingSessionName}
-              tasksEnabled={tasksEnabled}
-              mcpServerStatus={mcpServerStatus}
               onEditingNameChange={onEditingNameChange}
               onToggleProject={onToggleProject}
               onProjectSelect={onProjectSelect}

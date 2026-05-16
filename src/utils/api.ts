@@ -347,55 +347,6 @@ export const api = {
       headers: {},
     }),
 
-  // TaskMaster endpoints
-  taskmaster: {
-    init: (projectName: string): Promise<Response> =>
-      authenticatedFetch(`/api/taskmaster/init/${encodeRouteSegment(projectName)}`, {
-        method: 'POST',
-      }),
-
-    addTask: (projectName: string, params: {
-      prompt: string;
-      title: string;
-      description?: string;
-      priority?: string;
-      dependencies?: string[];
-    }): Promise<Response> =>
-      authenticatedFetch(`/api/taskmaster/add-task/${encodeRouteSegment(projectName)}`, {
-        method: 'POST',
-        body: JSON.stringify(params),
-      }),
-
-    parsePRD: (projectName: string, params: {
-      fileName: string;
-      numTasks?: number;
-      append?: boolean;
-    }): Promise<Response> =>
-      authenticatedFetch(`/api/taskmaster/parse-prd/${encodeRouteSegment(projectName)}`, {
-        method: 'POST',
-        body: JSON.stringify(params),
-      }),
-
-    getTemplates: (): Promise<Response> =>
-      authenticatedFetch('/api/taskmaster/prd-templates'),
-
-    applyTemplate: (projectName: string, params: {
-      templateId: string;
-      fileName: string;
-      customizations?: Record<string, unknown>;
-    }): Promise<Response> =>
-      authenticatedFetch(`/api/taskmaster/apply-template/${encodeRouteSegment(projectName)}`, {
-        method: 'POST',
-        body: JSON.stringify(params),
-      }),
-
-    updateTask: (projectName: string, taskId: string, updates: Record<string, unknown>): Promise<Response> =>
-      authenticatedFetch(`/api/taskmaster/update-task/${encodeRouteSegment(projectName)}/${taskId}`, {
-        method: 'PUT',
-        body: JSON.stringify(updates),
-      }),
-  },
-
   browseFilesystem: (dirPath: string | null = null): Promise<Response> => {
     const params = new URLSearchParams();
     if (dirPath) params.append('path', dirPath);

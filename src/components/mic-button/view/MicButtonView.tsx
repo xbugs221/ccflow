@@ -1,4 +1,6 @@
-import { Brain, Loader2, Mic } from 'lucide-react';
+const Brain = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M12 4.5a2.5 2.5 0 0 0-4.96-.46A2.5 2.5 0 0 0 4.5 7.04 2.5 2.5 0 0 0 5 12a2.5 2.5 0 0 0 .5 4.96A2.5 2.5 0 0 0 7.04 21.5 2.5 2.5 0 0 0 12 19.5M12 4.5a2.5 2.5 0 0 1 4.96-.46A2.5 2.5 0 0 1 19.5 7.04 2.5 2.5 0 0 1 19 12a2.5 2.5 0 0 1-.5 4.96A2.5 2.5 0 0 1 16.96 21.5 2.5 2.5 0 0 1 12 19.5"/><path d="M12 4.5v15"/></svg>;
+const Loader2 = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4 animate-spin"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>;
+const Mic = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>;
 import type { MouseEvent, ReactElement } from 'react';
 import { BUTTON_BACKGROUND_BY_STATE, MIC_BUTTON_STATES } from '../constants/constants';
 import type { MicButtonState } from '../types/types';

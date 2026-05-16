@@ -1,9 +1,6 @@
-/**
- * PURPOSE: Main content area with separate desktop dock and mobile single-view workspace layouts.
- */
 import React, { useEffect } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
-
+const Plus = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
+const Trash2 = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>;
 import ChatInterface from '../../chat/view/ChatInterface';
 import FileTree from '../../file-tree/view/FileTree';
 import StandaloneShell from '../../standalone-shell/view/StandaloneShell';
@@ -12,31 +9,17 @@ import ErrorBoundary from '../../ui/ErrorBoundary';
 
 import MainContentHeader from './subcomponents/MainContentHeader';
 import MainContentStateView from './subcomponents/MainContentStateView';
-import TaskMasterPanel from './subcomponents/TaskMasterPanel';
 import ProjectOverviewPanel from './subcomponents/ProjectOverviewPanel';
 import WorkspaceDockLayout from './subcomponents/WorkspaceDockLayout';
 import type { MainContentProps } from '../types/types';
 import { useWorkspaceLayoutState } from '../hooks/useWorkspaceLayoutState';
 
-import { useTaskMaster } from '../../../contexts/TaskMasterContext';
-import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import EditorSidebar from '../../code-editor/view/EditorSidebar';
 import type { AppTab, Project } from '../../../types/app';
 import WorkflowDetailView from './subcomponents/WorkflowDetailView';
 import { getAllSessions } from '../../sidebar/utils/utils';
-
-type TaskMasterContextValue = {
-  currentProject?: Project | null;
-  setCurrentProject?: ((project: Project) => void) | null;
-};
-
-type TasksSettingsContextValue = {
-  tasksEnabled: boolean;
-  isTaskMasterInstalled: boolean | null;
-  isTaskMasterReady: boolean | null;
-};
 
 type TerminalInstance = {
   id: string;
@@ -85,10 +68,6 @@ function MainContent({
   const { preferences } = useUiPreferences();
   const { autoExpandTools, showRawParameters, showThinking, autoScrollToBottom, sendByCtrlEnter } = preferences;
 
-  const { currentProject, setCurrentProject } = useTaskMaster() as TaskMasterContextValue;
-  const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings() as TasksSettingsContextValue;
-
-  const shouldShowTasksTab = Boolean(tasksEnabled && isTaskMasterInstalled);
   const projectSessions = selectedProject ? getAllSessions(selectedProject, {}, true) : [];
   const [revealDirectoryRequest, setRevealDirectoryRequest] = React.useState<{ path: string; requestId: number } | null>(null);
   const terminalCounterRef = React.useRef(1);
@@ -258,18 +237,6 @@ function MainContent({
     );
   };
 
-  useEffect(() => {
-    if (selectedProject && selectedProject !== currentProject) {
-      setCurrentProject?.(selectedProject);
-    }
-  }, [selectedProject, currentProject, setCurrentProject]);
-
-  useEffect(() => {
-    if (!shouldShowTasksTab && activeTab === 'tasks') {
-      setActiveTab('chat');
-    }
-  }, [shouldShowTasksTab, activeTab, setActiveTab]);
-
   // Wrap setActiveTab to handle dock toggle on user clicks without useEffect loops
   const handleSetActiveTab = React.useCallback(
     (value: React.SetStateAction<AppTab>) => {
@@ -335,7 +302,6 @@ function MainContent({
       selectedProject={selectedProject}
       selectedSession={selectedSession}
       selectedWorkflow={selectedWorkflow}
-      shouldShowTasksTab={shouldShowTasksTab}
       isMobile={isMobile}
       onMenuClick={onMenuClick}
       leadingContent={headerLeadingContent}
@@ -428,7 +394,6 @@ function MainContent({
           selectedProject={selectedProject}
           selectedSession={selectedSession}
           selectedWorkflow={selectedWorkflow}
-          shouldShowTasksTab={shouldShowTasksTab}
           isMobile={isMobile}
           onMenuClick={onMenuClick}
           leadingContent={headerLeadingContent}
@@ -467,7 +432,6 @@ function MainContent({
               autoScrollToBottom={autoScrollToBottom}
               sendByCtrlEnter={sendByCtrlEnter}
               externalMessageUpdate={externalMessageUpdate}
-              onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
             />
           </ErrorBoundary>
         </div>
@@ -529,7 +493,6 @@ function MainContent({
           selectedProject={selectedProject}
           selectedSession={selectedSession}
           selectedWorkflow={selectedWorkflow}
-          shouldShowTasksTab={shouldShowTasksTab}
           isMobile={isMobile}
           onMenuClick={onMenuClick}
           leadingContent={headerLeadingContent}
@@ -625,7 +588,6 @@ function MainContent({
           selectedProject={selectedProject}
           selectedSession={selectedSession}
           selectedWorkflow={selectedWorkflow}
-          shouldShowTasksTab={shouldShowTasksTab}
           isMobile={isMobile}
           onMenuClick={onMenuClick}
           leadingContent={headerLeadingContent}
@@ -662,11 +624,10 @@ function MainContent({
   }
 
   // Main workspace with dock layout
-  const showChatSurface = activeTab !== 'tasks' && activeTab !== 'preview';
   const centerContent = (
     <>
       <div className={`flex flex-col min-h-0 min-w-0 overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
-        <div className={`flex-1 min-h-0 overflow-hidden ${showChatSurface ? 'flex flex-col' : 'hidden'}`}>
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <ErrorBoundary showDetails>
             <ChatInterface
               selectedProject={selectedProject}
@@ -692,12 +653,9 @@ function MainContent({
               autoScrollToBottom={autoScrollToBottom}
               sendByCtrlEnter={sendByCtrlEnter}
               externalMessageUpdate={externalMessageUpdate}
-              onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
             />
           </ErrorBoundary>
         </div>
-
-        {shouldShowTasksTab && <TaskMasterPanel isVisible={activeTab === 'tasks'} />}
 
         <div className={`h-full overflow-hidden ${activeTab === 'preview' ? 'block' : 'hidden'}`} />
       </div>
@@ -746,7 +704,6 @@ function MainContent({
         selectedProject={selectedProject}
         selectedSession={selectedSession}
         selectedWorkflow={selectedWorkflow}
-        shouldShowTasksTab={shouldShowTasksTab}
         isMobile={isMobile}
         onMenuClick={onMenuClick}
         leadingContent={headerLeadingContent}

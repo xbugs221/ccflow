@@ -4,7 +4,6 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useTasksSettings } from '../../../contexts/TasksSettingsContext';
 import { useTranslation } from 'react-i18next';
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
 import ChatComposer from './subcomponents/ChatComposer';
@@ -96,7 +95,6 @@ const isBackendResponseMessage = (messageType?: string): boolean => {
     messageType === 'projects_updated'
     || messageType === 'loading_progress'
     || messageType === 'session-model-state-updated'
-    || messageType.startsWith('taskmaster-')
   ) {
     return false;
   }
@@ -127,9 +125,7 @@ function ChatInterface({
   autoScrollToBottom,
   sendByCtrlEnter,
   externalMessageUpdate,
-  onShowAllTasks,
 }: ChatInterfaceProps) {
-  const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings();
   const { t } = useTranslation('chat');
   const location = useLocation();
 
@@ -889,9 +885,6 @@ function ChatInterface({
           codexReasoningEffort={codexReasoningEffort}
           setCodexReasoningEffort={handleSetCodexReasoningEffort}
           codexReasoningOptions={codexReasoningOptions}
-          tasksEnabled={tasksEnabled}
-          isTaskMasterInstalled={isTaskMasterInstalled}
-          onShowAllTasks={onShowAllTasks}
           setInput={setInput}
           isLoadingMoreMessages={isLoadingMoreMessages}
           hasMoreMessages={hasMoreMessages}

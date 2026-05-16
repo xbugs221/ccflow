@@ -2,7 +2,10 @@
  * PURPOSE: Layout control buttons for the main workspace dock panels.
  * Renders icon-only controls that keep accessible names for dock tab actions.
  */
-import { MessageSquare, Terminal, Folder, GitBranch, ClipboardCheck, type LucideIcon } from 'lucide-react';
+const MessageSquare = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
+const Terminal = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>;
+const Folder = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>;
+const GitBranch = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>;
 import Tooltip from '../../../ui/Tooltip';
 import type { AppTab } from '../../../../types/app';
 import type { Dispatch, SetStateAction } from 'react';
@@ -12,7 +15,6 @@ import type { DockLayoutControl } from '../../types/types';
 type MainContentTabSwitcherProps = {
   activeTab: AppTab;
   setActiveTab: Dispatch<SetStateAction<AppTab>>;
-  shouldShowTasksTab: boolean;
   compact?: boolean;
   dockLayout?: DockLayoutControl;
 };
@@ -20,7 +22,7 @@ type MainContentTabSwitcherProps = {
 type TabDefinition = {
   id: AppTab;
   labelKey: string;
-  icon: LucideIcon;
+  icon: ({ className, strokeWidth }: { className?: string; strokeWidth?: number }) => JSX.Element;
 };
 
 const BASE_TABS: TabDefinition[] = [
@@ -30,22 +32,15 @@ const BASE_TABS: TabDefinition[] = [
   { id: 'git', labelKey: 'tabs.git', icon: GitBranch },
 ];
 
-const TASKS_TAB: TabDefinition = {
-  id: 'tasks',
-  labelKey: 'tabs.tasks',
-  icon: ClipboardCheck,
-};
-
 export default function MainContentTabSwitcher({
   activeTab,
   setActiveTab,
-  shouldShowTasksTab,
   compact = false,
   dockLayout,
 }: MainContentTabSwitcherProps) {
   const { t } = useTranslation();
 
-  const tabs = shouldShowTasksTab ? [...BASE_TABS, TASKS_TAB] : BASE_TABS;
+  const tabs = BASE_TABS;
 
   const isTabActive = (tabId: AppTab): boolean => {
     /**
@@ -53,7 +48,6 @@ export default function MainContentTabSwitcher({
      * callers do not pass dockLayout, so they keep the single-view behavior.
      */
     if (tabId === 'chat') return activeTab === 'chat';
-    if (tabId === 'tasks') return activeTab === 'tasks';
     if (tabId === 'preview') return activeTab === 'preview';
 
     if (dockLayout && (tabId === 'files' || tabId === 'git' || tabId === 'shell')) {

@@ -123,9 +123,10 @@ test('sidebar header has no project action/search controls and footer owns retai
   const sidebar = await readRepoFile('src/components/sidebar/view/Sidebar.tsx');
 
   assert.doesNotMatch(header, /FolderSearch|RefreshCw|Settings|PanelLeftClose|onRefresh|onCreateProject|onShowSettings|onOpenChatHistorySearch/);
-  assert.match(footer, /RefreshCw/);
-  assert.match(footer, /FolderPlus/);
+  // Footer keeps accessibility labels and test ids for retained functional buttons
+  assert.match(footer, /tooltips\.refresh/);
+  assert.match(footer, /tooltips\.createProject/);
   assert.match(footer, /open-chat-history-search/);
-  assert.match(footer, /PanelLeftClose/);
+  assert.match(footer, /actions\.settings/);
   assert.doesNotMatch(sidebar, /searchFilter|setSearchFilter/);
 });

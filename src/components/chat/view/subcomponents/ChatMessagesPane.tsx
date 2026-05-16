@@ -38,9 +38,6 @@ interface ChatMessagesPaneProps {
   codexReasoningEffort: string;
   setCodexReasoningEffort: (effort: string) => void;
   codexReasoningOptions: Array<{ value: string; label: string; description?: string }>;
-  tasksEnabled: boolean;
-  isTaskMasterInstalled: boolean | null;
-  onShowAllTasks?: (() => void) | null;
   setInput: Dispatch<SetStateAction<string>>;
   isLoadingMoreMessages: boolean;
   hasMoreMessages: boolean;
@@ -82,9 +79,6 @@ export default function ChatMessagesPane({
   codexReasoningEffort,
   setCodexReasoningEffort,
   codexReasoningOptions,
-  tasksEnabled,
-  isTaskMasterInstalled,
-  onShowAllTasks,
   setInput,
   isLoadingMoreMessages,
   hasMoreMessages,
@@ -180,9 +174,6 @@ export default function ChatMessagesPane({
           codexReasoningEffort={codexReasoningEffort}
           setCodexReasoningEffort={setCodexReasoningEffort}
           codexReasoningOptions={codexReasoningOptions}
-          tasksEnabled={tasksEnabled}
-          isTaskMasterInstalled={isTaskMasterInstalled}
-          onShowAllTasks={onShowAllTasks}
           setInput={setInput}
         />
       ) : (
