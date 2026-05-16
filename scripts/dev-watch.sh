@@ -14,5 +14,5 @@ exec pnpm exec concurrently \
   --names typecheck,server,client \
   --prefix name \
   "pnpm exec tsc --noEmit -p tsconfig.json --watch --preserveWatchOutput" \
-  "node --watch server/index.js" \
+  "pnpm exec tsx watch server/index.ts" \
   "vite build --watch"

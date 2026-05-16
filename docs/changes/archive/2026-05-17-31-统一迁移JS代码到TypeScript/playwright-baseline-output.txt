@@ -1,0 +1,35 @@
+
+[1A[2K       [2m(Using custom DATABASE_PATH from environment)[0m
+
+[1A[2K[2m════════════════════════════════════════════════════════════[0m
+
+[1A[2K
+
+[1A[2K[207/213] tests/spec/project-workspace-navigation.spec.ts:63:3 › 项目工作区导航壳层 › 从项目主页进入手动会话页
+[1A[2K[208/213] tests/spec/project-workspace-navigation.spec.ts:75:3 › 项目工作区导航壳层 › 点击左侧项目名返回项目主页
+[1A[2K[209/213] tests/spec/project-workspace-navigation.spec.ts:87:3 › 项目工作区导航壳层 › 移动端打开会话页工作区导航
+[1A[2K[210/213] tests/spec/settings-sidebar-simplification.spec.ts:58:1 › settings only exposes appearance agents diagnostics and shows OpenCode provider state
+[1A[2K[211/213] tests/spec/settings-sidebar-simplification.spec.ts:77:1 › OpenCode status failure shows backend error instead of available no-provider copy
+[1A[2K[212/213] tests/spec/settings-sidebar-simplification.spec.ts:100:1 › OpenCode available without connected providers keeps the no-provider copy
+[1A[2K[213/213] tests/spec/settings-sidebar-simplification.spec.ts:121:1 › diagnostics uses Chinese labels and sidebar actions live in the footer
+[1A[2K  18 failed
+    tests/2026-05-10-9-修复工作区滚动和dock面板控制-workspace-scroll-and-pane-controls.test.ts:86:1 › chat transcript scrolls while composer stays visible with docks open 
+    tests/2026-05-10-9-修复工作区滚动和dock面板控制-workspace-scroll-and-pane-controls.test.ts:97:1 › project overview center scrolls without moving workspace tabs 
+    tests/2026-05-10-9-修复工作区滚动和dock面板控制-workspace-scroll-and-pane-controls.test.ts:124:1 › dock pane controls are in the pane header and collapse uses top tabs 
+    tests/2026-05-11-16-修正OpenCode设置页状态误报-opencode-settings-status.test.ts:34:1 › settings shows OpenCode providers and API metadata from service PATH fake CLI 
+    tests/2026-05-11-16-修正OpenCode设置页状态误报-opencode-settings-status.test.ts:52:1 › settings shows provider read failure without reporting CLI disconnected 
+    tests/spec/chat-history-full-text-search.spec.ts:551:1 › JSONL thread search opens a workflow child session when the runner owns the thread 
+    tests/spec/chat-history-search-production-routing.spec.ts:42:1 › returns fixture chat matches for an authenticated chat search request 
+    tests/spec/chat-message-submission-idempotency.spec.ts:64:1 › submitting an attachment message twice during a slow upload still creates one user message 
+    tests/spec/chat-message-submission-idempotency.spec.ts:107:1 › one touch-originated send with an attachment is not replayed by the follow-up mouse event 
+    tests/spec/chat-message-submission-idempotency.spec.ts:143:1 › a failed attachment upload keeps the draft and attachment until the user explicitly retries 
+    tests/spec/chat-tool-structured-rendering.spec.ts:68:1 › 会将 update_plan、ctx_batch_execute、write_stdin 和 FileChanges 渲染为结构化内容 
+    tests/spec/co-browser-reconnect.spec.ts:314:1 › running co conversation continues after page reload 
+    tests/spec/co-browser-reconnect.spec.ts:332:1 › two browser windows share one co conversation without duplicate submit or wrong abort 
+    tests/spec/project-workflow-control-plane-routing.spec.ts:27:3 › 需求工作流详情路由与会话流程图预览 › 工作流详情展示固定角色行，工作流会话不展示流程图预览 
+    tests/spec/project-workflow-control-plane.spec.ts:354:3 › 项目内需求工作流控制面 › 打开规划会话会直接进入已有 planning 子会话 
+    tests/spec/project-workflow-control-plane.spec.ts:436:3 › 项目内需求工作流控制面 › 2030 工作流详情页显示固定角色行，工作流子会话页不显示流程图预览 
+    tests/spec/project-workflow-control-plane.spec.ts:768:3 › 项目内需求工作流控制面 › 项目主页的工作流和会话右键菜单支持收藏、待处理、隐藏及恢复 
+    tests/spec/project-workspace-navigation.spec.ts:52:3 › 项目工作区导航壳层 › 工作流详情用 wo 行进入 runner 子会话且不展示进程卡片 
+  1 skipped
+  194 passed (10.2m)

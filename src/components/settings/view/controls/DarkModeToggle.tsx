@@ -9,7 +9,7 @@ type DarkModeToggleProps = {
 };
 
 function DarkModeToggle({ checked, onToggle, ariaLabel = 'Toggle dark mode' }: DarkModeToggleProps) {
-  const { isDarkMode, toggleDarkMode } = useTheme();
+  const { isDarkMode, toggleDarkMode } = useTheme() as { isDarkMode: boolean; toggleDarkMode: () => void };
   const isControlled = typeof checked === 'boolean' && typeof onToggle === 'function';
   const isEnabled = isControlled ? checked : isDarkMode;
 

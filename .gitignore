@@ -7,6 +7,8 @@ jspm_packages/
 # Build, cache, and coverage output
 dist/
 dist-ssr/
+dist-node/
+*.tsbuildinfo
 build/
 out/
 .vite/
