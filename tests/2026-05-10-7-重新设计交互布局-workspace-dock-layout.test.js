@@ -5,7 +5,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
 
-process.env.DATABASE_PATH = path.join(process.env.HOME || '', '.ccflow', 'auth.db');
+process.env.DATABASE_PATH = path.join(process.env.HOME || '', '.cbw', 'auth.db');
 
 const [{ generateToken }, { userDb }] = await Promise.all([
   import('../server/middleware/auth.js'),
@@ -25,7 +25,7 @@ const AUTH_TOKEN = createLocalAuthToken();
 test.beforeEach(async ({ page }) => {
   await page.addInitScript((token) => {
     window.localStorage.setItem('auth-token', token);
-    window.localStorage.removeItem('ccflow:workspace-layout:v1');
+    window.localStorage.removeItem('cbw:workspace-layout:v1');
   }, AUTH_TOKEN);
 });
 
@@ -143,7 +143,7 @@ test.describe('workspace dock layout', () => {
 
   test('corrupted layout state falls back to default', async ({ page }) => {
     await page.addInitScript(() => {
-      window.localStorage.setItem('ccflow:workspace-layout:v1', 'invalid-json{{');
+      window.localStorage.setItem('cbw:workspace-layout:v1', 'invalid-json{{');
     });
 
     await openTestProject(page);
@@ -156,7 +156,7 @@ test.describe('workspace dock layout', () => {
   test('old activeTab state is migrated to dock layout', async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem('activeTab', 'files');
-      window.localStorage.removeItem('ccflow:workspace-layout:v1');
+      window.localStorage.removeItem('cbw:workspace-layout:v1');
     });
 
     await openTestProject(page);

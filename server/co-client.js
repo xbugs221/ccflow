@@ -1,5 +1,5 @@
 /**
- * co 文件协议客户端：负责 ccflow 与独立 co 聊天执行器之间的 request/state/events 读写。
+ * co 文件协议客户端：负责 cbw 与独立 co 聊天执行器之间的 request/state/events 读写。
  */
 import fs from 'fs';
 import os from 'os';
@@ -46,7 +46,7 @@ function formatCoDoctorFailure(detail = '') {
  * Return the shared co home used for request submission and read-model recovery.
  */
 export function resolveCoHome(env = process.env) {
-    return env.CCFLOW_CO_HOME || path.join(os.homedir(), '.local', 'state', 'ccflow', 'co');
+    return env.CCFLOW_CO_HOME || path.join(os.homedir(), '.local', 'state', 'cbw', 'co');
 }
 
 /**
@@ -75,7 +75,7 @@ export async function assertCoHomeDirectory(coHome = resolveCoHome()) {
 }
 
 /**
- * Normalize the provider section returned by co doctor into ccflow's internal shape.
+ * Normalize the provider section returned by co doctor into cbw's internal shape.
  */
 export function normalizeCoProviders(providers = {}) {
     /**
@@ -166,7 +166,7 @@ export function isCoProviderAvailable(status, provider) {
 }
 
 /**
- * Raise a user-facing error before ccflow writes a co request for an unavailable provider.
+ * Raise a user-facing error before cbw writes a co request for an unavailable provider.
  */
 export function assertCoProviderAvailable(status, provider) {
     if (!isCoProviderAvailable(status, provider)) {
@@ -176,7 +176,7 @@ export function assertCoProviderAvailable(status, provider) {
 }
 
 /**
- * Validate and build the exact co-request-v1 payload submitted by ccflow.
+ * Validate and build the exact co-request-v1 payload submitted by cbw.
  */
 export function buildCoRequest({
     requestId,
@@ -346,7 +346,7 @@ export function tailCoEvents(turnId, onEvent, { coHome = resolveCoHome(), fromBe
 }
 
 /**
- * Check whether a JSONL payload matches the event contract ccflow forwards.
+ * Check whether a JSONL payload matches the event contract cbw forwards.
  */
 export function isCoEvent(event) {
     return Boolean(

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * ccflow CLI
+ * cbw CLI
  *
- * Provides command-line utilities for managing ccflow
+ * Provides command-line utilities for managing cbw
  *
  * Commands:
  *   (no args)     - Start the server (default)
@@ -83,7 +83,7 @@ function getInstallDir() {
 
 // Show status command
 function showStatus() {
-    console.log(`\n${c.bright('ccflow - Status')}\n`);
+    console.log(`\n${c.bright('cbw - Status')}\n`);
     console.log(c.dim('═'.repeat(60)));
 
     // Version info
@@ -122,9 +122,9 @@ function showStatus() {
 
     console.log('\n' + c.dim('═'.repeat(60)));
     console.log(`\n${c.tip('[TIP]')} Hints:`);
-    console.log(`      ${c.dim('>')} Use ${c.bright('ccflow --port 8080')} to run on a custom port`);
-    console.log(`      ${c.dim('>')} Use ${c.bright('ccflow --database-path /path/to/db')} for custom database`);
-    console.log(`      ${c.dim('>')} Run ${c.bright('ccflow help')} for all options`);
+    console.log(`      ${c.dim('>')} Use ${c.bright('cbw --port 8080')} to run on a custom port`);
+    console.log(`      ${c.dim('>')} Use ${c.bright('cbw --database-path /path/to/db')} for custom database`);
+    console.log(`      ${c.dim('>')} Run ${c.bright('cbw help')} for all options`);
     console.log(`      ${c.dim('>')} Access the UI at http://localhost:${process.env.PORT || '3001'}\n`);
 }
 
@@ -132,14 +132,14 @@ function showStatus() {
 function showHelp() {
     console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
-║              ccflow - Command Line Tool               ║
+║              cbw - Command Line Tool               ║
 ╚═══════════════════════════════════════════════════════════════╝
 
 Usage:
-  ccflow [command] [options]
+  cbw [command] [options]
 
 Commands:
-  start          Start the ccflow server (default)
+  start          Start the cbw server (default)
   status         Show configuration and data locations
   update         Update to the latest version
   help           Show this help information
@@ -152,11 +152,11 @@ Options:
   -v, --version               Show version information
 
 Examples:
-  $ ccflow                        # Start with defaults
-  $ ccflow --port 8080            # Start on port 8080
-  $ ccflow -p 3000                # Short form for port
-  $ ccflow start --port 4000      # Explicit start command
-  $ ccflow status                 # Show configuration
+  $ cbw                        # Start with defaults
+  $ cbw --port 8080            # Start on port 8080
+  $ cbw -p 3000                # Short form for port
+  $ cbw start --port 4000      # Explicit start command
+  $ cbw status                 # Show configuration
 
 Environment Variables:
   PORT                Set server port (default: 3001)
@@ -164,10 +164,10 @@ Environment Variables:
   CONTEXT_WINDOW      Set context window size (default: 160000)
 
 Documentation:
-  ${packageJson.homepage || 'https://github.com/xbugs221/ccflow'}
+  ${packageJson.homepage || 'https://github.com/xbugs221/cbw'}
 
 Report Issues:
-  ${packageJson.bugs?.url || 'https://github.com/xbugs221/ccflow/issues'}
+  ${packageJson.bugs?.url || 'https://github.com/xbugs221/cbw/issues'}
 `);
 }
 
@@ -191,12 +191,12 @@ function isNewerVersion(v1, v2) {
 async function checkForUpdates(silent = false) {
     try {
         const { execSync } = await import('child_process');
-        const latestVersion = execSync('npm show ccflow version', { encoding: 'utf8' }).trim();
+        const latestVersion = execSync('npm show cbw version', { encoding: 'utf8' }).trim();
         const currentVersion = packageJson.version;
 
         if (isNewerVersion(latestVersion, currentVersion)) {
             console.log(`\n${c.warn('[UPDATE]')} New version available: ${c.bright(latestVersion)} (current: ${currentVersion})`);
-            console.log(`         Run ${c.bright('ccflow update')} to update\n`);
+            console.log(`         Run ${c.bright('cbw update')} to update\n`);
             return { hasUpdate: true, latestVersion, currentVersion };
         } else if (!silent) {
             console.log(`${c.ok('[OK]')} You are on the latest version (${currentVersion})`);
@@ -224,11 +224,11 @@ async function updatePackage() {
         }
 
         console.log(`${c.info('[INFO]')} Updating from ${currentVersion} to ${latestVersion}...`);
-        execSync('npm update -g ccflow', { stdio: 'inherit' });
-        console.log(`${c.ok('[OK]')} Update complete! Restart ccflow to use the new version.`);
+        execSync('npm update -g cbw', { stdio: 'inherit' });
+        console.log(`${c.ok('[OK]')} Update complete! Restart cbw to use the new version.`);
     } catch (e) {
         console.error(`${c.error('[ERROR]')} Update failed: ${e.message}`);
-        console.log(`${c.tip('[TIP]')} Try running manually: npm update -g ccflow`);
+        console.log(`${c.tip('[TIP]')} Try running manually: npm update -g cbw`);
     }
 }
 
@@ -304,7 +304,7 @@ async function main() {
             break;
         default:
             console.error(`\n❌ Unknown command: ${command}`);
-            console.log('   Run "ccflow help" for usage information.\n');
+            console.log('   Run "cbw help" for usage information.\n');
             process.exit(1);
     }
 }

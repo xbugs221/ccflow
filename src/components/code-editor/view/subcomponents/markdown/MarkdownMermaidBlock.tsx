@@ -55,7 +55,7 @@ export default function MarkdownMermaidBlock({
   const renderedDiagramRef = useRef<HTMLDivElement | null>(null);
   const instanceId = useId();
   const diagramId = useMemo(
-    () => `ccflow-mermaid-${instanceId.replace(/[:]/g, '-')}`,
+    () => `cbw-mermaid-${instanceId.replace(/[:]/g, '-')}`,
     [instanceId],
   );
   const normalizedSource = useMemo(() => source.trimEnd(), [source]);

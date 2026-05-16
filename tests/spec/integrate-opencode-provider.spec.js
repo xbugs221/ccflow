@@ -145,7 +145,7 @@ test('buildOpencodeExecArgs for continued session', async () => {
 });
 
 test('queryOpencode reports real CLI failures by throwing after opencode-error', async () => {
-  const tempDir = await mkdtemp(join(tmpdir(), 'ccflow-opencode-failure-'));
+  const tempDir = await mkdtemp(join(tmpdir(), 'cbw-opencode-failure-'));
   const fakeCli = join(tempDir, 'opencode');
   const previousCliPath = process.env.OPENCODE_CLI_PATH;
 
@@ -247,15 +247,15 @@ test('server/index.js normalizes co event fields for existing frontend handlers'
   assert.match(source, /normalizeCoEventPayload\(payload\)/, 'co tail must normalize events before broadcast/finalize');
   assert.match(source, /normalizeCoEventPayload\(JSON\.parse\(line\)\)/, 'co reconnect replay must normalize events before sending');
   assert.match(source, /function buildCoRoutedEventPayload/, 'must centralize route and turn identity enrichment');
-  assert.match(source, /buildCoRoutedEventPayload\(payload,[\s\S]*?ccflowSessionId:\s*turn\.ccflowSessionId[\s\S]*?turnId:\s*turn\.turnId/, 'co reconnect replay must preserve route and turn identity');
+  assert.match(source, /buildCoRoutedEventPayload\(payload,[\s\S]*?cbwSessionId:\s*turn\.cbwSessionId[\s\S]*?turnId:\s*turn\.turnId/, 'co reconnect replay must preserve route and turn identity');
 });
 
 test('server/index.js broadcasts co turn events with route and turn identity', async () => {
   const source = await readRepoFile('server/index.js');
-  assert.match(source, /ccflowSessionId,[\s\S]*?ccflow_session_id:\s*ccflowSessionId/, 'co routed payloads must preserve both route id spellings');
+  assert.match(source, /cbwSessionId,[\s\S]*?cbw_session_id:\s*cbwSessionId/, 'co routed payloads must preserve both route id spellings');
   assert.match(source, /turnId:\s*payload\?\.turnId \|\| turnId/, 'co routed payloads must include camelCase turn id');
   assert.match(source, /turn_id:\s*payload\?\.turn_id \|\| turnId/, 'co routed payloads must include snake_case turn id');
-  assert.match(source, /buildCoRoutedEventPayload\(normalizedPayload,[\s\S]*?ccflowSessionId:\s*state\.conversation_id[\s\S]*?turnId:\s*turnKey/, 'co tail broadcasts must enrich live events with cN route and turn identity');
+  assert.match(source, /buildCoRoutedEventPayload\(normalizedPayload,[\s\S]*?cbwSessionId:\s*state\.conversation_id[\s\S]*?turnId:\s*turnKey/, 'co tail broadcasts must enrich live events with cN route and turn identity');
   assert.match(source, /observer\.idleStartedAt = null/, 'new requests must reset reusable observer idle timing');
   assert.match(source, /function getCoConversationTurnIds/, 'observer must inspect durable conversation turns');
   assert.match(source, /unseenDurableTurnIds[\s\S]*?attachCoTurnTail\(turnId, state/, 'observer must tail new turns even after active_turn_id is cleared');
@@ -265,7 +265,7 @@ test('server/index.js broadcasts co turn events with route and turn identity', a
 test('server/index.js handles opencode in check-session-status', async () => {
   const source = await readRepoFile('server/index.js');
   assert.match(source, /provider = normalizeManualProvider\(data\.provider \|\| 'codex'\)/, 'must preserve provider via normalizeManualProvider in status checks');
-  assert.match(source, /data\.ccflowSessionId \|\| data\.ccflow_session_id \|\| data\.sessionId/, 'status checks must prefer ccflow route conversation id');
+  assert.match(source, /data\.cbwSessionId \|\| data\.cbw_session_id \|\| data\.sessionId/, 'status checks must prefer cbw route conversation id');
   assert.match(source, /recoverCoConversation\(sessionId/, 'must recover status from co conversation state');
   assert.match(source, /turnId:\s*conversation\?\.active_turn_id/, 'status response must include active turn id for abort target');
   assert.match(source, /turn_id:\s*conversation\?\.active_turn_id/, 'status response must include snake_case active turn id for protocol parity');
@@ -273,7 +273,7 @@ test('server/index.js handles opencode in check-session-status', async () => {
 
 test('server/index.js lets finalized cN routes continue an existing co conversation', async () => {
   const source = await readRepoFile('server/index.js');
-  assert.match(source, /startResult\.reason === 'missing-draft'[\s\S]*?readCoConversationState\(ccflowSessionId\)/, 'finalized cN routes must recover existing co state instead of rejecting follow-up messages');
+  assert.match(source, /startResult\.reason === 'missing-draft'[\s\S]*?readCoConversationState\(cbwSessionId\)/, 'finalized cN routes must recover existing co state instead of rejecting follow-up messages');
   assert.match(source, /canContinueExistingConversation[\s\S]*?Boolean\(existingConversation\?\.conversation_id\)/, 'follow-up sends must require an existing co conversation when the draft record is gone');
 });
 
@@ -356,9 +356,9 @@ test('frontend stores active co turn id and sends it with abort requests', async
   const realtimeSource = await readRepoFile('src/components/chat/hooks/useChatRealtimeHandlers.ts');
   const composerSource = await readRepoFile('src/components/chat/hooks/useChatComposerState.ts');
 
-  assert.match(realtimeSource, /ccflow-active-turn:\$\{statusSessionId\}/, 'session-status must persist active turn id');
-  assert.match(realtimeSource, /sessionStorage\.removeItem\(`ccflow-active-turn:\$\{statusSessionId\}`\)/, 'inactive status must clear stale active turn id');
-  assert.match(composerSource, /sessionStorage\.getItem\(`ccflow-active-turn:\$\{targetSessionId\}`\)/, 'abort must read active turn id for the target session');
+  assert.match(realtimeSource, /cbw-active-turn:\$\{statusSessionId\}/, 'session-status must persist active turn id');
+  assert.match(realtimeSource, /sessionStorage\.removeItem\(`cbw-active-turn:\$\{statusSessionId\}`\)/, 'inactive status must clear stale active turn id');
+  assert.match(composerSource, /sessionStorage\.getItem\(`cbw-active-turn:\$\{targetSessionId\}`\)/, 'abort must read active turn id for the target session');
   assert.match(composerSource, /targetTurnId,/, 'abort websocket payload must include targetTurnId');
 });
 
@@ -367,9 +367,9 @@ test('frontend check-session-status and abort use cN route aliases after provide
   const composerSource = await readRepoFile('src/components/chat/hooks/useChatComposerState.ts');
 
   assert.match(chatSource, /activeRouteSessionId[\s\S]*?`c\$\{Number\(selectedSession\?\.routeIndex\)\}`/, 'status reconciliation must derive cN from routeIndex');
-  assert.match(chatSource, /ccflowSessionId:\s*activeRouteSessionId/, 'status checks must send ccflowSessionId');
+  assert.match(chatSource, /cbwSessionId:\s*activeRouteSessionId/, 'status checks must send cbwSessionId');
   assert.match(composerSource, /selectedRouteSessionId[\s\S]*?`c\$\{Number\(selectedSession\?\.routeIndex\)\}`/, 'abort must derive cN from routeIndex');
-  assert.match(composerSource, /ccflowSessionId:\s*selectedRouteSessionId/, 'abort must prefer cN ccflowSessionId');
+  assert.match(composerSource, /cbwSessionId:\s*selectedRouteSessionId/, 'abort must prefer cN cbwSessionId');
 });
 
 test('Playwright fake co enforces duplicate request and stale abort semantics', async () => {

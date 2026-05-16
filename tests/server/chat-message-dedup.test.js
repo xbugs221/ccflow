@@ -170,7 +170,7 @@ test('dedupeAdjacentChatMessages merges duplicated user bubbles with the same at
       attachments: [
         {
           name: 'b7190647290f8eb88c52.jpg',
-          absolutePath: '/home/zzl/ccflow-uploads/1/1777534579564-6135f129/b7190647290f8eb88c52.jpg',
+          absolutePath: '/home/zzl/cbw-uploads/1/1777534579564-6135f129/b7190647290f8eb88c52.jpg',
         },
       ],
     },
@@ -182,7 +182,7 @@ test('dedupeAdjacentChatMessages merges duplicated user bubbles with the same at
       attachments: [
         {
           name: 'b7190647290f8eb88c52.jpg',
-          absolutePath: '/home/zzl/ccflow-uploads/1/1777534579564-6135f129/b7190647290f8eb88c52.jpg',
+          absolutePath: '/home/zzl/cbw-uploads/1/1777534579564-6135f129/b7190647290f8eb88c52.jpg',
         },
       ],
     },

@@ -38,5 +38,5 @@ function loadOptionalEnvFile() {
 loadOptionalEnvFile();
 
 if (!process.env.DATABASE_PATH) {
-  process.env.DATABASE_PATH = path.join(os.homedir(), '.ccflow', 'auth.db');
+  process.env.DATABASE_PATH = path.join(os.homedir(), '.cbw', 'auth.db');
 }

@@ -61,7 +61,7 @@ async function stopServer(child, tempRoot) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('/api/cli/pi/status returns available=true with commandPath and version when pi is on PATH', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-pi-cli-avail-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-pi-cli-avail-'));
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
   const port = await getFreePort();
@@ -134,7 +134,7 @@ test('/api/cli/pi/status returns available=true with commandPath and version whe
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('/api/cli/pi/status returns available=false when pi is not on PATH', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-pi-cli-absent-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-pi-cli-absent-'));
   const databasePath = path.join(tempRoot, 'auth.db');
   const port = await getFreePort();
 
@@ -211,7 +211,7 @@ test('/api/cli/pi/status returns available=false when pi is not on PATH', async 
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('Pi CLI on PATH does not bypass co provider gate for chat sends', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-pi-gate-cli-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-pi-gate-cli-'));
   const binDir = path.join(tempRoot, 'bin');
   const coHome = path.join(tempRoot, 'co');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -298,7 +298,7 @@ test('Pi CLI on PATH does not bypass co provider gate for chat sends', async () 
     assert.equal(pendingFiles.length, 0, 'must not write any pending request');
 
     // Verify no draft was created (check the project config)
-    const projectConfDir = path.join(tempRoot, '.ccflow');
+    const projectConfDir = path.join(tempRoot, '.cbw');
     try {
       const confFiles = await fs.readdir(projectConfDir);
       const confFile = confFiles.find((f) => f === 'conf.json');

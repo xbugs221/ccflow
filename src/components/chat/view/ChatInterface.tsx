@@ -639,8 +639,8 @@ function ChatInterface({
       sendMessage({
         type: 'check-session-status',
         sessionId: statusSessionId,
-        ccflowSessionId: activeRouteSessionId,
-        ccflow_session_id: activeRouteSessionId,
+        cbwSessionId: activeRouteSessionId,
+        cbw_session_id: activeRouteSessionId,
         provider: statusProvider,
       });
     };

@@ -102,8 +102,8 @@ const buildCoRealtimeMessageKey = (latestMessage: LatestChatMessage, providerDat
     return explicitMessageKey;
   }
 
-  const conversationId = latestMessage.ccflowSessionId
-    || latestMessage.ccflow_session_id
+  const conversationId = latestMessage.cbwSessionId
+    || latestMessage.cbw_session_id
     || latestMessage.conversation_id
     || latestMessage.conversationId
     || providerData?.conversation_id;
@@ -404,11 +404,11 @@ export function useChatRealtimeHandlers({
 
     const attachBridge = () => {
       const testSocket = (window as any).__codexRealtimeSocket;
-      if (!testSocket || testSocket.__ccflowCodexBridge) {
+      if (!testSocket || testSocket.__cbwCodexBridge) {
         return;
       }
       bridgedSocket = testSocket;
-      bridgedSocket.__ccflowCodexBridge = true;
+      bridgedSocket.__cbwCodexBridge = true;
       bridgedSocket.addEventListener?.('message', handleCodexTestMessage);
       if (bridgeTimer !== null) {
         window.clearInterval(bridgeTimer);
@@ -427,7 +427,7 @@ export function useChatRealtimeHandlers({
       }
       bridgedSocket?.removeEventListener?.('message', handleCodexTestMessage);
       if (bridgedSocket) {
-        bridgedSocket.__ccflowCodexBridge = false;
+        bridgedSocket.__cbwCodexBridge = false;
       }
     };
   }, [setChatMessages]);
@@ -510,7 +510,7 @@ export function useChatRealtimeHandlers({
       const isTemporaryViewSession = isTemporarySessionId(activeViewSessionId);
       const isCcflowRouteView = isCcflowRouteSessionId(activeViewSessionId);
       const messageRouteSessionId =
-        latestMessage.ccflowSessionId || latestMessage.ccflow_session_id || latestMessage.sessionId;
+        latestMessage.cbwSessionId || latestMessage.cbw_session_id || latestMessage.sessionId;
       const isSystemInitForView =
         systemInitSessionId && (!activeViewSessionId || systemInitSessionId === activeViewSessionId);
       const shouldBypassSessionFilter = isGlobalMessage
@@ -930,8 +930,8 @@ export function useChatRealtimeHandlers({
       case 'claude-complete': {
         const pendingSessionId = sessionStorage.getItem('pendingSessionId');
         const completedSessionId =
-          latestMessage.ccflowSessionId
-          || latestMessage.ccflow_session_id
+          latestMessage.cbwSessionId
+          || latestMessage.cbw_session_id
           || currentSessionId
           || latestMessage.sessionId
           || pendingSessionId;
@@ -1278,7 +1278,7 @@ export function useChatRealtimeHandlers({
 
         if (latestMessage.isProcessing) {
           if (latestMessage.turnId || latestMessage.turn_id) {
-            sessionStorage.setItem(`ccflow-active-turn:${statusSessionId}`, String(latestMessage.turnId || latestMessage.turn_id));
+            sessionStorage.setItem(`cbw-active-turn:${statusSessionId}`, String(latestMessage.turnId || latestMessage.turn_id));
           }
           onSessionProcessing?.(statusSessionId);
           if (isCurrentSession) {
@@ -1290,7 +1290,7 @@ export function useChatRealtimeHandlers({
 
         onSessionInactive?.(statusSessionId);
         onSessionNotProcessing?.(statusSessionId);
-        sessionStorage.removeItem(`ccflow-active-turn:${statusSessionId}`);
+        sessionStorage.removeItem(`cbw-active-turn:${statusSessionId}`);
         if (isCurrentSession) {
           clearLoadingIndicators();
         }

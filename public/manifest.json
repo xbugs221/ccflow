@@ -1,7 +1,7 @@
 {
-  "name": "ccflow",
-  "short_name": "ccflow",
-  "description": "ccflow web application",
+  "name": "cbw",
+  "short_name": "cbw",
+  "description": "cbw web application",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

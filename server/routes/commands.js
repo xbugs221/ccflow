@@ -1,5 +1,5 @@
 /**
- * Serve built-in quick-alias markdown commands plus user commands from ~/.config/ccflow-alias.
+ * Serve built-in quick-alias markdown commands plus user commands from ~/.config/cbw-alias.
  */
 import express from 'express';
 import { promises as fs } from 'fs';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 import { parseFrontmatter } from '../utils/frontmatter.js';
 
 const router = express.Router();
-const ALIAS_DIRECTORY_NAME = path.join('.config', 'ccflow-alias');
+const ALIAS_DIRECTORY_NAME = path.join('.config', 'cbw-alias');
 const ALIAS_NAMESPACE = 'alias';
 const BUILTIN_ALIAS_NAMESPACE = 'builtin';
 const aliasBaseDir = path.resolve(path.join(os.homedir(), ALIAS_DIRECTORY_NAME));

@@ -92,7 +92,7 @@ const isTemporarySessionId = (sessionId: string | null | undefined) =>
   Boolean(sessionId && (sessionId.startsWith('new-session-') || /^c\d+$/.test(sessionId)));
 
 /**
- * Check whether a session id is a ccflow route alias that should scope realtime events.
+ * Check whether a session id is a cbw route alias that should scope realtime events.
  */
 const isCcflowRouteSessionId = (sessionId: string | null | undefined) =>
   Boolean(sessionId && /^c\d+$/.test(sessionId));
@@ -662,7 +662,7 @@ export function useChatComposerState({
         : Number.isInteger(Number(selectedSession?.routeIndex))
           ? `c${Number(selectedSession?.routeIndex)}`
           : null;
-      const ccflowSessionId = selectedRouteSessionId || (
+      const cbwSessionId = selectedRouteSessionId || (
         !effectiveSessionId && isCcflowRouteSessionId(candidateSessionId)
           ? candidateSessionId
           : null
@@ -714,8 +714,8 @@ export function useChatComposerState({
           clientRequestId,
           command: messageContent,
           sessionId: effectiveSessionId,
-          ccflowSessionId,
-          ccflow_session_id: ccflowSessionId,
+          cbwSessionId,
+          cbw_session_id: cbwSessionId,
           startRequestId: clientRequestId,
           start_request_id: clientRequestId,
           clientRef: messageContent,
@@ -725,8 +725,8 @@ export function useChatComposerState({
             projectPath: resolvedProjectPath,
             projectName: resolvedProjectName,
             sessionId: effectiveSessionId,
-            ccflowSessionId,
-            ccflow_session_id: ccflowSessionId,
+            cbwSessionId,
+            cbw_session_id: cbwSessionId,
             clientRequestId,
             startRequestId: clientRequestId,
             start_request_id: clientRequestId,
@@ -745,8 +745,8 @@ export function useChatComposerState({
           clientRequestId,
           command: messageContent,
           sessionId: effectiveSessionId,
-          ccflowSessionId,
-          ccflow_session_id: ccflowSessionId,
+          cbwSessionId,
+          cbw_session_id: cbwSessionId,
           startRequestId: clientRequestId,
           start_request_id: clientRequestId,
           clientRef: messageContent,
@@ -756,8 +756,8 @@ export function useChatComposerState({
             projectPath: resolvedProjectPath,
             projectName: resolvedProjectName,
             sessionId: effectiveSessionId,
-            ccflowSessionId,
-            ccflow_session_id: ccflowSessionId,
+            cbwSessionId,
+            cbw_session_id: cbwSessionId,
             clientRequestId,
             startRequestId: clientRequestId,
             start_request_id: clientRequestId,
@@ -774,8 +774,8 @@ export function useChatComposerState({
           clientRequestId,
           command: messageContent,
           sessionId: effectiveSessionId,
-          ccflowSessionId,
-          ccflow_session_id: ccflowSessionId,
+          cbwSessionId,
+          cbw_session_id: cbwSessionId,
           startRequestId: clientRequestId,
           start_request_id: clientRequestId,
           clientRef: messageContent,
@@ -785,8 +785,8 @@ export function useChatComposerState({
             projectPath: resolvedProjectPath,
             projectName: resolvedProjectName,
             sessionId: effectiveSessionId,
-            ccflowSessionId,
-            ccflow_session_id: ccflowSessionId,
+            cbwSessionId,
+            cbw_session_id: cbwSessionId,
             clientRequestId,
             startRequestId: clientRequestId,
             start_request_id: clientRequestId,
@@ -1053,12 +1053,12 @@ export function useChatComposerState({
       console.warn('Abort requested but no session ID is available yet.');
       return;
     }
-    const targetTurnId = sessionStorage.getItem(`ccflow-active-turn:${targetSessionId}`) || '';
+    const targetTurnId = sessionStorage.getItem(`cbw-active-turn:${targetSessionId}`) || '';
 
     sendMessage({
       type: 'abort-session',
       sessionId: targetSessionId,
-      ccflowSessionId: selectedRouteSessionId || (isTemporarySessionId(draftSessionId) ? draftSessionId : null),
+      cbwSessionId: selectedRouteSessionId || (isTemporarySessionId(draftSessionId) ? draftSessionId : null),
       targetTurnId,
       startRequestId: pendingViewSessionRef.current?.clientRequestId || null,
       projectName: getActiveSessionProjectName(selectedProject, selectedSession),

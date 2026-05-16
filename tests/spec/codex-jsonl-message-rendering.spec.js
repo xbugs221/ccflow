@@ -150,7 +150,7 @@ async function openCodexSession(page, sessionId, waitUntil = 'domcontentloaded')
   }
 
   await page.waitForFunction(() => Boolean(window.__codexRealtimeSocket?.__opened), null, { timeout: 5000 });
-  await page.waitForFunction(() => Boolean(window.__codexRealtimeSocket?.__ccflowCodexBridge), null, { timeout: 5000 });
+  await page.waitForFunction(() => Boolean(window.__codexRealtimeSocket?.__cbwCodexBridge), null, { timeout: 5000 });
   await page.evaluate((activeSessionId) => {
     window.__emitCodexRealtime?.({ type: 'session-created', sessionId: activeSessionId });
   }, sessionId);

@@ -29,7 +29,7 @@ export type WorkspaceLayoutState = {
   };
 };
 
-const STORAGE_KEY = 'ccflow:workspace-layout:v1';
+const STORAGE_KEY = 'cbw:workspace-layout:v1';
 const OLD_TAB_KEY = 'activeTab';
 
 const DEFAULT_STATE: WorkspaceLayoutState = {

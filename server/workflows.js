@@ -1,6 +1,6 @@
 /**
  * PURPOSE: Build project workflow read models from wo runner state.
- * ccflow keeps the Web control plane thin: automatic workflow facts come from
+ * cbw keeps the Web control plane thin: automatic workflow facts come from
  * wo's user-state run path, not from a local workflow mirror.
  */
 import { listOpenSpecChanges } from './domains/openspec/oz-client.js';
@@ -15,12 +15,12 @@ import {
 } from './domains/workflows/wo-read-model.js';
 
 /**
- * Read active OpenSpec changes through the CLI so ccflow follows OpenSpec's own discovery rules.
+ * Read active OpenSpec changes through the CLI so cbw follows OpenSpec's own discovery rules.
  */
 async function listOpenSpecCliChanges(projectPath) {
   /**
    * PURPOSE: Use OpenSpec as the source of truth for active proposal discovery
-   * instead of duplicating its root/config resolution in ccflow.
+   * instead of duplicating its root/config resolution in cbw.
    */
   if (!projectPath) {
     return [];
@@ -194,7 +194,7 @@ export async function resumeWorkflowRun(project, workflowId) {
 export async function abortWorkflowRun(project, workflowId) {
   /**
    * PURPOSE: Abort a Go-backed workflow through the runner contract so the
-   * runner updates state.json and ccflow only refreshes the read model.
+   * runner updates state.json and cbw only refreshes the read model.
    */
   const projectPath = project?.fullPath || project?.path || '';
   if (!projectPath) {

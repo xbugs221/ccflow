@@ -20,7 +20,7 @@
     "runAgentCli": "创建或打开 Codex/OpenCode 会话以开始使用"
   },
   "app": {
-    "title": "ccflow",
+    "title": "cbw",
     "subtitle": "AI 编程助手"
   },
   "sessions": {

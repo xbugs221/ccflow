@@ -82,7 +82,7 @@ test('submitting an attachment message twice during a slow upload still creates 
           {
             name: 'slow-upload.png',
             relativePath: 'slow-upload.png',
-            absolutePath: '/tmp/ccflow-uploads/slow-upload.png',
+            absolutePath: '/tmp/cbw-uploads/slow-upload.png',
             size: ONE_PIXEL_PNG.length,
             mimeType: 'image/png',
           },
@@ -119,7 +119,7 @@ test('one touch-originated send with an attachment is not replayed by the follow
           {
             name: 'touch-submit.png',
             relativePath: 'touch-submit.png',
-            absolutePath: '/tmp/ccflow-uploads/touch-submit.png',
+            absolutePath: '/tmp/cbw-uploads/touch-submit.png',
             size: ONE_PIXEL_PNG.length,
             mimeType: 'image/png',
           },

@@ -181,7 +181,7 @@ test('README does not list Claude as current chat provider', async () => {
   assert.doesNotMatch(readme, /Claude Code.*OpenAI Codex CLI/);
   assert.match(readme, /Codex.*OpenCode/);
   assert.match(readme, /wo runner/);
-  // ccflow is described as light Web shell, not a Claude frontend
+  // cbw is described as light Web shell, not a Claude frontend
   assert.match(readme, /Web 工作台/);
 });
 

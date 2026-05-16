@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process';
 import WebSocket from 'ws';
 
 async function getFreePort() {
-  /** Reserve a loopback port for the short-lived ccflow server fixture. */
+  /** Reserve a loopback port for the short-lived cbw server fixture. */
   const server = net.createServer();
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -39,7 +39,7 @@ async function writeIdleConversation(coHome) {
   await fs.writeFile(path.join(coHome, 'conversations', 'c51', 'state.json'), JSON.stringify({
     contract: 'co-conversation-v1',
     conversation_id: 'c51',
-    project_path: '/tmp/ccflow-project',
+    project_path: '/tmp/cbw-project',
     provider: 'codex',
     provider_session_id: 'provider_c51',
     active_turn_id: '',
@@ -93,7 +93,7 @@ async function stopServer(child) {
 
 test('idle check-session-status sends only session-status over the real WebSocket', async () => {
   /** Scenario: Opening idle c51 must not push old agent_message events again. */
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-idle-ws-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-idle-ws-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -139,7 +139,7 @@ test('idle check-session-status sends only session-status over the real WebSocke
     ws.on('message', (message) => {
       received.push(JSON.parse(message.toString()));
     });
-    ws.send(JSON.stringify({ type: 'check-session-status', sessionId: 'c51', ccflowSessionId: 'c51', provider: 'codex' }));
+    ws.send(JSON.stringify({ type: 'check-session-status', sessionId: 'c51', cbwSessionId: 'c51', provider: 'codex' }));
     await new Promise((resolve) => setTimeout(resolve, 500));
     ws.close();
 
@@ -150,7 +150,7 @@ test('idle check-session-status sends only session-status over the real WebSocke
     )), false);
     assert.equal(received.filter((message) => message.type === 'session-status').length, 1);
     assert.equal(received.find((message) => message.type === 'session-status')?.isProcessing, false);
-    assert.equal(received.find((message) => message.type === 'session-status')?.ccflowSessionId, 'c51');
+    assert.equal(received.find((message) => message.type === 'session-status')?.cbwSessionId, 'c51');
   } finally {
     await stopServer(child);
   }

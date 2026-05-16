@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Verify ccflow resolves wo user-state runtime paths with the same
+ * PURPOSE: Verify cbw resolves wo user-state runtime paths with the same
  * repository isolation rules used by the external runner.
  */
 import assert from 'node:assert/strict';
@@ -42,7 +42,7 @@ test('wo runtime paths sanitize special repository basenames', () => {
 });
 
 test('wo runtime paths use XDG_STATE_HOME for runs root and diagnostics', () => {
-  const env = { XDG_STATE_HOME: path.join('/tmp', 'ccflow-state') };
+  const env = { XDG_STATE_HOME: path.join('/tmp', 'cbw-state') };
   const projectPath = path.join('/tmp', 'project');
   const repoKey = expectedRepoKey(projectPath);
   const runsRoot = resolveWoRunsRoot(projectPath, env);

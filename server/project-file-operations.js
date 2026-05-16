@@ -305,7 +305,7 @@ export function joinProjectChildPath(parentDirectory, childName) {
  * @returns {Promise<string>}
  */
 export async function createDirectoryArchive(sourceDirectory) {
-    const tempDirectory = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'ccflow-folder-download-'));
+    const tempDirectory = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'cbw-folder-download-'));
     const archivePath = path.join(tempDirectory, `${path.basename(sourceDirectory)}.zip`);
 
     return new Promise((resolve, reject) => {

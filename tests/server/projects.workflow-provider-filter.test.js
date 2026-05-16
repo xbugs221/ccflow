@@ -47,18 +47,18 @@ async function writeClaudeSession(homeDir, projectPath, sessionId, message) {
 
 test('Claude project history is no longer exposed beside Codex workflow children', async () => {
   const previousHome = process.env.HOME;
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-provider-filter-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-provider-filter-'));
   const projectPath = path.join(tempRoot, 'workspace', 'project-a');
   const projectName = encodeClaudeProjectName(projectPath);
 
   process.env.HOME = tempRoot;
   try {
-    await fs.mkdir(path.join(projectPath, '.ccflow'), { recursive: true });
+    await fs.mkdir(path.join(projectPath, '.cbw'), { recursive: true });
     await writeClaudeSession(tempRoot, projectPath, 'shared-thread', 'same id manual Claude session');
     await writeClaudeSession(tempRoot, projectPath, 'claude-workflow-thread', 'workflow Claude session');
     await writeClaudeSession(tempRoot, projectPath, 'manual-thread', 'standalone manual session');
     await fs.writeFile(
-      path.join(projectPath, '.ccflow', 'conf.json'),
+      path.join(projectPath, '.cbw', 'conf.json'),
       JSON.stringify({
         schemaVersion: 2,
         workflows: {

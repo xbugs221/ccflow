@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Verify ccflow submits chat operations through the co file protocol instead of local provider runners.
+ * PURPOSE: Verify cbw submits chat operations through the co file protocol instead of local provider runners.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,7 +23,7 @@ async function makeCoHome() {
   /**
    * Create an isolated co home fixture with the directory shape used by the daemon.
    */
-  return fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-co-client-'));
+  return fs.mkdtemp(path.join(os.tmpdir(), 'cbw-co-client-'));
 }
 
 async function writeFakeCommand(binDir, name, body) {
@@ -71,7 +71,7 @@ test('Codex message writes an atomic co-request-v1 file without UI metadata', as
 });
 
 test('co home file is rejected before pending request write', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-co-home-file-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-co-home-file-'));
   const coHome = path.join(tempRoot, 'co');
   await fs.writeFile(coHome, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const request = buildCoRequest({
@@ -93,7 +93,7 @@ test('co home file is rejected before pending request write', async () => {
 });
 
 test('co doctor marks binary-shaped home as unavailable', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-co-doctor-home-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-co-doctor-home-'));
   const binDir = path.join(tempRoot, 'bin');
   const coHome = path.join(tempRoot, 'co');
   await fs.mkdir(binDir, { recursive: true });
@@ -191,7 +191,7 @@ test('refresh recovery reads conversation state and tails subsequent events', as
 });
 
 test('co doctor failure reports unavailable chat execution without runner fallback', async () => {
-  const status = await runCoDoctor({ command: 'ccflow-missing-co-binary-for-test', timeoutMs: 50 });
+  const status = await runCoDoctor({ command: 'cbw-missing-co-binary-for-test', timeoutMs: 50 });
 
   assert.equal(status.ok, false);
   assert.match(status.error, /ENOENT|not found|spawn/);

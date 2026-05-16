@@ -42,7 +42,7 @@ export default function SidebarHeader({
         <div className="flex items-center justify-between gap-2">
           {IS_PLATFORM ? (
             <a
-              href="https://ccflow.ai/dashboard"
+              href="https://cbw.ai/dashboard"
               className="flex items-center gap-2.5 min-w-0 hover:opacity-80 transition-opacity"
               title={t('tooltips.viewEnvironments')}
             >
@@ -67,7 +67,7 @@ export default function SidebarHeader({
         <div className="flex items-center justify-between">
           {IS_PLATFORM ? (
             <a
-              href="https://ccflow.ai/dashboard"
+              href="https://cbw.ai/dashboard"
               className="flex items-center gap-2.5 active:opacity-70 transition-opacity min-w-0"
               title={t('tooltips.viewEnvironments')}
             >

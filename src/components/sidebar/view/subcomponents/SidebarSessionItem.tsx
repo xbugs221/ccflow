@@ -15,7 +15,7 @@ import SessionActionIconMenu from '../../../session-actions/SessionActionIconMen
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 
 const SESSION_ACTION_LONG_PRESS_MS = 450;
-const VIEWED_SESSION_SIGNATURES_STORAGE_KEY = 'ccflow:viewed-session-signatures';
+const VIEWED_SESSION_SIGNATURES_STORAGE_KEY = 'cbw:viewed-session-signatures';
 
 type SessionActionMenuState =
   | { isOpen: false; x: number; y: number }

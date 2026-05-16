@@ -69,13 +69,13 @@ async function installReplaySocket(page) {
         const replay = {
           type: 'codex-response',
           sessionId: 'c51',
-          ccflowSessionId: 'c51',
+          cbwSessionId: 'c51',
           conversation_id: 'c51',
           turn_id: 'turn_history',
           seq: 0,
           data: { type: 'item', itemType: 'agent_message', message: { content: 'CO_QUEUE_1_OK' } },
         };
-        for (const event of [replay, replay, { type: 'session-status', sessionId: 'c51', ccflowSessionId: 'c51', isProcessing: false }]) {
+        for (const event of [replay, replay, { type: 'session-status', sessionId: 'c51', cbwSessionId: 'c51', isProcessing: false }]) {
           this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(event) }));
         }
       }

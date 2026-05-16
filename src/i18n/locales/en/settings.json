@@ -134,7 +134,7 @@
         "cliAvailable": "Pi CLI found: {{path}} (v{{version}})",
         "cliNotAvailable": "Pi CLI not found in service PATH. Install Pi or configure an explicit path.",
         "authenticatedUnknown": "Authentication unknown",
-        "authNotRequired": "Pi does not require account authentication through ccflow. Messages are sent via the co file protocol."
+        "authNotRequired": "Pi does not require account authentication through cbw. Messages are sent via the co file protocol."
       }
     },
     "connectionStatus": "Connection Status",

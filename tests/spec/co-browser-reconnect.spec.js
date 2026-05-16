@@ -23,7 +23,7 @@ async function openNewProviderSession(page, provider) {
 }
 
 async function sendPromptThenReconnect(page, marker) {
-  await page.waitForFunction(() => typeof window.__ccflowTestCloseWebSocket === 'function');
+  await page.waitForFunction(() => typeof window.__cbwTestCloseWebSocket === 'function');
   const chatContainer = page.locator('[data-testid="chat-scroll-container"]').last();
   const responses = chatContainer.getByText(`fake co response: ${marker}`);
   const composerInput = page.locator('textarea').first();
@@ -36,7 +36,7 @@ async function sendPromptThenReconnect(page, marker) {
   await expect(responses.last()).toBeVisible({ timeout: 15_000 });
   await expect(responses).toHaveCount(1);
 
-  await page.evaluate(() => window.__ccflowTestCloseWebSocket());
+  await page.evaluate(() => window.__cbwTestCloseWebSocket());
   await page.waitForTimeout(1_000);
   await expect(responses).toHaveCount(1);
 }
@@ -70,10 +70,10 @@ function getCurrentRouteIndex(page) {
 
 async function readProjectConfig() {
   /**
-   * Read the fixture project's ccflow config without going through the app;
+   * Read the fixture project's cbw config without going through the app;
    * this narrows reload failures to backend state versus browser rendering.
    */
-  const configPath = path.join(PRIMARY_FIXTURE_PROJECT_PATH, '.ccflow', 'conf.json');
+  const configPath = path.join(PRIMARY_FIXTURE_PROJECT_PATH, '.cbw', 'conf.json');
   return JSON.parse(await fs.readFile(configPath, 'utf8'));
 }
 
@@ -205,8 +205,8 @@ function buildCodexCommandPayload({
     clientRequestId: requestId,
     command: marker,
     sessionId: null,
-    ccflowSessionId: conversationId,
-    ccflow_session_id: conversationId,
+    cbwSessionId: conversationId,
+    cbw_session_id: conversationId,
     startRequestId: requestId,
     start_request_id: requestId,
     options: {
@@ -214,8 +214,8 @@ function buildCodexCommandPayload({
       projectPath: PRIMARY_FIXTURE_PROJECT_PATH,
       projectName: 'fixture-project',
       sessionId: null,
-      ccflowSessionId: conversationId,
-      ccflow_session_id: conversationId,
+      cbwSessionId: conversationId,
+      cbw_session_id: conversationId,
       clientRequestId: requestId,
       startRequestId: requestId,
       start_request_id: requestId,
@@ -236,8 +236,8 @@ function buildAbortPayload({
     type: 'abort-session',
     clientRequestId: requestId,
     sessionId: conversationId,
-    ccflowSessionId: conversationId,
-    ccflow_session_id: conversationId,
+    cbwSessionId: conversationId,
+    cbw_session_id: conversationId,
     targetTurnId,
     target_turn_id: targetTurnId,
     provider: 'codex',

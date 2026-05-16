@@ -3,7 +3,7 @@
  * so both surfaces agree on unread state and read receipts.
  */
 
-export const VIEWED_SESSION_SIGNATURES_STORAGE_KEY = 'ccflow:viewed-session-signatures';
+export const VIEWED_SESSION_SIGNATURES_STORAGE_KEY = 'cbw:viewed-session-signatures';
 
 function getSupportedSessionProvider(session) {
   /**

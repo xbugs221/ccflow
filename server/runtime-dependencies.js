@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Resolve and validate external Go CLIs required by the ccflow
+ * PURPOSE: Resolve and validate external Go CLIs required by the cbw
  * workflow control plane before the web server starts.
  */
 import { execFileSync, spawnSync } from 'child_process';

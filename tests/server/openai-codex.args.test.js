@@ -139,16 +139,16 @@ test('resume validation rejects cross-project Codex cwd mismatches', async () =>
   await fs.mkdir(transcriptDir, { recursive: true });
   await fs.writeFile(
     transcriptPath,
-    `${JSON.stringify({ type: 'session_meta', payload: { cwd: '/tmp/ccflow' } })}\n`,
+    `${JSON.stringify({ type: 'session_meta', payload: { cwd: '/tmp/cbw' } })}\n`,
     'utf8',
   );
 
   await assert.rejects(
     __assertResumeSessionWorkingDirectoryForTest(sessionId, '/tmp/matx', tempRoot),
-    /recorded session cwd is \/tmp\/ccflow/,
+    /recorded session cwd is \/tmp\/cbw/,
   );
 
   await assert.doesNotReject(
-    __assertResumeSessionWorkingDirectoryForTest(sessionId, '/tmp/ccflow', tempRoot),
+    __assertResumeSessionWorkingDirectoryForTest(sessionId, '/tmp/cbw', tempRoot),
   );
 });

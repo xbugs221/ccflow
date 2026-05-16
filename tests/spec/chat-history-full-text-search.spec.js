@@ -88,7 +88,7 @@ async function pointFixtureWorkflowExecutionAtThread(thread) {
     PLAYWRIGHT_FIXTURE_HOME,
     'workspace',
     'fixture-project',
-    '.ccflow',
+    '.cbw',
     'runs',
     'run-fixture',
     'state.json',

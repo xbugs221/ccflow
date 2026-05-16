@@ -410,12 +410,12 @@ async function cloneGitHubRepo(githubUrl, githubToken = null, projectPath) {
 }
 
 /**
- * Check whether a path is a temporary external project owned by ccflow.
+ * Check whether a path is a temporary external project owned by cbw.
  * @param {string} projectPath - Candidate project directory path
  * @returns {boolean} - Whether the path is inside the external-projects root
  */
 function isCcflowExternalProjectPath(projectPath) {
-  const externalProjectsRoot = path.resolve(os.homedir(), '.ccflow', 'external-projects');
+  const externalProjectsRoot = path.resolve(os.homedir(), '.cbw', 'external-projects');
   const resolvedProjectPath = path.resolve(projectPath);
   const relativeProjectPath = path.relative(externalProjectsRoot, resolvedProjectPath);
 
@@ -691,7 +691,7 @@ class ResponseCollector {
  *                               Behavior depends on usage:
  *                               - If used alone: Must point to existing project directory
  *                               - If used with githubUrl: Target location for cloning
- *                               - If omitted with githubUrl: Auto-generates temporary path in ~/.ccflow/external-projects/
+ *                               - If omitted with githubUrl: Auto-generates temporary path in ~/.cbw/external-projects/
  *
  * @param {string} message - (Required) Task description for the AI agent. Used as:
  *                          - Instructions for the agent
@@ -763,7 +763,7 @@ class ResponseCollector {
  *
  * Scenario 1: Only githubUrl provided
  *   Input:  { githubUrl: "https://github.com/owner/repo" }
- *   Action: Clones to auto-generated temporary path: ~/.ccflow/external-projects/<hash>/
+ *   Action: Clones to auto-generated temporary path: ~/.cbw/external-projects/<hash>/
  *   Cleanup: Yes (if cleanup=true)
  *
  * Scenario 2: Only projectPath provided
@@ -945,7 +945,7 @@ router.post('/', validateExternalApiKey, async (req, res) => {
       } else {
         // Generate a unique path for cloning
         const repoHash = crypto.createHash('md5').update(githubUrl + Date.now()).digest('hex');
-        targetPath = path.join(os.homedir(), '.ccflow', 'external-projects', repoHash);
+        targetPath = path.join(os.homedir(), '.cbw', 'external-projects', repoHash);
       }
 
       finalProjectPath = await cloneGitHubRepo(githubUrl.trim(), tokenToUse, targetPath);
@@ -1152,7 +1152,7 @@ router.post('/', validateExternalApiKey, async (req, res) => {
           } else {
             prBody += `Agent task: ${message}`;
           }
-          prBody += '\n\n---\n*This pull request was automatically created by ccflow Agent.*';
+          prBody += '\n\n---\n*This pull request was automatically created by cbw Agent.*';
 
           console.log(`📝 PR Title: ${prTitle}`);
 

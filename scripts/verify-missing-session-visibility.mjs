@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 async function main() {
-  const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-session-visibility-'));
+  const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-session-visibility-'));
   process.env.HOME = tempHome;
 
   const existingProjectPath = path.join(tempHome, 'workspace', 'existing-project');

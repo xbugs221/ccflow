@@ -1,11 +1,11 @@
 ---
-url: https://github.com/xbugs221/ccflow
+url: https://github.com/xbugs221/cbw
 origin: https://github.com/siteboon/claudecodeui
 ---
 
-# ccflow
+# cbw
 
-ccflow 是基于 [ccui](https://github.com/siteboon/claudecodeui) 和 [OpenSpec](https://github.com/Fission-AI/OpenSpec) 改造的本地 Web 工作台，主要用于把 OpenAI Codex CLI 和自定义 OpenSpec 工作流放在同一个项目界面里使用。
+cbw 是基于 [ccui](https://github.com/siteboon/claudecodeui) 和 [OpenSpec](https://github.com/Fission-AI/OpenSpec) 改造的本地 Web 工作台，主要用于把 OpenAI Codex CLI 和自定义 OpenSpec 工作流放在同一个项目界面里使用。
 
 ## 当前能力
 
@@ -27,13 +27,13 @@ docs/           OpenSpec 配置、当前 specs、设计文档和已归档 change
 public/         PWA、图标、截图和公开静态页面
 ```
 
-`dist/`、`node_modules/`、`.wo/`、测试输出、数据库、缓存和本地环境文件都是生成物或运行时状态，不应提交到仓库。ccflow 运行时项目状态和 UI 配置现在写入 `${XDG_STATE_HOME:-~/.local/state}/ccflow/`，之前版本的 `.ccflow/` 目录不再产生新写入但也不会被自动删除。
+`dist/`、`node_modules/`、`.wo/`、测试输出、数据库、缓存和本地环境文件都是生成物或运行时状态，不应提交到仓库。cbw 运行时项目状态和 UI 配置现在写入 `${XDG_STATE_HOME:-~/.local/state}/cbw/`，之前版本的 `.cbw/` 目录不再产生新写入但也不会被自动删除。
 
-内置斜杠命令放在 `server/commands/aliases/`，当前包含 OpenSpec 工作流和仓库维护常用提示词。用户仍可在 `~/.config/ccflow-alias/` 放自己的 Markdown 命令，两类命令会一起出现在命令菜单里。
+内置斜杠命令放在 `server/commands/aliases/`，当前包含 OpenSpec 工作流和仓库维护常用提示词。用户仍可在 `~/.config/cbw-alias/` 放自己的 Markdown 命令，两类命令会一起出现在命令菜单里。
 
 ## 快速开始
 
-先手动安装 Go oz CLI `oz` 和 workflow runner `wo`，并确保启动 ccflow 的服务进程能直接从 `PATH` 执行它们。ccflow 不提供环境变量或设置项覆盖这两个路径；缺少任一命令、`oz --version` 失败或 `wo` contract 不兼容时，后端会启动失败。
+先手动安装 Go oz CLI `oz` 和 workflow runner `wo`，并确保启动 cbw 的服务进程能直接从 `PATH` 执行它们。cbw 不提供环境变量或设置项覆盖这两个路径；缺少任一命令、`oz --version` 失败或 `wo` contract 不兼容时，后端会启动失败。
 
 `wo` 必须支持 Web 后端使用的非交互 JSON 命令：
 

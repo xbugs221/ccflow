@@ -7,18 +7,18 @@
  * ## Architecture Overview
  * 
  * 1. **Manual Projects**
- *    - Project metadata stored in ~/.ccflow/conf.json
+ *    - Project metadata stored in ~/.cbw/conf.json
  *    - Provider sessions are discovered through Codex/OpenCode-specific readers
  * 
  * ## Project Discovery Strategy
  * 
  * 1. **Configured Project Discovery**:
- *    - Read user-managed projects from ~/.ccflow/conf.json
+ *    - Read user-managed projects from ~/.cbw/conf.json
  *    - Attach Codex/OpenCode session collections for each project path
  * 
  * 2. **Manual Project Addition**:
  *    - Users can manually add project paths via UI
- *    - Stored in ~/.ccflow/conf.json with 'manuallyAdded' flag
+ *    - Stored in ~/.cbw/conf.json with 'manuallyAdded' flag
  * 
  * ## Error Handling
  * 
@@ -3235,7 +3235,7 @@ async function renameCodexSession(sessionId, newSummary, projectPath = '') {
  */
 async function createManualSessionDraft(projectName, projectPath, provider = 'codex', label, options = {}) {
   /**
-   * Store the route draft in both project config and the durable ccflow index.
+   * Store the route draft in both project config and the durable cbw index.
    */
   const trimmedLabel = typeof label === 'string' ? label.trim() : '';
   if (!trimmedLabel) {
@@ -3443,7 +3443,7 @@ async function finalizeManualSessionDraft(projectName, draftSessionId, actualSes
     throw new Error('provider must be "codex", "opencode", or "pi"');
   }
   /**
-   * Bind a ccflow route id to the provider session once the first message starts.
+   * Bind a cbw route id to the provider session once the first message starts.
    */
   if (typeof draftSessionId !== 'string' || !draftSessionId.trim()) {
     throw new Error('Draft session ID is required');

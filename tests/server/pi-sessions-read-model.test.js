@@ -16,9 +16,9 @@ import {
   saveProjectConfig,
 } from '../../server/projects.js';
 
-// Helper: create a temporary project directory with a .ccflow config
+// Helper: create a temporary project directory with a .cbw config
 async function setupTempProject(label) {
-  const dir = path.join(os.tmpdir(), `ccflow-pi-sessions-${label}-${Date.now()}`);
+  const dir = path.join(os.tmpdir(), `cbw-pi-sessions-${label}-${Date.now()}`);
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }
@@ -114,7 +114,7 @@ test('Pi sessions are sorted by creation time in piSessions', async () => {
 
 test('Pi session favorite/hidden/pending state is stored under pi key, not codex', async () => {
   // Use a project path without dashes to avoid extractProjectDirectory ambiguity
-  const projectPath = path.join(os.tmpdir(), `ccflow_pi_ui_${Date.now()}`);
+  const projectPath = path.join(os.tmpdir(), `cbw_pi_ui_${Date.now()}`);
   const projectName = projectPath.replace(/\//g, '-');
 
   try {

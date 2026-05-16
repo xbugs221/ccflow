@@ -1,6 +1,6 @@
 /**
  * PURPOSE: 验收测试：项目工作区导航壳层与项目作用域路由。
- * Derived from openspec/changes/2030-ccflow-ui/specs/project-workspace-navigation/spec.md.
+ * Derived from openspec/changes/2030-cbw-ui/specs/project-workspace-navigation/spec.md.
  */
 import { test, expect } from '@playwright/test';
 import {

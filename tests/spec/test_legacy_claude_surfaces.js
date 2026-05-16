@@ -98,7 +98,7 @@ test('chat state no longer keeps Claude model or thinking-mode persistence', asy
 
   assert.doesNotMatch(providerState, /claudeModel|claude-model|getDefaultClaudeModel|FALLBACK_CLAUDE/);
   assert.doesNotMatch(chatInterface, /claudeModel|handleSetThinkingMode|thinkingMode/);
-  assert.doesNotMatch(composerState, /ccflow-thinking-mode|thinkingMode|setThinkingMode/);
+  assert.doesNotMatch(composerState, /cbw-thinking-mode|thinkingMode|setThinkingMode/);
   assert.doesNotMatch(chatLocale, /"thinkingMode"|claudeDescription/);
   assert.doesNotMatch(settingsLocale, /claudeDescription/);
 });
@@ -117,7 +117,7 @@ test('OpenCode search results display OpenCode instead of Claude fallback', asyn
   assert.doesNotMatch(searchDialog, /\?\s*'Codex'\s*:\s*'Claude'/);
 });
 
-test('ccflow CLI status and help do not advertise Claude runtime configuration', async () => {
+test('cbw CLI status and help do not advertise Claude runtime configuration', async () => {
   const cliSource = await readSource('server/cli.js');
   const statusOutput = execFileSync(process.execPath, [cliPath, 'status'], { encoding: 'utf8' });
   const helpOutput = execFileSync(process.execPath, [cliPath, 'help'], { encoding: 'utf8' });

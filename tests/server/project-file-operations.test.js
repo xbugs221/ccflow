@@ -15,7 +15,7 @@ async function withRuntimeStateHome(callback) {
   /**
    * Run path-resolution checks against an isolated XDG_STATE_HOME.
    */
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-file-ops-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-file-ops-'));
   const originalXdgStateHome = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = path.join(tempRoot, 'state');
 

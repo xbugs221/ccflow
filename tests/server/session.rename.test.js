@@ -41,7 +41,7 @@ async function withTemporaryHome(testBody) {
     const originalHome = process.env.HOME;
     const originalPath = process.env.PATH;
     const originalXdgStateHome = process.env.XDG_STATE_HOME;
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-session-rename-test-'));
+    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-session-rename-test-'));
     const binDir = path.join(tempHome, 'bin');
 
     process.env.HOME = tempHome;

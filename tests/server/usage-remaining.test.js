@@ -23,7 +23,7 @@ let homeIsolationQueue = Promise.resolve();
 async function withTemporaryHome(testBody) {
   const run = async () => {
     const originalHome = process.env.HOME;
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-usage-test-'));
+    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-usage-test-'));
 
     process.env.HOME = tempHome;
     clearUsageRemainingCache();

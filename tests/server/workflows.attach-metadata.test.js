@@ -12,15 +12,15 @@ import { attachWorkflowMetadata } from '../../server/workflows.js';
 test('attachWorkflowMetadata keeps projects visible when workflow config JSON is corrupt', async () => {
   /**
    * PURPOSE: Reproduce /api/projects reading workflow metadata for every
-   * project; a bad .ccflow/conf.json should not turn the whole response into 500.
+   * project; a bad .cbw/conf.json should not turn the whole response into 500.
    */
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-corrupt-workflow-config-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-corrupt-workflow-config-'));
   const projectPath = path.join(tempRoot, 'workspace', 'project-a');
 
   try {
-    await fs.mkdir(path.join(projectPath, '.ccflow'), { recursive: true });
+    await fs.mkdir(path.join(projectPath, '.cbw'), { recursive: true });
     await fs.writeFile(
-      path.join(projectPath, '.ccflow', 'conf.json'),
+      path.join(projectPath, '.cbw', 'conf.json'),
       '{"schemaVersion":2}\n{"trailing":"invalid"}\n',
       'utf8',
     );

@@ -44,7 +44,7 @@ export default function SidebarContent({
    * fixed mobile drawer width controlled by AppContent.
    */
   const { width, resizeHandleProps } = useResizableWidth({
-    storageKey: 'ccflow:sidebar-width',
+    storageKey: 'cbw:sidebar-width',
     defaultWidth: 288,
     minWidth: 224,
     maxWidth: 520,

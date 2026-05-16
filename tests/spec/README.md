@@ -4,7 +4,7 @@
 
 ## 24-session-management-refactor
 
-- `test_session_management_refactor.js`: 派生自 `openspec/changes/24-session-management-refactor/specs/session-management-refactor/spec.md`，覆盖 ccflow 会话身份、并发绑定、pending 恢复、事件重放、历史校准和 steer 干预。
+- `test_session_management_refactor.js`: 派生自 `openspec/changes/24-session-management-refactor/specs/session-management-refactor/spec.md`，覆盖 cbw 会话身份、并发绑定、pending 恢复、事件重放、历史校准和 steer 干预。
 
 ## 27-workflow-session-index-recovery
 

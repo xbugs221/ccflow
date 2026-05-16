@@ -22,17 +22,17 @@ test('project discovery filters empty /tmp/Test.../001 projects', async () => {
       opencodeSessions: [],
     },
     {
-      name: 'ccflow',
-      path: '/home/user/projects/ccflow',
-      fullPath: '/home/user/projects/ccflow',
-      displayName: 'ccflow',
+      name: 'cbw',
+      path: '/home/user/projects/cbw',
+      fullPath: '/home/user/projects/cbw',
+      displayName: 'cbw',
       sessions: [],
       codexSessions: [{ id: 'codex-session-a' }],
       opencodeSessions: [],
     },
   ]);
 
-  assert.deepEqual(projects.map((project) => project.fullPath), ['/home/user/projects/ccflow']);
+  assert.deepEqual(projects.map((project) => project.fullPath), ['/home/user/projects/cbw']);
 });
 
 test('project discovery disambiguates remaining duplicate basenames without changing paths', async () => {

@@ -16,7 +16,7 @@ async function withFakeGoWorkflowTools(testBody) {
   const previousPath = process.env.PATH;
   const previousHome = process.env.HOME;
   const previousXdgStateHome = process.env.XDG_STATE_HOME;
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-go-workflow-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-go-workflow-'));
   const binDir = path.join(tempRoot, 'bin');
   const homeDir = path.join(tempRoot, 'home');
   const stateHome = path.join(tempRoot, 'state');
@@ -93,7 +93,7 @@ async function withFakeGoWorkflowTools(testBody) {
  */
 async function writeOpenSpecChange(projectPath) {
   const changeRoot = path.join(projectPath, 'docs', 'changes', 'go-change');
-  await fs.mkdir(path.join(projectPath, '.ccflow'), { recursive: true });
+  await fs.mkdir(path.join(projectPath, '.cbw'), { recursive: true });
   await fs.mkdir(path.join(changeRoot, 'specs'), { recursive: true });
   await fs.writeFile(path.join(changeRoot, 'proposal.md'), '# proposal\n', 'utf8');
   await fs.writeFile(path.join(changeRoot, 'design.md'), '# design\n', 'utf8');
@@ -196,7 +196,7 @@ test('Go-backed workflow persists run id and maps state.json into the read model
     );
 
     await assert.rejects(
-      () => fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'),
+      () => fs.readFile(path.join(projectPath, '.cbw', 'conf.json'), 'utf8'),
       /ENOENT/,
     );
 
@@ -242,7 +242,7 @@ test('Go-backed workflow prefers runner processes and preserves process metadata
     const importKey = encodeURIComponent(`${tempRoot}-processes`);
     const { getProjectWorkflow } = await import(`../../server/workflows.js?go=${importKey}`);
     await fs.writeFile(
-      path.join(projectPath, '.ccflow', 'conf.json'),
+      path.join(projectPath, '.cbw', 'conf.json'),
       JSON.stringify({
         version: 2,
         workflows: {
@@ -345,7 +345,7 @@ test('Go-backed workflow preserves runner child-session addresses across process
     await fs.mkdir(path.join(resolveWoRunsRoot(projectPath), 'run-abc'), { recursive: true });
     await writeOpenSpecChange(projectPath);
     await fs.writeFile(
-      path.join(projectPath, '.ccflow', 'conf.json'),
+      path.join(projectPath, '.cbw', 'conf.json'),
       JSON.stringify({
         version: 2,
         workflows: {
@@ -444,7 +444,7 @@ test('Go-backed workflow discovers external running wo runs without persisting c
     assert.equal(workflows[0].runnerDiagnostics.rawStatus, 'running');
 
     await assert.rejects(
-      () => fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'),
+      () => fs.readFile(path.join(projectPath, '.cbw', 'conf.json'), 'utf8'),
       /ENOENT/,
     );
   });
@@ -502,7 +502,7 @@ test('Go-backed workflow discovery is idempotent and reuses registered runs', as
     assert.equal(firstRead[0].id, 'external-run-a');
     assert.equal(secondRead[0].id, 'external-run-a');
     await assert.rejects(
-      () => fs.readFile(path.join(projectPath, '.ccflow', 'conf.json'), 'utf8'),
+      () => fs.readFile(path.join(projectPath, '.cbw', 'conf.json'), 'utf8'),
       /ENOENT/,
     );
   });
@@ -525,7 +525,7 @@ test('Go-backed workflow discovery exposes corrupt external runs as diagnostics'
     await fs.mkdir(path.join(resolveWoRunsRoot(projectPath), 'bad-run'), { recursive: true });
     await fs.writeFile(resolveWoRunStatePath(projectPath, 'bad-run'), '{bad json', 'utf8');
     await fs.writeFile(
-      path.join(projectPath, '.ccflow', 'conf.json'),
+      path.join(projectPath, '.cbw', 'conf.json'),
       JSON.stringify({
         version: 2,
         workflows: {
@@ -638,7 +638,7 @@ test('Go-backed workflow maps runner execution, review, repair, and archive stag
     await fs.mkdir(path.join(resolveWoRunsRoot(projectPath), 'run-abc'), { recursive: true });
     await writeOpenSpecChange(projectPath);
     await fs.writeFile(
-      path.join(projectPath, '.ccflow', 'conf.json'),
+      path.join(projectPath, '.cbw', 'conf.json'),
       JSON.stringify({
         version: 2,
         workflows: {

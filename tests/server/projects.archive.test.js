@@ -23,7 +23,7 @@ import {
  */
 async function withTemporaryHome(testBody) {
   const originalHome = process.env.HOME;
-  const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-archive-test-'));
+  const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-archive-test-'));
 
   process.env.HOME = tempHome;
   try {
@@ -43,12 +43,12 @@ async function withTemporaryHome(testBody) {
  * Create a configured manual project entry with a specific source path.
  */
 async function createManualProjectConfig(homeDir, projectPath) {
-  const ccflowDir = path.join(homeDir, '.ccflow');
+  const cbwDir = path.join(homeDir, '.cbw');
   const projectName = projectPath.replace(/[\\/:\s~_]/g, '-');
 
-  await fs.mkdir(ccflowDir, { recursive: true });
+  await fs.mkdir(cbwDir, { recursive: true });
   await fs.writeFile(
-    path.join(ccflowDir, 'conf.json'),
+    path.join(cbwDir, 'conf.json'),
     JSON.stringify({
       [projectName]: {
         manuallyAdded: true,
@@ -174,7 +174,7 @@ test('evaluateProjectArchival archives ENOENT paths and excludes project', async
   const now = new Date('2026-03-05T00:00:00.000Z');
 
   const result = await evaluateProjectArchival({
-    projectPath: '/tmp/ccflow-missing-project',
+    projectPath: '/tmp/cbw-missing-project',
     source: 'manual',
     archiveIndex,
     options: {
@@ -202,7 +202,7 @@ test('evaluateProjectArchival does not archive permission errors', async () => {
   const archiveIndex = createDefaultProjectArchiveIndex();
 
   const result = await evaluateProjectArchival({
-    projectPath: '/tmp/ccflow-permission-denied',
+    projectPath: '/tmp/cbw-permission-denied',
     source: 'claude',
     archiveIndex,
     options: {
@@ -221,7 +221,7 @@ test('evaluateProjectArchival does not archive permission errors', async () => {
 
 test('evaluateProjectArchival clears stale archive when project path exists again', async () => {
   const archiveIndex = createDefaultProjectArchiveIndex();
-  const projectPath = '/tmp/ccflow-restored-project';
+  const projectPath = '/tmp/cbw-restored-project';
 
   archiveIndex.archivedProjects[path.resolve(projectPath)] = {
     normalizedPath: path.resolve(projectPath),

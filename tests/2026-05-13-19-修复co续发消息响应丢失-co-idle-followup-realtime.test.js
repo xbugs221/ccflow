@@ -1,5 +1,5 @@
 /**
- * PURPOSE: 验证 conversation idle 后发送第 2 条消息，ccflow observer 能发现新 turn 并广播事件。
+ * PURPOSE: 验证 conversation idle 后发送第 2 条消息，cbw observer 能发现新 turn 并广播事件。
  * 场景：第 1 轮完成后 conversation 进入 idle，第 2 条消息写入后 co 创建新 turn，observer 必须 attach tail。
  */
 import test from 'node:test';
@@ -41,7 +41,7 @@ async function writeIdleConversation(coHome) {
   await fs.writeFile(path.join(coHome, 'conversations', 'c51', 'state.json'), JSON.stringify({
     contract: 'co-conversation-v1',
     conversation_id: 'c51',
-    project_path: '/tmp/ccflow-project',
+    project_path: '/tmp/cbw-project',
     provider: 'codex',
     provider_session_id: 'provider_c51',
     active_turn_id: '',
@@ -86,7 +86,7 @@ async function simulateCoCreatingNewTurn(coHome) {
   await fs.writeFile(path.join(coHome, 'conversations', 'c51', 'state.json'), JSON.stringify({
     contract: 'co-conversation-v1',
     conversation_id: 'c51',
-    project_path: '/tmp/ccflow-project',
+    project_path: '/tmp/cbw-project',
     provider: 'codex',
     provider_session_id: 'provider_c51',
     active_turn_id: 'turn_2',
@@ -137,7 +137,7 @@ async function stopServer(child) {
 }
 
 test('observer discovers new turn after idle and broadcasts follow-up response', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-idle-followup-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-idle-followup-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -190,12 +190,12 @@ test('observer discovers new turn after idle and broadcasts follow-up response',
       clientRequestId: 'req_2_test',
       command: 'second message',
       sessionId: null,
-      ccflowSessionId: 'c51',
+      cbwSessionId: 'c51',
       options: {
-        projectPath: '/tmp/ccflow-project',
+        projectPath: '/tmp/cbw-project',
         projectName: 'test-project',
         sessionId: null,
-        ccflowSessionId: 'c51',
+        cbwSessionId: 'c51',
         clientRequestId: 'req_2_test',
       },
     }));
@@ -217,8 +217,8 @@ test('observer discovers new turn after idle and broadcasts follow-up response',
     assert.equal(secondTurnEvents.length >= 1, true, 'must broadcast second turn response after idle');
 
     const secondEvent = secondTurnEvents[0];
-    assert.equal(secondEvent.ccflowSessionId, 'c51', 'must include ccflowSessionId');
-    assert.equal(secondEvent.ccflow_session_id, 'c51', 'must include ccflow_session_id');
+    assert.equal(secondEvent.cbwSessionId, 'c51', 'must include cbwSessionId');
+    assert.equal(secondEvent.cbw_session_id, 'c51', 'must include cbw_session_id');
     assert.equal(secondEvent.turnId, 'turn_2', 'must include turnId');
     assert.equal(secondEvent.turn_id, 'turn_2', 'must include turn_id');
 

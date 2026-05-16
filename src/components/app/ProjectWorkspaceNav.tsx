@@ -96,7 +96,7 @@ export default function ProjectWorkspaceNav({
    * affecting the global project sidebar width.
    */
   const { width, resizeHandleProps } = useResizableWidth({
-    storageKey: 'ccflow:project-workspace-nav-width',
+    storageKey: 'cbw:project-workspace-nav-width',
     defaultWidth: 288,
     minWidth: 224,
     maxWidth: 520,

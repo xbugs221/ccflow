@@ -41,13 +41,13 @@ test('YAML command metadata remains supported', async () => {
 });
 
 test('JavaScript frontmatter is not executed', async () => {
-  delete globalThis.__ccflow_frontmatter_executed;
+  delete globalThis.__cbw_frontmatter_executed;
 
   const parsed = await parseFrontmatterFixture(
-    `---js\nglobalThis.__ccflow_frontmatter_executed = true;\nmodule.exports = { description: '不可信' };\n---\n正文仍然应该可见。\n`,
+    `---js\nglobalThis.__cbw_frontmatter_executed = true;\nmodule.exports = { description: '不可信' };\n---\n正文仍然应该可见。\n`,
   );
 
-  assert.equal(globalThis.__ccflow_frontmatter_executed, undefined);
+  assert.equal(globalThis.__cbw_frontmatter_executed, undefined);
   assert.deepEqual(parsed.data, {});
   assert.match(parsed.content, /正文仍然应该可见/);
 });
@@ -121,7 +121,7 @@ test('Binary file download preserves exact bytes', async () => {
     Buffer.from('plain ascii ✓'),
   ]);
 
-  const tempDir = await mkdtemp(join(tmpdir(), 'ccflow-bin-dl-'));
+  const tempDir = await mkdtemp(join(tmpdir(), 'cbw-bin-dl-'));
   const fixturePath = join(tempDir, 'fixture.bin');
   await writeFile(fixturePath, payload);
 

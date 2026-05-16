@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Convert sealed wo runner state files into ccflow ProjectWorkflow
+ * PURPOSE: Convert sealed wo runner state files into cbw ProjectWorkflow
  * read models without reading or writing legacy workflow mirror config.
  */
 import path from 'path';
@@ -206,7 +206,7 @@ function parseProviderSessionKey(key) {
 }
 
 /**
- * Check if a provider is known and can be rendered by ccflow.
+ * Check if a provider is known and can be rendered by cbw.
  */
 function isKnownProvider(provider) {
   return provider === 'codex' || provider === 'opencode' || provider === 'pi';

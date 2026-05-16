@@ -29,7 +29,7 @@ async function withTemporaryHome(testBody) {
     const originalPath = process.env.PATH;
     const originalOpenCodeCliPath = process.env.OPENCODE_CLI_PATH;
     const originalOpenCodeSessions = process.env.CCFLOW_OPENCODE_SESSIONS;
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-project-delete-test-'));
+    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-project-delete-test-'));
     const binDir = path.join(tempHome, 'bin');
 
     await writeFakeOpenCodeCli(binDir);

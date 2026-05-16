@@ -1,6 +1,6 @@
 /**
  * PURPOSE: Serve Codex provider configuration, session history, and MCP
- * management HTTP endpoints for the ccflow web UI.
+ * management HTTP endpoints for the cbw web UI.
  */
 import express from 'express';
 import { spawn } from 'child_process';

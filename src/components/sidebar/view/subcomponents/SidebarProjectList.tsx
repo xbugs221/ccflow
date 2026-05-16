@@ -129,7 +129,7 @@ export default function SidebarProjectList({
   );
 
   useEffect(() => {
-    let baseTitle = 'ccflow';
+    let baseTitle = 'cbw';
     const displayName = selectedProject?.displayName?.trim();
     if (displayName) {
       baseTitle = `${displayName} - ${baseTitle}`;

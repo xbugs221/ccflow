@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 import { authenticatePage } from './spec/helpers/spec-test-helpers.js';
 
 const PROJECT_NAME = 'resume-id-fixture';
-const PROJECT_PATH = '/tmp/ccflow-resume-id-fixture';
+const PROJECT_PATH = '/tmp/cbw-resume-id-fixture';
 const CODEX_RESUME_ID = 'codex-provider-session-123';
 const OPENCODE_RESUME_ID = 'opencode-provider-session-456';
 

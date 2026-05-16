@@ -1,7 +1,7 @@
 /**
- * PURPOSE: Cover ccflow XDG state directory migration for project-local and
+ * PURPOSE: Cover cbw XDG state directory migration for project-local and
  * global config persistence. Verify config writes land in state repo directory,
- * old .ccflow/conf.json migrations preserve session/route metadata, and same-
+ * old .cbw/conf.json migrations preserve session/route metadata, and same-
  * basename projects generate distinct repo-keys.
  */
 import assert from 'node:assert/strict';
@@ -23,7 +23,7 @@ import {
  * Helper: set up a temp XDG_STATE_HOME and return cleanup function.
  */
 async function setupTempStateHome() {
-  const stateHome = await mkdtemp(join(tmpdir(), 'ccflow-xdg-test-'));
+  const stateHome = await mkdtemp(join(tmpdir(), 'cbw-xdg-test-'));
   const originalXdg = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = stateHome;
   return {
@@ -40,21 +40,21 @@ async function setupTempStateHome() {
 }
 
 /**
- * Helper: create old-style .ccflow/conf.json in project directory.
+ * Helper: create old-style .cbw/conf.json in project directory.
  */
 async function createOldProjectConfig(projectPath, config) {
-  const oldDir = join(projectPath, '.ccflow');
+  const oldDir = join(projectPath, '.cbw');
   await mkdir(oldDir, { recursive: true });
   await writeFile(join(oldDir, 'conf.json'), JSON.stringify(config, null, 2), 'utf8');
 }
 
 /**
- * Helper: create old-style ~/.ccflow/conf.json.
+ * Helper: create old-style ~/.cbw/conf.json.
  */
 async function createOldGlobalConfig(stateHome, config) {
   // Old global config lives at the actual home dir, not state home.
-  // For test purposes we mock HOME so old ~/.ccflow points to stateHome/.ccflow.
-  const oldDir = join(stateHome, '.ccflow');
+  // For test purposes we mock HOME so old ~/.cbw points to stateHome/.cbw.
+  const oldDir = join(stateHome, '.cbw');
   await mkdir(oldDir, { recursive: true });
   await writeFile(join(oldDir, 'conf.json'), JSON.stringify(config, null, 2), 'utf8');
 }
@@ -62,16 +62,16 @@ async function createOldGlobalConfig(stateHome, config) {
 // ─── resolveCcflowStateRoot ────────────────────────────────────────────────
 
 describe('resolveCcflowStateRoot', () => {
-  test('returns XDG_STATE_HOME/ccflow when env var is set', () => {
+  test('returns XDG_STATE_HOME/cbw when env var is set', () => {
     const root = resolveCcflowStateRoot({ XDG_STATE_HOME: '/custom/state' });
-    assert.equal(root, join('/custom/state', 'ccflow'));
+    assert.equal(root, join('/custom/state', 'cbw'));
   });
 
-  test('falls back to ~/.local/state/ccflow when XDG_STATE_HOME is unset', () => {
+  test('falls back to ~/.local/state/cbw when XDG_STATE_HOME is unset', () => {
     // When XDG_STATE_HOME is absent, os.homedir() is used as base.
     // Verifying the suffix pattern is sufficient to prove the fallback works.
     const root = resolveCcflowStateRoot({});
-    assert.ok(root.endsWith(join('.local', 'state', 'ccflow')), 'root must end with .local/state/ccflow');
+    assert.ok(root.endsWith(join('.local', 'state', 'cbw')), 'root must end with .local/state/cbw');
   });
 });
 
@@ -133,7 +133,7 @@ describe('writeProjectLocalConfig', () => {
 
   before(async () => {
     env = await setupTempStateHome();
-    projectPath = await mkdtemp(join(tmpdir(), 'ccflow-write-project-'));
+    projectPath = await mkdtemp(join(tmpdir(), 'cbw-write-project-'));
   });
 
   after(async () => {
@@ -141,7 +141,7 @@ describe('writeProjectLocalConfig', () => {
     await env.cleanup();
   });
 
-  test('writes config to state repo directory, not project .ccflow', async () => {
+  test('writes config to state repo directory, not project .cbw', async () => {
     const config = { schemaVersion: 2, sessions: { c1: { route: '/c1' } } };
     await writeProjectLocalConfig(projectPath, config);
 
@@ -152,11 +152,11 @@ describe('writeProjectLocalConfig', () => {
     const parsed = JSON.parse(raw);
     assert.deepEqual(parsed, config);
 
-    // Project .ccflow directory should NOT be created
+    // Project .cbw directory should NOT be created
     await assert.rejects(
-      () => access(join(projectPath, '.ccflow', 'conf.json')),
+      () => access(join(projectPath, '.cbw', 'conf.json')),
       /ENOENT/,
-      'project .ccflow/conf.json must not be created',
+      'project .cbw/conf.json must not be created',
     );
   });
 
@@ -190,8 +190,8 @@ describe('old project config migration', () => {
     await env.cleanup();
   });
 
-  test('reads old .ccflow/conf.json and migrates to state config', async () => {
-    const projectPath = await mkdtemp(join(tmpdir(), 'ccflow-migrate-'));
+  test('reads old .cbw/conf.json and migrates to state config', async () => {
+    const projectPath = await mkdtemp(join(tmpdir(), 'cbw-migrate-'));
     try {
       const oldConfig = {
         sessions: {
@@ -219,7 +219,7 @@ describe('old project config migration', () => {
   });
 
   test('migrated config preserves session route metadata', async () => {
-    const projectPath = await mkdtemp(join(tmpdir(), 'ccflow-migrate-route-'));
+    const projectPath = await mkdtemp(join(tmpdir(), 'cbw-migrate-route-'));
     try {
       const oldConfig = {
         sessions: {
@@ -240,7 +240,7 @@ describe('old project config migration', () => {
   });
 
   test('concurrent first-readers all succeed without temp file collisions', async () => {
-    const projectPath = await mkdtemp(join(tmpdir(), 'ccflow-concurrent-'));
+    const projectPath = await mkdtemp(join(tmpdir(), 'cbw-concurrent-'));
     try {
       const oldConfig = {
         sessions: {
@@ -279,8 +279,8 @@ describe('old project config migration', () => {
     }
   });
 
-  test('prefers new state config over old .ccflow config', async () => {
-    const projectPath = await mkdtemp(join(tmpdir(), 'ccflow-migrate-prefer-'));
+  test('prefers new state config over old .cbw config', async () => {
+    const projectPath = await mkdtemp(join(tmpdir(), 'cbw-migrate-prefer-'));
     try {
       // Create old config
       await createOldProjectConfig(projectPath, { sessions: { c1: { route: '/c1' } } });
@@ -303,7 +303,7 @@ describe('old project config migration', () => {
   });
 
   test('returns empty config when neither old nor new config exists', async () => {
-    const emptyProjectPath = await mkdtemp(join(tmpdir(), 'ccflow-empty-project-'));
+    const emptyProjectPath = await mkdtemp(join(tmpdir(), 'cbw-empty-project-'));
     try {
       const { config, exists } = await readProjectLocalConfigFile(emptyProjectPath);
       assert.equal(exists, false);
@@ -334,7 +334,7 @@ describe('old global config migration', () => {
     await env.cleanup();
   });
 
-  test('reads old ~/.ccflow/conf.json and migrates to state root', async () => {
+  test('reads old ~/.cbw/conf.json and migrates to state root', async () => {
     const oldGlobalConfig = {
       'project-key-1': {
         manuallyAdded: true,
@@ -363,15 +363,15 @@ describe('same basename projects isolation', () => {
   before(async () => {
     env = await setupTempStateHome();
     // Create intermediate directories for mkdtemp prefixes
-    await mkdir(join(tmpdir(), 'ccflow-work1'), { recursive: true });
-    await mkdir(join(tmpdir(), 'ccflow-work2'), { recursive: true });
-    projectPath1 = await mkdtemp(join(tmpdir(), 'ccflow-work1', 'my-repo'));
-    projectPath2 = await mkdtemp(join(tmpdir(), 'ccflow-work2', 'my-repo'));
+    await mkdir(join(tmpdir(), 'cbw-work1'), { recursive: true });
+    await mkdir(join(tmpdir(), 'cbw-work2'), { recursive: true });
+    projectPath1 = await mkdtemp(join(tmpdir(), 'cbw-work1', 'my-repo'));
+    projectPath2 = await mkdtemp(join(tmpdir(), 'cbw-work2', 'my-repo'));
   });
 
   after(async () => {
-    await rm(join(tmpdir(), 'ccflow-work1'), { recursive: true, force: true });
-    await rm(join(tmpdir(), 'ccflow-work2'), { recursive: true, force: true });
+    await rm(join(tmpdir(), 'cbw-work1'), { recursive: true, force: true });
+    await rm(join(tmpdir(), 'cbw-work2'), { recursive: true, force: true });
     await env.cleanup();
   });
 

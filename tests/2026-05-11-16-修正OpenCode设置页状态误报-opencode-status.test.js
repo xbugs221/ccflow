@@ -16,7 +16,7 @@ async function withFakeOpencode(script, callback) {
   /**
    * Run one status request with OPENCODE_CLI_PATH pointed at a fake CLI.
    */
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-opencode-status-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-opencode-status-'));
   const cliPath = path.join(tempDir, 'opencode');
   const originalCliPath = process.env.OPENCODE_CLI_PATH;
   await fs.writeFile(cliPath, script, { mode: 0o755 });
@@ -99,7 +99,7 @@ test('OpenCode text parser keeps full provider name when auth type is absent', (
 
 test('OpenCode status reports missing CLI without connected providers', async () => {
   const originalCliPath = process.env.OPENCODE_CLI_PATH;
-  process.env.OPENCODE_CLI_PATH = path.join(os.tmpdir(), 'ccflow-opencode-missing-cli');
+  process.env.OPENCODE_CLI_PATH = path.join(os.tmpdir(), 'cbw-opencode-missing-cli');
   try {
     const response = await requestStatus();
 

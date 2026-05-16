@@ -123,7 +123,7 @@ test('builds API-backed catalog without appending API-invisible embedded models'
 });
 
 test('discovers Codex models from OpenAI API and local metadata cache', async () => {
-  const tempHome = await mkdtemp(join(tmpdir(), 'ccflow-codex-models-'));
+  const tempHome = await mkdtemp(join(tmpdir(), 'cbw-codex-models-'));
   try {
     const codexDir = join(tempHome, '.codex');
     await mkdir(codexDir);

@@ -1,5 +1,5 @@
 // PURPOSE: Centralize provider-neutral browser settings persistence.
-export const CCFLOW_SETTINGS_KEY = 'ccflow-settings';
+export const CCFLOW_SETTINGS_KEY = 'cbw-settings';
 
 const LEGACY_PROVIDER_SETTINGS_KEY = ['claude', 'settings'].join('-');
 

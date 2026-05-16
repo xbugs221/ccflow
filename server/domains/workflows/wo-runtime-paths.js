@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Resolve wo user-state runtime paths so ccflow reads the same sealed
+ * PURPOSE: Resolve wo user-state runtime paths so cbw reads the same sealed
  * run state files that the external runner publishes for each repository.
  */
 import crypto from 'crypto';

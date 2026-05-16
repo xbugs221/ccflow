@@ -1,11 +1,11 @@
 /**
- * PURPOSE: Provide the single filesystem writer for project-local ccflow config.
+ * PURPOSE: Provide the single filesystem writer for project-local cbw config.
  * Business modules build the next config object; this module owns path resolution,
  * idempotent JSON formatting, directory creation, and disk writes.
  *
  * Config is stored under XDG state directory to avoid polluting source repos:
- *   ${XDG_STATE_HOME:-~/.local/state}/ccflow/conf.json          (global)
- *   ${XDG_STATE_HOME:-~/.local/state}/ccflow/repos/<repo-key>/conf.json (project)
+ *   ${XDG_STATE_HOME:-~/.local/state}/cbw/conf.json          (global)
+ *   ${XDG_STATE_HOME:-~/.local/state}/cbw/repos/<repo-key>/conf.json (project)
  */
 import { promises as fs } from 'fs';
 import crypto from 'crypto';
@@ -32,12 +32,12 @@ function sleep(ms) {
 }
 
 /**
- * Resolve the ccflow state root directory from environment.
- * Uses XDG_STATE_HOME/ccflow when available, falls back to ~/.local/state/ccflow.
+ * Resolve the cbw state root directory from environment.
+ * Uses XDG_STATE_HOME/cbw when available, falls back to ~/.local/state/cbw.
  */
 export function resolveCcflowStateRoot(env = process.env) {
   const base = env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state');
-  return path.join(base, 'ccflow');
+  return path.join(base, 'cbw');
 }
 
 /**
@@ -56,7 +56,7 @@ export function resolveProjectStateKey(projectPath) {
 export function getProjectLocalConfigPath(projectPath = '') {
   /**
    * Resolve the project-local config path, or the global config path when no
-   * project path is supplied. Both now live under the XDG state ccflow root.
+   * project path is supplied. Both now live under the XDG state cbw root.
    */
   const root = resolveCcflowStateRoot();
   return projectPath
@@ -78,8 +78,8 @@ export async function readProjectLocalConfig(projectPath = '') {
  */
 function getLegacyConfigPath(projectPath = '') {
   return projectPath
-    ? path.join(path.resolve(projectPath), '.ccflow', 'conf.json')
-    : path.join(os.homedir(), '.ccflow', 'conf.json');
+    ? path.join(path.resolve(projectPath), '.cbw', 'conf.json')
+    : path.join(os.homedir(), '.cbw', 'conf.json');
 }
 
 /**
@@ -128,7 +128,7 @@ export async function readProjectLocalConfigFile(projectPath = '') {
    *
    * Migration strategy:
    * 1. Try the new XDG state config path first.
-   * 2. If it doesn't exist, try the legacy ~/.ccflow or <project>/.ccflow path.
+   * 2. If it doesn't exist, try the legacy ~/.cbw or <project>/.cbw path.
    * 3. On successful legacy read, migrate the data to the new state path.
    * 4. Return the config regardless of source.
    */

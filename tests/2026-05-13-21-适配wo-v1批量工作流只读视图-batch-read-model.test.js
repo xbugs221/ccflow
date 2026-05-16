@@ -19,7 +19,7 @@ import { resolveWoBatchesRoot, resolveWoRunsRoot } from '../server/domains/workf
 import { getOpencodeSessions } from '../server/projects.js';
 
 async function withTestEnv(callback) {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-batch-test-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-batch-test-'));
   const projectPath = path.join(tempRoot, 'project');
   const homeDir = path.join(tempRoot, 'home');
   const stateHome = path.join(tempRoot, 'state');

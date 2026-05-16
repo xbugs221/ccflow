@@ -13,7 +13,7 @@ import {
 import { resolveWoRunsRoot } from '../server/domains/workflows/wo-runtime-paths.js';
 
 async function withTestEnv(callback) {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-oz-planning-test-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-oz-planning-test-'));
   const projectPath = path.join(tempRoot, 'project');
   const homeDir = path.join(tempRoot, 'home');
   const stateHome = path.join(tempRoot, 'state');

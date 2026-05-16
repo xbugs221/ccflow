@@ -1,7 +1,7 @@
 /**
  * PURPOSE: 验收测试：从已有工作流子会话创建新的工作流时，聊天视图不得串用旧会话消息。
- * Derived from openspec/changes/18-ccflow-bug/specs/project-workflow-control-plane/spec.md
- * and openspec/changes/18-ccflow-bug/specs/project-route-addressing/spec.md.
+ * Derived from openspec/changes/18-cbw-bug/specs/project-workflow-control-plane/spec.md
+ * and openspec/changes/18-cbw-bug/specs/project-route-addressing/spec.md.
  */
 import path from 'node:path';
 import { test, expect } from '@playwright/test';

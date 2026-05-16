@@ -134,7 +134,7 @@
         "cliAvailable": "Pi CLI 已找到：{{path}} (v{{version}})",
         "cliNotAvailable": "服务 PATH 中未找到 Pi CLI。请安装 Pi 或配置显式路径。",
         "authenticatedUnknown": "认证状态未知",
-        "authNotRequired": "Pi 不需要通过 ccflow 进行账号认证。消息通过 co 文件协议发送。"
+        "authNotRequired": "Pi 不需要通过 cbw 进行账号认证。消息通过 co 文件协议发送。"
       }
     },
     "connectionStatus": "连接状态",

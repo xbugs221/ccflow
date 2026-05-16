@@ -9,7 +9,7 @@ import crypto from 'crypto';
 
 import { sanitizeUploadRelativePath } from './project-file-operations.js';
 
-const CHAT_UPLOAD_ROOT = path.join(os.homedir(), 'ccflow-uploads');
+const CHAT_UPLOAD_ROOT = path.join(os.homedir(), 'cbw-uploads');
 
 /**
  * Build a filesystem-safe filename for temporary upload staging.

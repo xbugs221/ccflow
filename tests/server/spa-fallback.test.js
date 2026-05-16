@@ -21,7 +21,7 @@ test('serves workflow route when run id contains timestamp dots', () => {
    * browser navigation must still receive index.html instead of a static 404.
    */
   assert.equal(
-    shouldServeSpaIndex(request('/projects/ccflow/runs/20260508T165749.722778398Z')),
+    shouldServeSpaIndex(request('/projects/cbw/runs/20260508T165749.722778398Z')),
     true,
   );
 });
@@ -39,6 +39,6 @@ test('serves extensionless project routes', () => {
    * Normal project and session routes have no extension and should keep using the
    * SPA shell fallback.
    */
-  assert.equal(shouldServeSpaIndex(request('/projects/ccflow')), true);
-  assert.equal(shouldServeSpaIndex(request('/projects/ccflow/c1')), true);
+  assert.equal(shouldServeSpaIndex(request('/projects/cbw')), true);
+  assert.equal(shouldServeSpaIndex(request('/projects/cbw/c1')), true);
 });

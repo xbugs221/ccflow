@@ -245,7 +245,7 @@ test('files tab create and upload actions work for projects with URL-sensitive n
 
 test('hyphenated projects still load and expand the file tree when the request carries the real project path', async ({ request }) => {
   /** Scenario: A hyphenated project name cannot be safely reconstructed into the original filesystem path */
-  const hyphenProjectPath = path.join(os.tmpdir(), `ccflow-hyphen-project-${Date.now()}`, 'hybrid-agent-control-plane');
+  const hyphenProjectPath = path.join(os.tmpdir(), `cbw-hyphen-project-${Date.now()}`, 'hybrid-agent-control-plane');
   await fs.mkdir(path.join(hyphenProjectPath, 'src'), { recursive: true });
   await fs.writeFile(path.join(hyphenProjectPath, 'src', 'index.js'), 'export const ready = true;\n', 'utf8');
 
@@ -302,7 +302,7 @@ test('folder download returns an archive with the expected nested entries and by
   );
 
   expect(response.ok()).toBeTruthy();
-  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-file-tree-zip-'));
+  const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-file-tree-zip-'));
   const archivePath = path.join(tempDirectory, 'release.zip');
   await fs.writeFile(archivePath, Buffer.from(await response.body()));
   const entries = listZipEntries(archivePath);

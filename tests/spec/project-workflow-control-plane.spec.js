@@ -1,6 +1,6 @@
 /**
  * PURPOSE: 验收测试：项目内需求工作流控制面。
- * Derived from openspec/changes/2028-integrate-hybrid-control-plane-into-ccflow/specs/project-workflow-control-plane/spec.md.
+ * Derived from openspec/changes/2028-integrate-hybrid-control-plane-into-cbw/specs/project-workflow-control-plane/spec.md.
  */
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
@@ -771,7 +771,7 @@ test.describe('项目内需求工作流控制面', () => {
       PLAYWRIGHT_FIXTURE_HOME,
       'workspace',
       'fixture-project',
-      '.ccflow',
+      '.cbw',
       'conf.json',
     );
 

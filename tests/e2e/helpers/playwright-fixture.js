@@ -10,9 +10,9 @@ import { resolveWoRunStatePath } from '../../../server/domains/workflows/wo-runt
 
 const FIXTURE_ROOT = path.join(process.cwd(), '.tmp', 'playwright-home');
 const FIXTURE_STATE_HOME = path.join(process.cwd(), '.tmp', 'playwright-state-home');
-const AUTH_DB_PATH = path.join(FIXTURE_ROOT, '.ccflow', 'auth.db');
+const AUTH_DB_PATH = path.join(FIXTURE_ROOT, '.cbw', 'auth.db');
 const INIT_SQL_PATH = path.join(process.cwd(), 'server', 'database', 'init.sql');
-const PROJECT_CONF_PATH = path.join(FIXTURE_ROOT, 'workspace', 'fixture-project', '.ccflow', 'conf.json');
+const PROJECT_CONF_PATH = path.join(FIXTURE_ROOT, 'workspace', 'fixture-project', '.cbw', 'conf.json');
 
 const FIXTURE_PROJECTS = [
   {
@@ -137,7 +137,7 @@ function writeCodexSessionFixture(projectPath, sessionId, userMessage, messagePa
 }
 
 function writeManualProjectConfigFixture() {
-  const configPath = path.join(FIXTURE_ROOT, '.ccflow', 'conf.json');
+  const configPath = path.join(FIXTURE_ROOT, '.cbw', 'conf.json');
   const config = {};
 
   for (const project of FIXTURE_PROJECTS) {

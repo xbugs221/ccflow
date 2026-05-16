@@ -1,6 +1,6 @@
 /**
  * PURPOSE: 验收测试：需求工作流详情路由与会话流程图预览交互。
- * Derived from openspec/changes/2030-ccflow-ui/specs/project-workflow-control-plane/spec.md.
+ * Derived from openspec/changes/2030-cbw-ui/specs/project-workflow-control-plane/spec.md.
  */
 import { test, expect } from '@playwright/test';
 import {

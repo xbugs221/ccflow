@@ -65,8 +65,8 @@ async function writeFakeCoBinary(binDir, coHome) {
 }
 
 async function setupProjectConfig(projectPath, routeIndex, providerSessionId, provider = 'codex') {
-  const ccflowDir = path.join(projectPath, '.ccflow');
-  await fs.mkdir(ccflowDir, { recursive: true });
+  const cbwDir = path.join(projectPath, '.cbw');
+  await fs.mkdir(cbwDir, { recursive: true });
   const conf = {
     chat: {
       [String(routeIndex)]: {
@@ -76,7 +76,7 @@ async function setupProjectConfig(projectPath, routeIndex, providerSessionId, pr
       },
     },
   };
-  await fs.writeFile(path.join(ccflowDir, 'conf.json'), JSON.stringify(conf, null, 2));
+  await fs.writeFile(path.join(cbwDir, 'conf.json'), JSON.stringify(conf, null, 2));
 }
 
 async function setupCoConversationState(coHome, conversationId, providerSessionId) {
@@ -85,7 +85,7 @@ async function setupCoConversationState(coHome, conversationId, providerSessionI
   await fs.writeFile(path.join(convDir, 'state.json'), JSON.stringify({
     contract: 'co-conversation-v1',
     conversation_id: conversationId,
-    project_path: '/tmp/ccflow-project',
+    project_path: '/tmp/cbw-project',
     provider: 'codex',
     provider_session_id: providerSessionId,
     active_turn_id: '',
@@ -145,7 +145,7 @@ async function registerAndConnect(port) {
 // Test 1: provider session id 反查 project config → cN 成功续发
 // ==========================================================================
 test('browser sends provider session id only, project config maps to cN', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-route-config-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-route-config-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -177,7 +177,7 @@ test('browser sends provider session id only, project config maps to cN', async 
     await waitForHealth(port, child, () => output);
     const { ws, received } = await registerAndConnect(port);
 
-    // 只提供 provider session id，不提供 ccflowSessionId
+    // 只提供 provider session id，不提供 cbwSessionId
     ws.send(JSON.stringify({
       type: 'codex-command',
       clientRequestId: 'req_test_1',
@@ -198,7 +198,7 @@ test('browser sends provider session id only, project config maps to cN', async 
     // 验证 message-accepted 带 c51
     const accepted = received.find((msg) => msg.type === 'message-accepted');
     assert.ok(accepted, 'must receive message-accepted');
-    assert.equal(accepted.ccflowSessionId, 'c51', 'ccflowSessionId must be c51');
+    assert.equal(accepted.cbwSessionId, 'c51', 'cbwSessionId must be c51');
 
     // 验证 pending request 的 conversation_id 是 c51
     const pending = await readFirstPendingRequest(coHome);
@@ -214,7 +214,7 @@ test('browser sends provider session id only, project config maps to cN', async 
 // Test 2: provider session id 反查 co state → cN 成功续发
 // ==========================================================================
 test('browser sends provider session id only, co state maps to cN', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-route-costate-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-route-costate-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -265,7 +265,7 @@ test('browser sends provider session id only, co state maps to cN', async () => 
 
     const accepted = received.find((msg) => msg.type === 'message-accepted');
     assert.ok(accepted, 'must receive message-accepted');
-    assert.equal(accepted.ccflowSessionId, 'c51', 'ccflowSessionId must be c51 from co state');
+    assert.equal(accepted.cbwSessionId, 'c51', 'cbwSessionId must be c51 from co state');
 
     const pending = await readFirstPendingRequest(coHome);
     assert.ok(pending, 'must have a pending request');
@@ -279,7 +279,7 @@ test('browser sends provider session id only, co state maps to cN', async () => 
 // Test 3: 无法反查 route 时拒绝发送且不写 pending request
 // ==========================================================================
 test('unknown provider session id is rejected, no pending request written', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-route-reject-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-route-reject-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -346,7 +346,7 @@ test('unknown provider session id is rejected, no pending request written', asyn
 // Test 4: abort request 使用 cN conversation_id
 // ==========================================================================
 test('abort resolves route from project config when only provider session id given', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-route-abort-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-route-abort-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -412,7 +412,7 @@ test('abort resolves route from project config when only provider session id giv
 // Test 5: OpenCode provider 同样的路由解析逻辑
 // ==========================================================================
 test('opencode uses same route resolution logic as codex', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-route-opencode-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-route-opencode-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -462,7 +462,7 @@ test('opencode uses same route resolution logic as codex', async () => {
 
     const accepted = received.find((msg) => msg.type === 'message-accepted');
     assert.ok(accepted, 'must receive message-accepted for opencode');
-    assert.equal(accepted.ccflowSessionId, 'c99', 'ccflowSessionId must be c99 for opencode');
+    assert.equal(accepted.cbwSessionId, 'c99', 'cbwSessionId must be c99 for opencode');
 
     const pending = await readFirstPendingRequest(coHome);
     assert.ok(pending, 'must have a pending request for opencode');
@@ -474,10 +474,10 @@ test('opencode uses same route resolution logic as codex', async () => {
 });
 
 // ==========================================================================
-// Test 6: 显式 ccflowSessionId 优先于其他 fallback
+// Test 6: 显式 cbwSessionId 优先于其他 fallback
 // ==========================================================================
-test('explicit ccflowSessionId overrides provider session id', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-route-explicit-'));
+test('explicit cbwSessionId overrides provider session id', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-route-explicit-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -485,7 +485,7 @@ test('explicit ccflowSessionId overrides provider session id', async () => {
   await fs.mkdir(binDir, { recursive: true });
   await fs.mkdir(projectPath, { recursive: true });
   await writeFakeCoBinary(binDir, coHome);
-  // 项目配置指向 c51，但显式 ccflowSessionId 应该是 c77
+  // 项目配置指向 c51，但显式 cbwSessionId 应该是 c77
   await setupProjectConfig(projectPath, 51, 'provider_c51');
   await setupCoRequests(coHome);
 
@@ -510,18 +510,18 @@ test('explicit ccflowSessionId overrides provider session id', async () => {
     await waitForHealth(port, child, () => output);
     const { ws } = await registerAndConnect(port);
 
-    // 同时提供 ccflowSessionId=c77 和 sessionId=provider_c51
+    // 同时提供 cbwSessionId=c77 和 sessionId=provider_c51
     ws.send(JSON.stringify({
       type: 'codex-command',
       clientRequestId: 'req_explicit',
       command: 'hello',
       sessionId: 'provider_c51',
-      ccflowSessionId: 'c77',
+      cbwSessionId: 'c77',
       options: {
         projectPath,
         projectName: 'test-project',
         sessionId: 'provider_c51',
-        ccflowSessionId: 'c77',
+        cbwSessionId: 'c77',
         model: 'gpt-5',
       },
     }));
@@ -531,7 +531,7 @@ test('explicit ccflowSessionId overrides provider session id', async () => {
 
     const pending = await readFirstPendingRequest(coHome);
     assert.ok(pending, 'must have a pending request');
-    assert.equal(pending.conversation_id, 'c77', 'explicit ccflowSessionId must take priority');
+    assert.equal(pending.conversation_id, 'c77', 'explicit cbwSessionId must take priority');
   } finally {
     await stopServer(child);
   }

@@ -175,20 +175,20 @@ function normalizeManualProvider(provider) {
 function resolveCcflowSessionStartContext(data = {}, resolvedOptions = {}) {
     const options = data && typeof data.options === 'object' && data.options !== null ? data.options : {};
     const explicitCcflowSessionId = pickString(
-        data.ccflowSessionId,
-        data.ccflow_session_id,
-        options.ccflowSessionId,
-        options.ccflow_session_id,
+        data.cbwSessionId,
+        data.cbw_session_id,
+        options.cbwSessionId,
+        options.cbw_session_id,
     );
     const fallbackRouteSessionId = isCcflowRouteSessionId(resolvedOptions?.sessionId)
         ? resolvedOptions.sessionId
         : '';
-    const ccflowSessionId = isCcflowRouteSessionId(explicitCcflowSessionId)
+    const cbwSessionId = isCcflowRouteSessionId(explicitCcflowSessionId)
         ? explicitCcflowSessionId
         : fallbackRouteSessionId;
 
     return {
-        ccflowSessionId,
+        cbwSessionId,
         startRequestId: pickString(
             data.startRequestId,
             data.start_request_id,
@@ -205,22 +205,22 @@ function resolveCcflowSessionStartContext(data = {}, resolvedOptions = {}) {
  * Resolve the stable co conversation_id for a chat or abort request.
  *
  * Priority:
- * 1. Explicit ccflowSessionId (cN)
+ * 1. Explicit cbwSessionId (cN)
  * 2. current sessionId if it is already cN
  * 3. Project chat config lookup by provider session id → routeIndex → cN
  * 4. Co conversation state scan by provider_session_id
  * 5. Not found → error (caller must not write pending request)
  */
 async function resolveCoConversationId({
-    ccflowSessionId,
+    cbwSessionId,
     sessionId,
     projectName = '',
     projectPath = '',
     provider = 'codex',
 }) {
-    // 1. Explicit ccflowSessionId already resolved as cN
-    if (ccflowSessionId && isCcflowRouteSessionId(ccflowSessionId)) {
-        return { conversationId: ccflowSessionId, source: 'explicit' };
+    // 1. Explicit cbwSessionId already resolved as cN
+    if (cbwSessionId && isCcflowRouteSessionId(cbwSessionId)) {
+        return { conversationId: cbwSessionId, source: 'explicit' };
     }
 
     // 2. Current sessionId is already a cN route
@@ -264,12 +264,12 @@ async function resolveCoConversationId({
  */
 function sendMessageAccepted(writer, {
     sessionId,
-    ccflowSessionId,
+    cbwSessionId,
     provider,
     clientRequestId,
     startRequestId,
 }) {
-    const acceptedSessionId = sessionId || ccflowSessionId || null;
+    const acceptedSessionId = sessionId || cbwSessionId || null;
     if (!acceptedSessionId) {
         return;
     }
@@ -277,7 +277,7 @@ function sendMessageAccepted(writer, {
     writer.send({
         type: 'message-accepted',
         sessionId: acceptedSessionId,
-        ccflowSessionId: ccflowSessionId || null,
+        cbwSessionId: cbwSessionId || null,
         provider,
         clientRequestId,
         startRequestId,
@@ -482,7 +482,7 @@ function broadcastChatEvent(payload, sourceUserId = null) {
 }
 
 /**
- * Attach a co event stream to WebSocket clients and ccflow draft finalization.
+ * Attach a co event stream to WebSocket clients and cbw draft finalization.
  */
 function attachCoTurnTail(turnId, state, sourceUserId = null) {
     const turnKey = turnId || state.active_turn_id;
@@ -496,7 +496,7 @@ function attachCoTurnTail(turnId, state, sourceUserId = null) {
         status: state.status || 'running',
         startedAt: state.started_at || state.updated_at || new Date().toISOString(),
         projectPath: state.project_path || '',
-        ccflowSessionId: state.conversation_id || null,
+        cbwSessionId: state.conversation_id || null,
         providerSessionId: state.provider_session_id || null,
         sourceUserId,
     });
@@ -524,7 +524,7 @@ function attachCoTurnTail(turnId, state, sourceUserId = null) {
             }
         }
         const indexedPayload = buildCoRoutedEventPayload(normalizedPayload, {
-            ccflowSessionId: state.conversation_id,
+            cbwSessionId: state.conversation_id,
             turnId: turnKey,
         });
         if (state.conversation_id && normalizedPayload?.type === 'session-created' && normalizedPayload?.sessionId) {
@@ -532,7 +532,7 @@ function attachCoTurnTail(turnId, state, sourceUserId = null) {
                 projectName: '',
                 projectPath: state.project_path || '',
                 provider: normalizedPayload.provider || state.provider,
-                ccflowSessionId: state.conversation_id,
+                cbwSessionId: state.conversation_id,
                 startRequestId: '',
                 providerSessionId: normalizedPayload.sessionId,
             }).catch((error) => {
@@ -573,14 +573,14 @@ function normalizeCoEventPayload(payload) {
 }
 
 /**
- * Add stable ccflow route and turn identity to one co event before broadcasting.
+ * Add stable cbw route and turn identity to one co event before broadcasting.
  */
-function buildCoRoutedEventPayload(payload, { ccflowSessionId = '', turnId = '' } = {}) {
-    return ccflowSessionId
+function buildCoRoutedEventPayload(payload, { cbwSessionId = '', turnId = '' } = {}) {
+    return cbwSessionId
         ? {
             ...payload,
-            ccflowSessionId,
-            ccflow_session_id: ccflowSessionId,
+            cbwSessionId,
+            cbw_session_id: cbwSessionId,
             turnId: payload?.turnId || turnId,
             turn_id: payload?.turn_id || turnId,
         }
@@ -624,7 +624,7 @@ async function replayCoTurnEvents(ws, sourceUserId = null) {
             try {
                 const payload = normalizeCoEventPayload(JSON.parse(line));
                 const indexedPayload = buildCoRoutedEventPayload(payload, {
-                    ccflowSessionId: turn.ccflowSessionId,
+                    cbwSessionId: turn.cbwSessionId,
                     turnId: turn.turnId,
                 });
                 ws.send(JSON.stringify(indexedPayload));
@@ -665,7 +665,7 @@ async function replayCoConversationEvents(ws, conversation) {
             try {
                 const payload = normalizeCoEventPayload(JSON.parse(line));
                 ws.send(JSON.stringify(buildCoRoutedEventPayload(payload, {
-                    ccflowSessionId: conversation.conversation_id,
+                    cbwSessionId: conversation.conversation_id,
                     turnId,
                 })));
             } catch (error) {
@@ -933,8 +933,8 @@ function observeCoConversationTurns(conversationId, writer, provider, sourceUser
                         isProcessing: true,
                         turnId: activeTurnId,
                         turn_id: activeTurnId,
-                        ccflowSessionId: conversationId,
-                        ccflow_session_id: conversationId,
+                        cbwSessionId: conversationId,
+                        cbw_session_id: conversationId,
                     };
                     for (const targetWriter of observer.writers) {
                         targetWriter.send(status);
@@ -1450,7 +1450,7 @@ app.post('/api/system/update', authenticateToken, async (req, res) => {
         // Run the update command based on install mode
         const updateCommand = installMode === 'git'
             ? 'git checkout main && git pull && pnpm install'
-            : 'npm install -g ccflow@latest';
+            : 'npm install -g cbw@latest';
 
         const child = spawn('sh', ['-c', updateCommand], {
             cwd: installMode === 'git' ? projectRoot : os.homedir(),
@@ -2523,14 +2523,14 @@ class WebSocketWriter {
 
     setSessionIndexContext(context) {
         /**
-         * Attach the ccflow route id used to mirror provider events into the index.
+         * Attach the cbw route id used to mirror provider events into the index.
          */
         this.sessionIndexContext = context;
     }
 
     getSessionIndexContext() {
         /**
-         * Return the active ccflow index context for fire-and-forget event writes.
+         * Return the active cbw index context for fire-and-forget event writes.
          */
         return this.sessionIndexContext;
     }
@@ -2540,24 +2540,24 @@ async function finalizeCcflowRouteSession({
     projectName,
     projectPath,
     provider,
-    ccflowSessionId,
+    cbwSessionId,
     startRequestId,
     providerSessionId,
 }) {
     /**
      * Promote a route-only manual session (cN) to the provider session id.
      */
-    if (!ccflowSessionId || !providerSessionId) {
+    if (!cbwSessionId || !providerSessionId) {
         return;
     }
-    if (providerSessionId === ccflowSessionId) {
+    if (providerSessionId === cbwSessionId) {
         return false;
     }
 
     await bindManualSessionDraftProviderSession(
         projectName || '',
         projectPath || '',
-        ccflowSessionId,
+        cbwSessionId,
         providerSessionId,
         startRequestId,
     );
@@ -2566,7 +2566,7 @@ async function finalizeCcflowRouteSession({
     try {
         finalized = await finalizeManualSessionDraft(
             projectName || '',
-            ccflowSessionId,
+            cbwSessionId,
             providerSessionId,
             provider,
             projectPath || '',
@@ -2589,33 +2589,33 @@ function handleChatConnection(ws, request) {
     const sendToChatClients = (payload) => {
         const sourceUserId = chatClientUsers.get(ws) || null;
         const indexContext = writer.getSessionIndexContext();
-        const indexedPayload = indexContext?.ccflowSessionId
+        const indexedPayload = indexContext?.cbwSessionId
             ? {
                 ...payload,
-                ccflowSessionId: indexContext.ccflowSessionId,
-                ccflow_session_id: indexContext.ccflowSessionId,
+                cbwSessionId: indexContext.cbwSessionId,
+                cbw_session_id: indexContext.cbwSessionId,
             }
             : payload;
-        if (indexContext?.ccflowSessionId && payload?.type === 'session-created' && payload?.sessionId) {
+        if (indexContext?.cbwSessionId && payload?.type === 'session-created' && payload?.sessionId) {
             void (async () => {
                 await bindManualSessionDraftProviderSession(
                     indexContext.projectName || '',
                     indexContext.projectPath || '',
-                    indexContext.ccflowSessionId,
+                    indexContext.cbwSessionId,
                     payload.sessionId,
                     indexContext.startRequestId || '',
                 );
                 const runtime = await getManualSessionDraftRuntime(
                     indexContext.projectName || '',
                     indexContext.projectPath || '',
-                    indexContext.ccflowSessionId,
+                    indexContext.cbwSessionId,
                 );
                 const runtimeProvider = runtime?.provider || payload.provider || indexContext.provider || 'codex';
                 await finalizeCcflowRouteSession({
                     projectName: indexContext.projectName || '',
                     projectPath: indexContext.projectPath || '',
                     provider: runtimeProvider,
-                    ccflowSessionId: indexContext.ccflowSessionId,
+                    cbwSessionId: indexContext.cbwSessionId,
                     startRequestId: indexContext.startRequestId || '',
                     providerSessionId: payload.sessionId,
                 });
@@ -2645,11 +2645,11 @@ function handleChatConnection(ws, request) {
                 }
                 const resolvedOptions = await resolveChatProjectOptions(data.options, extractProjectDirectory);
                 const {
-                    ccflowSessionId,
+                    cbwSessionId,
                     startRequestId,
                     clientRef,
                 } = resolveCcflowSessionStartContext(data, resolvedOptions);
-                const shouldStartCcflowDraft = ccflowSessionId && (
+                const shouldStartCcflowDraft = cbwSessionId && (
                     (!resolvedOptions?.sessionId || isCcflowRouteSessionId(resolvedOptions.sessionId))
                     && (!data.sessionId || isCcflowRouteSessionId(data.sessionId))
                 );
@@ -2657,30 +2657,30 @@ function handleChatConnection(ws, request) {
                     ? { ...resolvedOptions, sessionId: undefined, resume: false }
                     : resolvedOptions;
                 await ensureCoAvailable('codex');
-                writer.setSessionIndexContext(ccflowSessionId ? {
+                writer.setSessionIndexContext(cbwSessionId ? {
                     projectName: codexProviderOptions?.projectName || data.options?.projectName || '',
                     projectPath: codexProviderOptions?.projectPath || codexProviderOptions?.cwd || '',
                     provider: 'codex',
-                    ccflowSessionId,
+                    cbwSessionId,
                     startRequestId,
                 } : null);
                 if (shouldStartCcflowDraft) {
                     const startResult = await startManualSessionDraft(
                         codexProviderOptions?.projectName || data.options?.projectName || '',
                         codexProviderOptions?.projectPath || codexProviderOptions?.cwd || '',
-                        ccflowSessionId,
+                        cbwSessionId,
                         'codex',
                         startRequestId,
                     );
                     const existingConversation = !startResult.started && startResult.reason === 'missing-draft'
-                        ? await readCoConversationState(ccflowSessionId).catch(() => null)
+                        ? await readCoConversationState(cbwSessionId).catch(() => null)
                         : null;
                     const canContinueExistingConversation = startResult.reason === 'already-started' || Boolean(existingConversation?.conversation_id);
                     if (!startResult.started && !canContinueExistingConversation) {
                         writer.send({
                             type: 'session-start-rejected',
-                            sessionId: ccflowSessionId,
-                            ccflowSessionId,
+                            sessionId: cbwSessionId,
+                            cbwSessionId,
                             provider: 'codex',
                             reason: startResult.reason,
                             startRequestId: startResult.startRequestId,
@@ -2703,7 +2703,7 @@ function handleChatConnection(ws, request) {
                 };
                 const sessionIdForRoute = codexOptions?.sessionId || data.sessionId;
                 const resolvedRoute = await resolveCoConversationId({
-                    ccflowSessionId,
+                    cbwSessionId,
                     sessionId: sessionIdForRoute,
                     projectName: codexProviderOptions?.projectName || data.options?.projectName || '',
                     projectPath: codexOptions?.projectPath || codexOptions?.cwd || '',
@@ -2746,7 +2746,7 @@ function handleChatConnection(ws, request) {
                 await writeCoRequest(coRequest);
                 sendMessageAccepted(writer, {
                     sessionId: resolvedRoute.conversationId || codexProviderOptions?.sessionId || data.sessionId,
-                    ccflowSessionId: resolvedRoute.conversationId,
+                    cbwSessionId: resolvedRoute.conversationId,
                     provider: 'codex',
                     clientRequestId: startRequestId,
                     startRequestId,
@@ -2772,11 +2772,11 @@ function handleChatConnection(ws, request) {
                 }
                 const resolvedOptions = await resolveChatProjectOptions(data.options, extractProjectDirectory);
                 const {
-                    ccflowSessionId,
+                    cbwSessionId,
                     startRequestId,
                     clientRef,
                 } = resolveCcflowSessionStartContext(data, resolvedOptions);
-                const shouldStartCcflowDraft = ccflowSessionId && (
+                const shouldStartCcflowDraft = cbwSessionId && (
                     (!resolvedOptions?.sessionId || isCcflowRouteSessionId(resolvedOptions.sessionId))
                     && (!data.sessionId || isCcflowRouteSessionId(data.sessionId))
                 );
@@ -2784,30 +2784,30 @@ function handleChatConnection(ws, request) {
                     ? { ...resolvedOptions, sessionId: undefined, resume: false }
                     : resolvedOptions;
                 await ensureCoAvailable('opencode');
-                writer.setSessionIndexContext(ccflowSessionId ? {
+                writer.setSessionIndexContext(cbwSessionId ? {
                     projectName: opencodeProviderOptions?.projectName || data.options?.projectName || '',
                     projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
                     provider: 'opencode',
-                    ccflowSessionId,
+                    cbwSessionId,
                     startRequestId,
                 } : null);
                 if (shouldStartCcflowDraft) {
                     const startResult = await startManualSessionDraft(
                         opencodeProviderOptions?.projectName || data.options?.projectName || '',
                         opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
-                        ccflowSessionId,
+                        cbwSessionId,
                         'opencode',
                         startRequestId,
                     );
                     const existingConversation = !startResult.started && startResult.reason === 'missing-draft'
-                        ? await readCoConversationState(ccflowSessionId).catch(() => null)
+                        ? await readCoConversationState(cbwSessionId).catch(() => null)
                         : null;
                     const canContinueExistingConversation = startResult.reason === 'already-started' || Boolean(existingConversation?.conversation_id);
                     if (!startResult.started && !canContinueExistingConversation) {
                         writer.send({
                             type: 'session-start-rejected',
-                            sessionId: ccflowSessionId,
-                            ccflowSessionId,
+                            sessionId: cbwSessionId,
+                            cbwSessionId,
                             provider: 'opencode',
                             reason: startResult.reason,
                             startRequestId: startResult.startRequestId,
@@ -2819,7 +2819,7 @@ function handleChatConnection(ws, request) {
                 console.log('📁 Project:', opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || 'Unknown');
                 const sessionIdForRoute = opencodeProviderOptions?.sessionId || data.sessionId;
                 const resolvedRoute = await resolveCoConversationId({
-                    ccflowSessionId,
+                    cbwSessionId,
                     sessionId: sessionIdForRoute,
                     projectName: opencodeProviderOptions?.projectName || data.options?.projectName || '',
                     projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
@@ -2861,7 +2861,7 @@ function handleChatConnection(ws, request) {
                 await writeCoRequest(coRequest);
                 sendMessageAccepted(writer, {
                     sessionId: resolvedRoute.conversationId || opencodeProviderOptions?.sessionId || data.sessionId,
-                    ccflowSessionId: resolvedRoute.conversationId,
+                    cbwSessionId: resolvedRoute.conversationId,
                     provider: 'opencode',
                     clientRequestId: startRequestId,
                     startRequestId,
@@ -2887,11 +2887,11 @@ function handleChatConnection(ws, request) {
                 }
                 const resolvedOptions = await resolveChatProjectOptions(data.options, extractProjectDirectory);
                 const {
-                    ccflowSessionId,
+                    cbwSessionId,
                     startRequestId,
                     clientRef,
                 } = resolveCcflowSessionStartContext(data, resolvedOptions);
-                const shouldStartCcflowDraft = ccflowSessionId && (
+                const shouldStartCcflowDraft = cbwSessionId && (
                     (!resolvedOptions?.sessionId || isCcflowRouteSessionId(resolvedOptions.sessionId))
                     && (!data.sessionId || isCcflowRouteSessionId(data.sessionId))
                 );
@@ -2899,30 +2899,30 @@ function handleChatConnection(ws, request) {
                     ? { ...resolvedOptions, sessionId: undefined, resume: false }
                     : resolvedOptions;
                 await ensureCoAvailable('pi');
-                writer.setSessionIndexContext(ccflowSessionId ? {
+                writer.setSessionIndexContext(cbwSessionId ? {
                     projectName: piProviderOptions?.projectName || data.options?.projectName || '',
                     projectPath: piProviderOptions?.projectPath || piProviderOptions?.cwd || '',
                     provider: 'pi',
-                    ccflowSessionId,
+                    cbwSessionId,
                     startRequestId,
                 } : null);
                 if (shouldStartCcflowDraft) {
                     const startResult = await startManualSessionDraft(
                         piProviderOptions?.projectName || data.options?.projectName || '',
                         piProviderOptions?.projectPath || piProviderOptions?.cwd || '',
-                        ccflowSessionId,
+                        cbwSessionId,
                         'pi',
                         startRequestId,
                     );
                     const existingConversation = !startResult.started && startResult.reason === 'missing-draft'
-                        ? await readCoConversationState(ccflowSessionId).catch(() => null)
+                        ? await readCoConversationState(cbwSessionId).catch(() => null)
                         : null;
                     const canContinueExistingConversation = startResult.reason === 'already-started' || Boolean(existingConversation?.conversation_id);
                     if (!startResult.started && !canContinueExistingConversation) {
                         writer.send({
                             type: 'session-start-rejected',
-                            sessionId: ccflowSessionId,
-                            ccflowSessionId,
+                            sessionId: cbwSessionId,
+                            cbwSessionId,
                             provider: 'pi',
                             reason: startResult.reason,
                             startRequestId: startResult.startRequestId,
@@ -2934,7 +2934,7 @@ function handleChatConnection(ws, request) {
                 console.log('📁 Project:', piProviderOptions?.projectPath || piProviderOptions?.cwd || 'Unknown');
                 const sessionIdForRoute = piProviderOptions?.sessionId || data.sessionId;
                 const resolvedRoute = await resolveCoConversationId({
-                    ccflowSessionId,
+                    cbwSessionId,
                     sessionId: sessionIdForRoute,
                     projectName: piProviderOptions?.projectName || data.options?.projectName || '',
                     projectPath: piProviderOptions?.projectPath || piProviderOptions?.cwd || '',
@@ -2974,7 +2974,7 @@ function handleChatConnection(ws, request) {
                 await writeCoRequest(coRequest);
                 sendMessageAccepted(writer, {
                     sessionId: resolvedRoute.conversationId || piProviderOptions?.sessionId || data.sessionId,
-                    ccflowSessionId: resolvedRoute.conversationId,
+                    cbwSessionId: resolvedRoute.conversationId,
                     provider: 'pi',
                     clientRequestId: startRequestId,
                     startRequestId,
@@ -2996,26 +2996,26 @@ function handleChatConnection(ws, request) {
             } else if (data.type === 'abort-session') {
                 console.log('[DEBUG] Abort session request:', data.sessionId);
                 const provider = normalizeManualProvider(data.provider || 'codex');
-                const ccflowSessionId = isCcflowRouteSessionId(data.ccflowSessionId || data.sessionId)
-                    ? (data.ccflowSessionId || data.sessionId)
+                const cbwSessionId = isCcflowRouteSessionId(data.cbwSessionId || data.sessionId)
+                    ? (data.cbwSessionId || data.sessionId)
                     : null;
                 let success = false;
 
-                if (ccflowSessionId) {
+                if (cbwSessionId) {
                     await markManualSessionDraftCancelRequested(
                         data.projectName || '',
                         data.projectPath || '',
-                        ccflowSessionId,
+                        cbwSessionId,
                         data.startRequestId || '',
                     );
                 }
                 await ensureCoAvailable(provider);
                 const resolvedOptions = await resolveChatProjectOptions(data.options, extractProjectDirectory).catch(() => ({}));
                 const sessionIdForRoute = data.sessionId;
-                const routeResult = ccflowSessionId
-                    ? { conversationId: ccflowSessionId }
+                const routeResult = cbwSessionId
+                    ? { conversationId: cbwSessionId }
                     : await resolveCoConversationId({
-                        ccflowSessionId: null,
+                        cbwSessionId: null,
                         sessionId: data.conversationId || data.conversation_id || sessionIdForRoute,
                         projectName: data.projectName || resolvedOptions?.projectName || '',
                         projectPath: data.projectPath || resolvedOptions?.projectPath || resolvedOptions?.cwd || '',
@@ -3027,7 +3027,7 @@ function handleChatConnection(ws, request) {
                     writer.send({
                         type: 'session-aborted',
                         sessionId: sessionIdForRoute,
-                        ccflowSessionId,
+                        cbwSessionId,
                         provider,
                         success: false,
                         error: routeResult.error || 'Cannot determine co conversation route for abort',
@@ -3039,7 +3039,7 @@ function handleChatConnection(ws, request) {
                         type: 'session-aborted',
                         sessionId: sessionIdForRoute,
                         actualSessionId: conversationId,
-                        ccflowSessionId,
+                        cbwSessionId,
                         provider,
                         success: false,
                         error: 'target_turn_id is required for abort',
@@ -3066,7 +3066,7 @@ function handleChatConnection(ws, request) {
                     type: 'session-aborted',
                     sessionId: data.sessionId,
                     actualSessionId: conversationId,
-                    ccflowSessionId,
+                    cbwSessionId,
                     provider,
                     success
                 });
@@ -3075,15 +3075,15 @@ function handleChatConnection(ws, request) {
             } else if (data.type === 'check-session-status') {
                 // Check if a specific session is currently processing
                 const provider = normalizeManualProvider(data.provider || 'codex');
-                const sessionId = data.ccflowSessionId || data.ccflow_session_id || data.sessionId;
+                const sessionId = data.cbwSessionId || data.cbw_session_id || data.sessionId;
                 const conversation = await recoverCoConversation(sessionId, request?.user?.id || null);
                 const isActive = conversation?.status === 'running' || Boolean(conversation?.active_turn_id);
 
                 writer.send({
                     type: 'session-status',
                     sessionId,
-                    ccflowSessionId: conversation?.conversation_id || sessionId,
-                    ccflow_session_id: conversation?.conversation_id || sessionId,
+                    cbwSessionId: conversation?.conversation_id || sessionId,
+                    cbw_session_id: conversation?.conversation_id || sessionId,
                     provider,
                     isProcessing: isActive,
                     turnId: conversation?.active_turn_id || '',
@@ -3094,12 +3094,12 @@ function handleChatConnection(ws, request) {
                 const activeTurns = [...coActiveTurns.values()]
                     .filter((turn) => turn.status === 'running')
                     .map((turn) => ({
-                        id: turn.providerSessionId || turn.ccflowSessionId || turn.turnId,
+                        id: turn.providerSessionId || turn.cbwSessionId || turn.turnId,
                         turnId: turn.turnId,
                         status: turn.status,
                         startedAt: turn.startedAt,
                         projectPath: turn.projectPath,
-                        ccflowSessionId: turn.ccflowSessionId,
+                        cbwSessionId: turn.cbwSessionId,
                     }));
                 const activeSessions = {
                     codex: activeTurns.filter((turn) => turn.provider === 'codex'),
@@ -3651,7 +3651,7 @@ app.post('/api/projects/:projectName/upload-attachments', authenticateToken, asy
 
         /**
          * PURPOSE: Stage raw browser uploads in a temporary directory before we
-         * move them into the final per-message batch tree under ~/ccflow-uploads.
+         * move them into the final per-message batch tree under ~/cbw-uploads.
          */
         const storage = multer.diskStorage({
             destination: async (_request, _file, cb) => {
@@ -4020,12 +4020,12 @@ async function startServer() {
 
             console.log('');
             console.log(c.dim('═'.repeat(63)));
-            console.log(`  ${c.bright('ccflow Server - Ready')}`);
+            console.log(`  ${c.bright('cbw Server - Ready')}`);
             console.log(c.dim('═'.repeat(63)));
             console.log('');
             console.log(`${c.info('[INFO]')} Server URL:  ${c.bright('http://' + DISPLAY_HOST + ':' + PORT)}`);
             console.log(`${c.info('[INFO]')} Installed at: ${c.dim(appInstallPath)}`);
-            console.log(`${c.tip('[TIP]')}  Run "ccflow status" for full configuration details`);
+            console.log(`${c.tip('[TIP]')}  Run "cbw status" for full configuration details`);
             console.log('');
 
             try {

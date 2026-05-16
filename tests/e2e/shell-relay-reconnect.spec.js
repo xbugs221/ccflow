@@ -5,7 +5,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
 
-process.env.DATABASE_PATH = path.join(process.env.HOME || '', '.ccflow', 'auth.db');
+process.env.DATABASE_PATH = path.join(process.env.HOME || '', '.cbw', 'auth.db');
 
 const [{ generateToken }, { userDb }] = await Promise.all([
   import('../../server/middleware/auth.js'),

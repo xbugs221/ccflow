@@ -140,7 +140,7 @@ const findWorkflowById = (
 
 /**
  * PURPOSE: Resolve the refreshed session that should replace one selected session.
- * Manual drafts keep their ccflow route id, so refreshed data is reconciled by
+ * Manual drafts keep their cbw route id, so refreshed data is reconciled by
  * exact id first and stable route index second within the same provider bucket.
  */
 const findRefreshedSelectedSession = (

@@ -145,7 +145,7 @@ async function readPendingRequests(coHome) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('pi-command writes co-request-v1 with provider=pi through real WebSocket', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-pi-send-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-pi-send-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -180,8 +180,8 @@ test('pi-command writes co-request-v1 with provider=pi through real WebSocket', 
       clientRequestId: `pi_send_${Date.now()}`,
       command: 'hello pi from test',
       sessionId: 'c100',
-      ccflowSessionId: 'c100',
-      ccflow_session_id: 'c100',
+      cbwSessionId: 'c100',
+      cbw_session_id: 'c100',
       options: {
         cwd: tempRoot,
         projectPath: tempRoot,
@@ -221,7 +221,7 @@ test('pi-command writes co-request-v1 with provider=pi through real WebSocket', 
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('abort-session with provider=pi writes abort co-request-v1 with target_turn_id', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-pi-abort-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-pi-abort-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -253,7 +253,7 @@ test('abort-session with provider=pi writes abort co-request-v1 with target_turn
     ws.send(JSON.stringify({
       type: 'abort-session',
       sessionId: 'c101',
-      ccflowSessionId: 'c101',
+      cbwSessionId: 'c101',
       provider: 'pi',
       targetTurnId: 'turn_abort_target',
       projectName: 'pi-test-project',
@@ -284,7 +284,7 @@ test('abort-session with provider=pi writes abort co-request-v1 with target_turn
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('providers.pi=false gate rejects pi-command without writing pending request or creating draft', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-pi-gate-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-pi-gate-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -308,7 +308,7 @@ test('providers.pi=false gate rejects pi-command without writing pending request
       clientRequestId: `pi_gate_${Date.now()}`,
       command: 'this should be blocked',
       sessionId: 'c200',
-      ccflowSessionId: 'c200',
+      cbwSessionId: 'c200',
       options: {
         cwd: tempRoot,
         projectPath: tempRoot,
@@ -339,7 +339,7 @@ test('providers.pi=false gate rejects pi-command without writing pending request
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('check-session-status with provider=pi recovers co conversation with correct provider', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-pi-status-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-pi-status-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -371,7 +371,7 @@ test('check-session-status with provider=pi recovers co conversation with correc
     ws.send(JSON.stringify({
       type: 'check-session-status',
       sessionId: 'c300',
-      ccflowSessionId: 'c300',
+      cbwSessionId: 'c300',
       provider: 'pi',
     }));
 
@@ -395,7 +395,7 @@ test('check-session-status with provider=pi recovers co conversation with correc
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('get-active-sessions includes pi when Pi turns are running', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-pi-active-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-pi-active-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');

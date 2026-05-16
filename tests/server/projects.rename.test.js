@@ -26,7 +26,7 @@ let homeIsolationQueue = Promise.resolve();
 async function withTemporaryHome(testBody) {
   const run = async () => {
     const originalHome = process.env.HOME;
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-rename-test-'));
+    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-rename-test-'));
 
     process.env.HOME = tempHome;
     clearProjectDirectoryCache();

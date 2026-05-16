@@ -21,7 +21,7 @@ export async function withIsolatedProject(testBody) {
     const originalHome = process.env.HOME;
     const originalPath = process.env.PATH;
     const originalXdgStateHome = process.env.XDG_STATE_HOME;
-    const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-conf-v2-'));
+    const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-conf-v2-'));
     const binDir = path.join(homeDir, 'bin');
     const projectPath = path.join(homeDir, 'workspace', 'project');
 
@@ -136,7 +136,7 @@ export async function writeActiveOpenSpecChange(projectPath, changeName = 'conf-
 }
 
 /**
- * Read the project-local ccflow config JSON from the XDG state directory.
+ * Read the project-local cbw config JSON from the XDG state directory.
  * @param {string} projectPath - Project root path.
  * @returns {Promise<object>} Parsed config.
  */

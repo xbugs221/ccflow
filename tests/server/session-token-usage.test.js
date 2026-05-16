@@ -19,7 +19,7 @@ import {
  */
 async function withTemporaryHome(testBody) {
   const originalHome = process.env.HOME;
-  const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-session-token-usage-'));
+  const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-session-token-usage-'));
 
   process.env.HOME = tempHome;
   try {

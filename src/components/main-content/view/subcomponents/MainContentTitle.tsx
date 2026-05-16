@@ -40,7 +40,7 @@ function getSessionTitle(session: ProjectSession): string {
 
 function isTemporaryOrRouteSessionId(sessionId: string): boolean {
   /**
-   * Reject ccflow-only session identifiers that cannot be passed to provider resume commands.
+   * Reject cbw-only session identifiers that cannot be passed to provider resume commands.
    */
   return /^(c\d+|new-session-)/.test(sessionId);
 }

@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Verify ccflow startup diagnostics depend only on the external Go
+ * PURPOSE: Verify cbw startup diagnostics depend only on the external Go
  * CLI JSON/version contract visible through PATH.
  */
 import test from 'node:test';
@@ -29,8 +29,8 @@ async function writeFakeCommand(binDir, name, body) {
 test('runtime diagnostics report fake oz, wo and co from PATH', async () => {
   const previousPath = process.env.PATH;
   const previousCoHome = process.env.CCFLOW_CO_HOME;
-  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-runtime-bin-'));
-  const coHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-runtime-co-home-'));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-runtime-bin-'));
+  const coHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-runtime-co-home-'));
   await writeFakeCommand(binDir, 'oz', '#!/bin/sh\nif [ "$1" = "--version" ]; then echo oz-test; exit 0; fi\necho "{}"\n');
   await writeFakeCommand(binDir, 'wo', [
     '#!/bin/sh',
@@ -71,7 +71,7 @@ test('runtime diagnostics report fake oz, wo and co from PATH', async () => {
 
 test('runtime diagnostics fail when wo lacks JSON workflow contract', async () => {
   const previousPath = process.env.PATH;
-  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-runtime-bin-'));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-runtime-bin-'));
   await writeFakeCommand(binDir, 'oz', '#!/bin/sh\nif [ "$1" = "--version" ]; then echo oz-test; exit 0; fi\necho "{}"\n');
   await writeFakeCommand(binDir, 'wo', [
     '#!/bin/sh',
@@ -107,7 +107,7 @@ test('runtime diagnostics fail clearly when required CLIs are missing', () => {
 
 test('OpenCode provider false fails before pending request write is allowed', () => {
   const previousPath = process.env.PATH;
-  process.env.PATH = '/tmp/ccflow-test-path';
+  process.env.PATH = '/tmp/cbw-test-path';
   try {
     const status = {
       ok: true,
@@ -122,7 +122,7 @@ test('OpenCode provider false fails before pending request write is allowed', ()
     assert.equal(isCoProviderAvailable(status, 'opencode'), false);
     assert.throws(
       () => assertCoProviderAvailable(status, 'opencode'),
-      /co provider "opencode" is unavailable: doctor reported unavailable provider; PATH=\/tmp\/ccflow-test-path/,
+      /co provider "opencode" is unavailable: doctor reported unavailable provider; PATH=\/tmp\/cbw-test-path/,
     );
   } finally {
     process.env.PATH = previousPath;
@@ -131,7 +131,7 @@ test('OpenCode provider false fails before pending request write is allowed', ()
 
 test('runtime diagnostics include command, subcommand and PATH in failure summaries', async () => {
   const previousPath = process.env.PATH;
-  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-runtime-failure-bin-'));
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-runtime-failure-bin-'));
   await writeFakeCommand(binDir, 'oz', '#!/bin/sh\nif [ "$1" = "--version" ]; then echo oz-broken >&2; exit 2; fi\nexit 1\n');
   await writeFakeCommand(binDir, 'wo', [
     '#!/bin/sh',

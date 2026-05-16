@@ -21,7 +21,7 @@ import {
  */
 async function withTemporaryHome(testBody) {
   const originalHome = process.env.HOME;
-  const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-codex-messages-'));
+  const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-codex-messages-'));
 
   process.env.HOME = tempHome;
   try {

@@ -20,7 +20,7 @@
     "runAgentCli": "Create or open a Codex/OpenCode session to get started"
   },
   "app": {
-    "title": "ccflow",
+    "title": "cbw",
     "subtitle": "AI coding assistant interface"
   },
   "sessions": {

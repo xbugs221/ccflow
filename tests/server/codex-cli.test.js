@@ -33,7 +33,7 @@ test('explicit CODEX_CLI_PATH wins over PATH and local bins', () => {
 });
 
 test('local node_modules bin is used when service PATH omits codex', async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-codex-cli-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-codex-cli-'));
   const localCodex = path.join(tempRoot, 'node_modules', '.bin', 'codex');
   await writeFakeExecutable(localCodex);
 

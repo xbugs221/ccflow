@@ -5,7 +5,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
 
-process.env.DATABASE_PATH = path.join(process.env.HOME || '', '.ccflow', 'auth.db');
+process.env.DATABASE_PATH = path.join(process.env.HOME || '', '.cbw', 'auth.db');
 
 const [{ generateToken }, { userDb }] = await Promise.all([
   import('../server/middleware/auth.js'),
@@ -28,7 +28,7 @@ const AUTH_TOKEN = createLocalAuthToken();
 test.beforeEach(async ({ page }) => {
   await page.addInitScript((token) => {
     window.localStorage.setItem('auth-token', token);
-    window.localStorage.removeItem('ccflow:workspace-layout:v1');
+    window.localStorage.removeItem('cbw:workspace-layout:v1');
     window.localStorage.removeItem('activeTab');
   }, AUTH_TOKEN);
 });
@@ -97,7 +97,7 @@ test('desktop dock buttons keep chat visible while opening files terminal and gi
 test('desktop session keeps chat visible with stale dock activeTab and fullscreen dock state', async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem('activeTab', 'files');
-    window.localStorage.setItem('ccflow:workspace-layout:v1', JSON.stringify({
+    window.localStorage.setItem('cbw:workspace-layout:v1', JSON.stringify({
       rightDock: {
         activePanel: 'files',
         collapsed: false,

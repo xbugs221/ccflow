@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Adapt ccflow workflow APIs to the external wo runner without
+ * PURPOSE: Adapt cbw workflow APIs to the external wo runner without
  * parsing provider JSONL or reimplementing runner state transitions.
  */
 import path from 'path';
@@ -60,7 +60,7 @@ async function spawnWoRun(args, projectPath) {
   return new Promise((resolve, reject) => {
     const terminateChild = () => {
       /**
-       * Stop a runner that failed before ccflow could persistently bind its run id.
+       * Stop a runner that failed before cbw could persistently bind its run id.
        */
       if (!child.killed && child.exitCode === null) {
         child.kill('SIGTERM');

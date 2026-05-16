@@ -1,6 +1,6 @@
 /**
  * PURPOSE: Serve OpenCode provider configuration, session history, and
- * session management HTTP endpoints for the ccflow web UI.
+ * session management HTTP endpoints for the cbw web UI.
  */
 import express from 'express';
 import { spawn } from 'child_process';

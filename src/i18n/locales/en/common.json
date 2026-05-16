@@ -85,7 +85,7 @@
     "openInEditor": "Open in Editor"
   },
   "mainContent": {
-    "loading": "Loading ccflow",
+    "loading": "Loading cbw",
     "settingUpWorkspace": "Setting up your workspace...",
     "chooseProject": "Choose Your Project",
     "selectProjectDescription": "Select a project from the sidebar to start coding with your AI assistant. Each project contains your chat sessions and file history.",
@@ -201,7 +201,7 @@
     "viewFullRelease": "View full release",
     "updateProgress": "Update Progress:",
     "manualUpgrade": "Manual upgrade:",
-    "npmUpgradeCommand": "npm install -g ccflow@latest",
+    "npmUpgradeCommand": "npm install -g cbw@latest",
     "manualUpgradeHint": "Or click \"Update Now\" to run the update automatically.",
     "updateCompleted": "Update completed successfully!",
     "restartServer": "Please restart the server to apply changes.",

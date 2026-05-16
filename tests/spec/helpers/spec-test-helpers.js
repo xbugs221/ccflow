@@ -297,5 +297,5 @@ export async function createMixedGitChanges() {
  * @returns {void}
  */
 export function breakOriginRemote() {
-  git(['remote', 'set-url', 'origin', 'https://invalid.example.invalid/ccflow-fixture.git']);
+  git(['remote', 'set-url', 'origin', 'https://invalid.example.invalid/cbw-fixture.git']);
 }

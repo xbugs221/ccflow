@@ -100,7 +100,7 @@ const LoginForm = () => {
 
           <div className="text-center">
             <p className="text-sm text-muted-foreground">
-              Enter your credentials to access ccflow
+              Enter your credentials to access cbw
             </p>
           </div>
         </div>

@@ -22,7 +22,7 @@ async function writeWoState(runDir, state) {
 }
 
 test('pi: prefix in wo sessions produces unlinked ref when provider unknown', async () => {
-  const projectPath = path.join(os.tmpdir(), `ccflow-pi-wo-${Date.now()}`);
+  const projectPath = path.join(os.tmpdir(), `cbw-pi-wo-${Date.now()}`);
   const runDir = path.join(projectPath, '.wo', 'runs', 'run-pi-test');
   const statePath = path.join(runDir, 'state.json');
 
@@ -83,7 +83,7 @@ test('pi: prefix in wo sessions produces unlinked ref when provider unknown', as
 
 test('isKnownProvider recognizes pi', async () => {
   // Test via buildWoWorkflowReadModel which uses isKnownProvider internally
-  const projectPath = path.join(os.tmpdir(), `ccflow-pi-known-${Date.now()}`);
+  const projectPath = path.join(os.tmpdir(), `cbw-pi-known-${Date.now()}`);
   const runDir = path.join(projectPath, '.wo', 'runs', 'run-known');
   const statePath = path.join(runDir, 'state.json');
 

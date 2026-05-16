@@ -22,8 +22,8 @@ async function withTemporaryAuthHome(testBody) {
     const originalHome = process.env.HOME;
     const originalDatabasePath = process.env.DATABASE_PATH;
     const originalLocalhostBypass = process.env.CCFLOW_TRUST_LOCALHOST_AUTH;
-    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-auth-localhost-test-'));
-    const tempDatabasePath = path.join(tempHome, '.ccflow', 'auth.db');
+    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-auth-localhost-test-'));
+    const tempDatabasePath = path.join(tempHome, '.cbw', 'auth.db');
 
     process.env.HOME = tempHome;
     process.env.DATABASE_PATH = tempDatabasePath;

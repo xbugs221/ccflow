@@ -1,5 +1,5 @@
 /**
- * PURPOSE: Verify ccflow follows the oz/wo workflow contract and renders wo
+ * PURPOSE: Verify cbw follows the oz/wo workflow contract and renders wo
  * display lines from sealed state files.
  */
 import assert from 'node:assert/strict';
@@ -25,7 +25,7 @@ async function withFakePath(callback) {
    * Run a test with only fake oz/wo commands prepended, proving old command
    * names are not required.
    */
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-wo-contract-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-wo-contract-'));
   const binDir = path.join(tempRoot, 'bin');
   const projectPath = path.join(tempRoot, 'project');
   const homeDir = path.join(tempRoot, 'home');
@@ -78,7 +78,7 @@ test('oz list and wo run use the new command names and wo user-state run root', 
     assert.deepEqual(await listOpenSpecChanges(projectPath), ['1-适配wo-oz并展示新版工作流输出']);
     const result = await startGoWorkflowRun(projectPath, '1-适配wo-oz并展示新版工作流输出');
     assert.equal(result.run_id, 'run-a');
-    await assert.rejects(() => fs.access(path.join(projectPath, '.ccflow', 'runs', 'run-a', 'state.json')));
+    await assert.rejects(() => fs.access(path.join(projectPath, '.cbw', 'runs', 'run-a', 'state.json')));
     await assert.rejects(() => fs.access(path.join(projectPath, '.wo', 'runs', 'run-a', 'state.json')));
 
     const workflows = await listWoWorkflowReadModels(projectPath);

@@ -14,9 +14,9 @@ import {
   loadProjectConfig,
 } from '../server/projects.js';
 
-// Helper: create a temporary project directory with a .ccflow config
+// Helper: create a temporary project directory with a .cbw config
 async function setupTempProject(label) {
-  const dir = path.join(os.tmpdir(), `ccflow-pi-sessions-${label}-${Date.now()}`);
+  const dir = path.join(os.tmpdir(), `cbw-pi-sessions-${label}-${Date.now()}`);
   await fs.mkdir(dir, { recursive: true });
   return dir;
 }

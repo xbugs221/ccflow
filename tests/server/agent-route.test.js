@@ -11,7 +11,7 @@ import test from 'node:test';
 
 const originalHome = process.env.HOME;
 const originalDatabasePath = process.env.DATABASE_PATH;
-const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-agent-route-test-'));
+const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-agent-route-test-'));
 
 process.env.HOME = tempHome;
 process.env.DATABASE_PATH = path.join(tempHome, 'auth.db');
@@ -139,8 +139,8 @@ test('non-streaming /api/agent collector returns Codex assistant messages and to
   });
 });
 
-test('cleanupProject removes clones under .ccflow external-projects', async () => {
-  const projectDir = path.join(tempHome, '.ccflow', 'external-projects', 'repo-hash');
+test('cleanupProject removes clones under .cbw external-projects', async () => {
+  const projectDir = path.join(tempHome, '.cbw', 'external-projects', 'repo-hash');
   await fs.mkdir(projectDir, { recursive: true });
   await fs.writeFile(path.join(projectDir, 'README.md'), 'temporary clone', 'utf8');
 
@@ -152,7 +152,7 @@ test('cleanupProject removes clones under .ccflow external-projects', async () =
 });
 
 test('cleanupProject refuses external-projects root and unrelated paths', async () => {
-  const externalProjectsRoot = path.join(tempHome, '.ccflow', 'external-projects');
+  const externalProjectsRoot = path.join(tempHome, '.cbw', 'external-projects');
   const unrelatedProject = path.join(tempHome, 'workspace', 'repo');
 
   await fs.mkdir(externalProjectsRoot, { recursive: true });

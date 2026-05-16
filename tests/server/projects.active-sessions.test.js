@@ -12,7 +12,7 @@ import test from 'node:test';
  * @returns {Promise<string>} Temporary HOME path.
  */
 async function createTempHome() {
-  return fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-active-sessions-'));
+  return fs.mkdtemp(path.join(os.tmpdir(), 'cbw-active-sessions-'));
 }
 
 test('getProjects ignores live Claude SDK sessions after provider removal', { concurrency: false }, async () => {

@@ -1,7 +1,7 @@
 /**
  * PURPOSE: Covers project-local config persistence behavior that protects
  * workflow/session reads from partial writes and concurrent writer collisions.
- * Updated: config now writes to XDG state directory, not project .ccflow.
+ * Updated: config now writes to XDG state directory, not project .cbw.
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -18,7 +18,7 @@ test('project config concurrent writes use unique temp files', async () => {
    * PURPOSE: Reproduce startup scans writing the same project config in quick
    * succession; each writer must own a distinct temp path before atomic rename.
    */
-  const projectPath = await mkdtemp(join(tmpdir(), 'ccflow-config-write-'));
+  const projectPath = await mkdtemp(join(tmpdir(), 'cbw-config-write-'));
   try {
     await Promise.all(
       Array.from({ length: 12 }, (_, index) => writeProjectLocalConfig(projectPath, {

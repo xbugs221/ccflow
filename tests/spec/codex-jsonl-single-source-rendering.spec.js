@@ -177,10 +177,10 @@ async function installCodexNotificationSocket(page) {
         try {
           const message = JSON.parse(payload);
           if (message.type === 'check-session-status') {
-            this.__ccflowCodexBridge = true;
+            this.__cbwCodexBridge = true;
           }
         } catch {
-          this.__ccflowCodexBridge = true;
+          this.__cbwCodexBridge = true;
         }
       }
 

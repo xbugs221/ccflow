@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process';
 import WebSocket from 'ws';
 
 async function getFreePort() {
-  /** Reserve a loopback port for the short-lived ccflow server fixture. */
+  /** Reserve a loopback port for the short-lived cbw server fixture. */
   const server = net.createServer();
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -20,7 +20,7 @@ async function getFreePort() {
 }
 
 async function writeFakeCoBinary(binDir, coHome) {
-  /** Provide the co doctor contract used by ccflow before accepting chat sends. */
+  /** Provide the co doctor contract used by cbw before accepting chat sends. */
   const coPath = path.join(binDir, 'co');
   await fs.writeFile(coPath, [
     '#!/bin/sh',
@@ -40,7 +40,7 @@ async function writeCompletedFirstTurn(coHome) {
   await fs.writeFile(path.join(coHome, 'conversations', 'c51', 'state.json'), `${JSON.stringify({
     contract: 'co-conversation-v1',
     conversation_id: 'c51',
-    project_path: '/tmp/ccflow-project',
+    project_path: '/tmp/cbw-project',
     provider: 'codex',
     provider_session_id: 'provider_c51',
     active_turn_id: '',
@@ -72,7 +72,7 @@ async function writeRunningFirstTurn(coHome) {
   await fs.writeFile(path.join(coHome, 'conversations', 'c51', 'state.json'), `${JSON.stringify({
     contract: 'co-conversation-v1',
     conversation_id: 'c51',
-    project_path: '/tmp/ccflow-project',
+    project_path: '/tmp/cbw-project',
     provider: 'codex',
     provider_session_id: 'provider_c51',
     active_turn_id: 'turn_1',
@@ -146,7 +146,7 @@ async function waitForMessage(received, predicate, timeoutMs = 5000) {
 
 test('second co turn response is broadcast to the same cN route over the real WebSocket', async () => {
   /** Scenario: c51 follow-up send writes a co request, then the new active turn response reaches the browser. */
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-followup-ws-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-followup-ws-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -198,18 +198,18 @@ test('second co turn response is broadcast to the same cN route over the real We
       startRequestId: 'req_2',
       command: 'second',
       sessionId: null,
-      ccflowSessionId: 'c51',
+      cbwSessionId: 'c51',
       options: {
-        projectPath: '/tmp/ccflow-project',
-        cwd: '/tmp/ccflow-project',
+        projectPath: '/tmp/cbw-project',
+        cwd: '/tmp/cbw-project',
         projectName: 'fixture',
         sessionId: null,
-        ccflowSessionId: 'c51',
+        cbwSessionId: 'c51',
         clientRequestId: 'req_2',
       },
     }));
 
-    await waitForMessage(received, (message) => message.type === 'message-accepted' && message.ccflowSessionId === 'c51');
+    await waitForMessage(received, (message) => message.type === 'message-accepted' && message.cbwSessionId === 'c51');
     const pendingRequest = JSON.parse(await fs.readFile(path.join(coHome, 'requests', 'pending', 'req_2.json'), 'utf8'));
     assert.equal(pendingRequest.conversation_id, 'c51');
 
@@ -217,7 +217,7 @@ test('second co turn response is broadcast to the same cN route over the real We
     await fs.writeFile(path.join(coHome, 'conversations', 'c51', 'state.json'), `${JSON.stringify({
       contract: 'co-conversation-v1',
       conversation_id: 'c51',
-      project_path: '/tmp/ccflow-project',
+      project_path: '/tmp/cbw-project',
       provider: 'codex',
       provider_session_id: 'provider_c51',
       active_turn_id: 'turn_2',
@@ -238,8 +238,8 @@ test('second co turn response is broadcast to the same cN route over the real We
       && message.data?.itemType === 'agent_message'
       && message.data?.message?.content === 'SECOND_REALTIME_OK'
     ));
-    assert.equal(response.ccflowSessionId, 'c51');
-    assert.equal(response.ccflow_session_id, 'c51');
+    assert.equal(response.cbwSessionId, 'c51');
+    assert.equal(response.cbw_session_id, 'c51');
     assert.equal(response.turnId, 'turn_2');
     assert.equal(response.turn_id, 'turn_2');
   } finally {
@@ -249,7 +249,7 @@ test('second co turn response is broadcast to the same cN route over the real We
 
 test('queued follow-up response is broadcast after co switches to the next active turn', async () => {
   /** Scenario: While turn_1 is running, the queued turn_2 response still reaches c51. */
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-queued-ws-'));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-queued-ws-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -301,18 +301,18 @@ test('queued follow-up response is broadcast after co switches to the next activ
       startRequestId: 'req_2',
       command: 'second queued',
       sessionId: null,
-      ccflowSessionId: 'c51',
+      cbwSessionId: 'c51',
       options: {
-        projectPath: '/tmp/ccflow-project',
-        cwd: '/tmp/ccflow-project',
+        projectPath: '/tmp/cbw-project',
+        cwd: '/tmp/cbw-project',
         projectName: 'fixture',
         sessionId: null,
-        ccflowSessionId: 'c51',
+        cbwSessionId: 'c51',
         clientRequestId: 'req_2',
       },
     }));
 
-    await waitForMessage(received, (message) => message.type === 'message-accepted' && message.ccflowSessionId === 'c51');
+    await waitForMessage(received, (message) => message.type === 'message-accepted' && message.cbwSessionId === 'c51');
     const pendingRequest = JSON.parse(await fs.readFile(path.join(coHome, 'requests', 'pending', 'req_2.json'), 'utf8'));
     assert.equal(pendingRequest.active_policy, 'queue');
     assert.equal(pendingRequest.conversation_id, 'c51');
@@ -321,7 +321,7 @@ test('queued follow-up response is broadcast after co switches to the next activ
     await fs.writeFile(path.join(coHome, 'conversations', 'c51', 'state.json'), `${JSON.stringify({
       contract: 'co-conversation-v1',
       conversation_id: 'c51',
-      project_path: '/tmp/ccflow-project',
+      project_path: '/tmp/cbw-project',
       provider: 'codex',
       provider_session_id: 'provider_c51',
       active_turn_id: 'turn_2',
@@ -342,8 +342,8 @@ test('queued follow-up response is broadcast after co switches to the next activ
       && message.data?.itemType === 'agent_message'
       && message.data?.message?.content === 'QUEUED_SECOND_OK'
     ));
-    assert.equal(response.ccflowSessionId, 'c51');
-    assert.equal(response.ccflow_session_id, 'c51');
+    assert.equal(response.cbwSessionId, 'c51');
+    assert.equal(response.cbw_session_id, 'c51');
     assert.equal(response.turnId, 'turn_2');
     assert.equal(response.turn_id, 'turn_2');
   } finally {
@@ -352,8 +352,8 @@ test('queued follow-up response is broadcast after co switches to the next activ
 });
 
 test('fast completed follow-up response is broadcast after state returns to idle', async () => {
-  /** Scenario: co writes turn_2 events and clears active_turn_id before ccflow polls. */
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ccflow-fast-complete-ws-'));
+  /** Scenario: co writes turn_2 events and clears active_turn_id before cbw polls. */
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-fast-complete-ws-'));
   const coHome = path.join(tempRoot, 'co');
   const binDir = path.join(tempRoot, 'bin');
   const databasePath = path.join(tempRoot, 'auth.db');
@@ -405,18 +405,18 @@ test('fast completed follow-up response is broadcast after state returns to idle
       startRequestId: 'req_2',
       command: 'second fast',
       sessionId: null,
-      ccflowSessionId: 'c51',
+      cbwSessionId: 'c51',
       options: {
-        projectPath: '/tmp/ccflow-project',
-        cwd: '/tmp/ccflow-project',
+        projectPath: '/tmp/cbw-project',
+        cwd: '/tmp/cbw-project',
         projectName: 'fixture',
         sessionId: null,
-        ccflowSessionId: 'c51',
+        cbwSessionId: 'c51',
         clientRequestId: 'req_2',
       },
     }));
 
-    await waitForMessage(received, (message) => message.type === 'message-accepted' && message.ccflowSessionId === 'c51');
+    await waitForMessage(received, (message) => message.type === 'message-accepted' && message.cbwSessionId === 'c51');
     await fs.mkdir(path.join(coHome, 'turns', 'turn_2'), { recursive: true });
     await fs.writeFile(path.join(coHome, 'turns', 'turn_2', 'events.jsonl'), `${JSON.stringify({
       type: 'codex-response',
@@ -429,7 +429,7 @@ test('fast completed follow-up response is broadcast after state returns to idle
     await fs.writeFile(path.join(coHome, 'conversations', 'c51', 'state.json'), `${JSON.stringify({
       contract: 'co-conversation-v1',
       conversation_id: 'c51',
-      project_path: '/tmp/ccflow-project',
+      project_path: '/tmp/cbw-project',
       provider: 'codex',
       provider_session_id: 'provider_c51',
       active_turn_id: '',
@@ -442,8 +442,8 @@ test('fast completed follow-up response is broadcast after state returns to idle
       && message.data?.itemType === 'agent_message'
       && message.data?.message?.content === 'FAST_SECOND_OK'
     ));
-    assert.equal(response.ccflowSessionId, 'c51');
-    assert.equal(response.ccflow_session_id, 'c51');
+    assert.equal(response.cbwSessionId, 'c51');
+    assert.equal(response.cbw_session_id, 'c51');
     assert.equal(response.turnId, 'turn_2');
     assert.equal(response.turn_id, 'turn_2');
     assert.equal(received.some((message) => (
