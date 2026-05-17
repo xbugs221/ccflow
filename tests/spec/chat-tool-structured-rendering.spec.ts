@@ -13,10 +13,8 @@ import {
 } from './helpers/spec-test-helpers.ts';
 
 /**
- * Write one Codex JSONL session file under the Playwright fixture HOME.
- *
- * @param {{ sessionId: string, entries: Array<Record<string, unknown>> }} params
- * @returns {Promise<void>}
+ * Write one Codex JSONL session file using the Codex-native format
+ * (event_msg / response_item) so the server's mapCodexEntryToMessages can parse it.
  */
 async function writeCodexSession({ sessionId, entries }) {
   const sessionDir = path.join(
@@ -30,206 +28,193 @@ async function writeCodexSession({ sessionId, entries }) {
   const sessionPath = path.join(sessionDir, `${sessionId}.jsonl`);
 
   await fs.mkdir(sessionDir, { recursive: true });
-  await fs.writeFile(
-    sessionPath,
-    entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n',
-    'utf8',
-  );
-}
-
-/**
- * Build a minimal Codex transcript containing tool_use/tool_result pairs.
- *
- * @param {{ sessionId: string, records: Array<Record<string, unknown>> }} params
- * @returns {Array<Record<string, unknown>>}
- */
-function buildCodexTranscript({ sessionId, records }) {
-  return [
-    {
-      type: 'session_meta',
-      timestamp: '2026-04-20T09:00:00.000Z',
-      payload: {
-        id: sessionId,
-        cwd: PRIMARY_FIXTURE_PROJECT_PATH,
-        model: 'gpt-5-codex',
-      },
-    },
-    ...records,
-  ];
+  await fs.writeFile(sessionPath, entries.join('\n') + '\n', 'utf8');
 }
 
 test.beforeEach(async ({ page }) => {
   await resetWorkspaceProject();
   await authenticatePage(page);
-  await page.addInitScript(() => {
-    window.localStorage.setItem('selected-provider', 'codex');
-  });
 });
 
 test('会将 update_plan、ctx_batch_execute、write_stdin 和 FileChanges 渲染为结构化内容', async ({ page }) => {
-  /** Scenario: 历史会话中的工具消息不再展示原始 JSON，计划步骤也要反映最新推进状态。 */
   const sessionId = 'fixture-structured-tool-rendering';
 
   await writeCodexSession({
     sessionId,
-    entries: buildCodexTranscript({
-      sessionId,
-      records: [
+    entries: [
+      // session_meta (top-level type, not nested in event_msg)
+      JSON.stringify({
+        type: 'session_meta',
+        timestamp: '2026-04-20T09:00:00.000Z',
+        payload: {
+          id: sessionId,
+          cwd: PRIMARY_FIXTURE_PROJECT_PATH,
+          model: 'gpt-5-codex',
+        },
+      }),
+      // User message
+      JSON.stringify({
+        type: 'event_msg',
+        timestamp: '2026-04-20T09:00:01.000Z',
+        payload: {
+          type: 'user_message',
+          message: '请把工作计划和命令执行结果展示清楚。',
+        },
+      }),
+      // Assistant message with function_call tool_use items
+      ...[
         {
-          timestamp: '2026-04-20T09:00:01.000Z',
-          type: 'user',
-          message: {
-            role: 'user',
-            content: '请把工作计划和命令执行结果展示清楚。',
-          },
+          name: 'update_plan',
+          arguments: JSON.stringify({
+            explanation: '先整理计划，再跑命令，最后检查文件变更。',
+            plan: [
+              { step: '整理工作计划', status: 'in_progress' },
+              { step: '执行批量查询', status: 'pending' },
+              { step: '检查文件变更', status: 'pending' },
+            ],
+          }),
         },
         {
+          name: 'ctx_batch_execute',
+          arguments: JSON.stringify({
+            commands: [
+              { label: 'Source Tree', command: 'rg --files src/components/chat/tools' },
+              { label: 'Tool Configs', command: 'sed -n "1,120p" src/components/chat/tools/configs/toolConfigs.ts' },
+            ],
+            queries: ['update_plan renderer', 'filechanges parser success error'],
+          }),
+        },
+        {
+          name: 'ctx_execute',
+          arguments: JSON.stringify({
+            language: 'shell',
+            code: 'git status --short',
+            intent: '检查工作区变更',
+            timeout: 5000,
+          }),
+        },
+        {
+          name: 'FileChanges',
+          arguments: JSON.stringify({
+            status: 'completed',
+            changes: [
+              { kind: 'added', path: 'src/components/chat/tools/components/ContentRenderers/PlanContent.tsx' },
+              { kind: 'modified', path: 'src/components/chat/tools/configs/toolConfigs.ts' },
+            ],
+          }),
+        },
+        {
+          name: 'functions.write_stdin',
+          arguments: JSON.stringify({
+            session_id: 68389,
+            chars: 'status\\n',
+          }),
+        },
+      ].map((tool, index) =>
+        JSON.stringify({
+          type: 'response_item',
           timestamp: '2026-04-20T09:00:02.000Z',
-          type: 'assistant',
-          message: {
-            role: 'assistant',
-            content: [
-              {
-                type: 'tool_use',
-                id: 'call-plan',
-                name: 'update_plan',
-                input: {
-                  explanation: '先整理计划，再跑命令，最后检查文件变更。',
-                  plan: [
-                    { step: '整理工作计划', status: 'in_progress' },
-                    { step: '执行批量查询', status: 'pending' },
-                    { step: '检查文件变更', status: 'pending' },
-                  ],
-                },
-              },
-              {
-                type: 'tool_use',
-                id: 'call-batch',
-                name: 'ctx_batch_execute',
-                input: {
-                  commands: [
-                    { label: 'Source Tree', command: 'rg --files src/components/chat/tools' },
-                    { label: 'Tool Configs', command: 'sed -n "1,120p" src/components/chat/tools/configs/toolConfigs.ts' },
-                  ],
-                  queries: ['update_plan renderer', 'filechanges parser success error'],
-                },
-              },
-              {
-                type: 'tool_use',
-                id: 'call-ctx-exec',
-                name: 'ctx_execute',
-                input: {
-                  language: 'shell',
-                  code: 'git status --short',
-                  intent: '检查工作区变更',
-                  timeout: 5000,
-                },
-              },
-              {
-                type: 'tool_use',
-                id: 'call-files',
-                name: 'FileChanges',
-                input: {
-                  status: 'completed',
-                  changes: [
-                    { kind: 'added', path: 'src/components/chat/tools/components/ContentRenderers/PlanContent.tsx' },
-                    { kind: 'modified', path: 'src/components/chat/tools/configs/toolConfigs.ts' },
-                  ],
-                },
-              },
-              {
-                type: 'tool_use',
-                id: 'call-stdin',
-                name: 'functions.write_stdin',
-                input: {
-                  session_id: 68389,
-                  chars: 'status\\n',
-                },
-              },
+          payload: {
+            type: 'function_call',
+            call_id: `call-${tool.name}-${index}`,
+            name: tool.name,
+            arguments: tool.arguments,
+          },
+        }),
+      ),
+      // Tool result for update_plan
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-04-20T09:00:03.000Z',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'call-update_plan-0',
+          output: JSON.stringify({
+            explanation: '先整理计划，再跑命令，最后检查文件变更。',
+            plan: [
+              { step: '整理工作计划', status: 'completed' },
+              { step: '执行批量查询', status: 'in_progress' },
+              { step: '检查文件变更', status: 'pending' },
             ],
-          },
+          }),
         },
-        {
-          timestamp: '2026-04-20T09:00:03.000Z',
-          type: 'user',
-          message: {
-            role: 'user',
-            content: [
-              {
-                type: 'tool_result',
-                tool_use_id: 'call-plan',
-                content: {
-                  explanation: '先整理计划，再跑命令，最后检查文件变更。',
-                  plan: [
-                    { step: '整理工作计划', status: 'completed' },
-                    { step: '执行批量查询', status: 'in_progress' },
-                    { step: '检查文件变更', status: 'pending' },
-                  ],
-                },
-                is_error: false,
-              },
-              {
-                type: 'tool_result',
-                tool_use_id: 'call-batch',
-                content: [
-                  {
-                    type: 'text',
-                    text: [
-                      'Executed 2 commands (120 lines, 3.0KB). Indexed 4 sections. Searched 2 queries.',
-                      '',
-                      '## Indexed Sections',
-                      '- ToolRenderer (2.0KB)',
-                      '- toolConfigs (1.0KB)',
-                      '',
-                      '## Source Tree',
-                      'Found files under tools.',
-                      '',
-                      '## update_plan renderer',
-                      '### Source Tree',
-                      'Plan renderer search hit.',
-                      '',
-                      '## filechanges parser success error',
-                      '### Tool Configs',
-                      'FileChanges parser search hit.',
-                    ].join('\n'),
-                  },
-                ],
-                is_error: false,
-              },
-              {
-                type: 'tool_result',
-                tool_use_id: 'call-ctx-exec',
-                content: ' M src/components/chat/tools/configs/toolConfigs.ts',
-                is_error: false,
-              },
-              {
-                type: 'tool_result',
-                tool_use_id: 'call-stdin',
-                content: {
-                  output: 'job-42: finished\\nnext poll ready',
-                },
-                is_error: false,
-              },
-            ],
-          },
+      }),
+      // Tool result for ctx_batch_execute
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-04-20T09:00:03.000Z',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'call-ctx_batch_execute-1',
+          output: [
+            'Executed 2 commands (120 lines, 3.0KB). Indexed 4 sections. Searched 2 queries.',
+            '',
+            '## Indexed Sections',
+            '- ToolRenderer (2.0KB)',
+            '- toolConfigs (1.0KB)',
+            '',
+            '## Source Tree',
+            'Found files under tools.',
+            '',
+            '## update_plan renderer',
+            '### Source Tree',
+            'Plan renderer search hit.',
+            '',
+            '## filechanges parser success error',
+            '### Tool Configs',
+            'FileChanges parser search hit.',
+          ].join('\n'),
         },
-        {
-          timestamp: '2026-04-20T09:00:04.000Z',
-          type: 'assistant',
-          message: {
-            role: 'assistant',
-            content: '结构化渲染已经准备好。',
-          },
+      }),
+      // Tool result for ctx_execute
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-04-20T09:00:03.000Z',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'call-ctx_execute-2',
+          output: ' M src/components/chat/tools/configs/toolConfigs.ts',
         },
-      ],
-    }),
+      }),
+      // Tool result for write_stdin
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-04-20T09:00:03.000Z',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'call-functions.write_stdin-4',
+          output: JSON.stringify({
+            output: 'job-42: finished\\nnext poll ready',
+          }),
+        },
+      }),
+      // Final assistant message
+      JSON.stringify({
+        type: 'response_item',
+        timestamp: '2026-04-20T09:00:04.000Z',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'text', text: '结构化渲染已经准备好。' }],
+        },
+      }),
+    ],
   });
 
-  const params = new URLSearchParams({
-    provider: 'codex',
-    projectPath: PRIMARY_FIXTURE_PROJECT_PATH,
-  });
-  await page.goto(`/session/${sessionId}?${params.toString()}`, { waitUntil: 'networkidle' });
+  // Navigate via project page to trigger session discovery, then enter session view
+  await page.goto('/workspace/fixture-project', { waitUntil: 'networkidle' });
+  await page.waitForTimeout(3000);
+
+  // Click the newly-created session (displayed with first user message text as title)
+  const sessionButton = page.getByRole('button', { name: /请把工作计划和命令执行结果展示清楚/ }).first();
+  await expect(sessionButton).toBeVisible({ timeout: 10_000 });
+  await sessionButton.click();
+
+  // Wait for the session composer to appear
+  await expect(page.locator('[data-testid="chat-scroll-container"]')).toBeVisible({ timeout: 10_000 });
+
+  // Wait for messages to load and tool content to render
+  await page.waitForTimeout(5000);
 
   await expect(page.getByTestId('tool-plan-content').first()).toContainText('先整理计划，再跑命令，最后检查文件变更。');
   await expect(page.getByTestId('tool-plan-step-0').first()).toContainText('整理工作计划');
@@ -257,7 +242,7 @@ test('会将 update_plan、ctx_batch_execute、write_stdin 和 FileChanges 渲�
   await expect(page.getByText('Executed 2 commands (120 lines, 3.0KB). Indexed 4 sections. Searched 2 queries.')).toBeHidden();
   await expect(page.getByText('git status --short')).toBeVisible();
   await expect(page.getByText('M src/components/chat/tools/configs/toolConfigs.ts')).toBeHidden();
-  await expect(page.locator('text=\"code\": \"git status --short\"')).toHaveCount(0);
+  await expect(page.locator('text="code": "git status --short"')).toHaveCount(0);
   await expect(page.getByTestId('tool-context-code-card')).toHaveCount(3);
   await expect(page.getByTestId('tool-context-code-card').filter({ hasText: 'git status --short' })).toHaveAttribute('data-single-line', 'true');
   await expect(page.getByTestId('tool-context-code-card').filter({ hasText: 'git status --short' }).locator('xpath=ancestor::details')).toHaveCount(0);
@@ -275,9 +260,9 @@ test('会将 update_plan、ctx_batch_execute、write_stdin 和 FileChanges 渲�
   await expect(page.getByTestId('tool-file-changes-content').first()).toContainText('PlanContent.tsx');
   await expect(page.getByTestId('tool-file-changes-content').first()).toContainText('toolConfigs.ts');
 
-  await expect(page.locator('text=\"plan\": [')).toHaveCount(0);
-  await expect(page.locator('text=\"commands\": [')).toHaveCount(0);
-  await expect(page.locator('text=\"session_id\": 68389')).toHaveCount(0);
-  await expect(page.locator('text=\"chars\": \"status')).toHaveCount(0);
-  await expect(page.locator('text=\"changes\": [')).toHaveCount(0);
+  await expect(page.locator('text="plan": [')).toHaveCount(0);
+  await expect(page.locator('text="commands": [')).toHaveCount(0);
+  await expect(page.locator('text="session_id": 68389')).toHaveCount(0);
+  await expect(page.locator('text="chars": "status')).toHaveCount(0);
+  await expect(page.locator('text="changes": [')).toHaveCount(0);
 });

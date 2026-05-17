@@ -375,3 +375,118 @@ TypeScript 迁移不得改变用户可见行为或 API 契约。
 - **当** 代码需要处理未知 JSON、CLI 输出或第三方库事件
 - **则** 可以在解析边界短暂使用 `unknown` 或受控 `any`
 - **但** 进入业务函数前必须归一化为明确类型
+
+---
+
+> 合并自归档提案：`2026-05-17-32-清理残留测试并统一pnpm-test`
+
+## 需求：`pnpm test` 是全量验收入口
+
+仓库提供覆盖全部关键质量门禁的统一测试命令。
+
+### 场景：全量测试入口覆盖所有现有测试层
+
+- **当** 开发者运行 `pnpm test`
+- **则** 必须执行 `pnpm run typecheck`
+- **且** 必须执行 `pnpm run test:server`
+- **且** 必须执行 `pnpm run test:spec`
+- **且** 必须执行 `pnpm run test:e2e`
+
+### 场景：browser spec 不得被排除在全量入口之外
+
+- **当** `pnpm test` 执行 `pnpm run test:spec`
+- **则** `test:spec` 必须继续包含 `test:spec:browser`
+- **且** browser spec 失败必须导致 `pnpm test` 失败
+
+### 场景：最终验收必须全绿
+
+- **当** 任何变更完成后运行 `pnpm test`
+- **则** 命令必须以 0 退出
+- **且** 不得存在为了通过而新增的无条件 skip 或条件跳过
+
+## 需求：历史重复测试必须归并到 canonical 测试
+
+每个业务契约应有清晰的测试归属，避免旧 proposal 副本与当前测试互相冲突。
+
+### 场景：重复的 server 契约测试被归并
+
+- **当** 根目录 proposal 测试与 `tests/server` 中的测试覆盖同一业务契约
+- **则** 应保留 `tests/server` 中的 canonical 测试
+- **且** 旧 proposal 测试中的独有断言必须迁入 canonical 测试后再删除旧副本
+
+### 场景：重复的 spec 契约测试被归并
+
+- **当** 根目录 proposal 测试与 `tests/spec` 中的测试覆盖同一浏览器或静态契约
+- **则** 应保留 `tests/spec` 或明确命名的 canonical 测试
+- **且** Playwright 配置不得继续引用被删除的旧路径
+
+### 场景：当前行为优先于旧 proposal 预期
+
+- **当** 旧测试与近期提案的实现意图冲突
+- **则** 应更新或删除旧测试
+- **且** 不得为了旧测试恢复已被近期提案废弃的行为
+
+## 需求：测试运行态路径必须使用 XDG state helper
+
+测试应跟随当前 wo/cbw 运行态路径策略，不得硬编码项目内路径。
+
+### 场景：wo state 读写使用当前运行态根目录
+
+- **当** 测试需要读写 wo `state.json`
+- **则** 必须通过 `resolveWoRunsRoot`、`resolveWoRunStatePath` 或 fixture helper 解析路径
+- **且** 不得把项目内 `.wo/runs/<run>/state.json` 当作当前真实运行态
+
+### 场景：cbw 项目配置使用当前 state config
+
+- **当** 测试需要验证项目会话 UI 状态、收藏、待处理或隐藏配置
+- **则** 必须通过 `getProjectLocalConfigPath` 读取当前项目 state config
+- **且** 不得只检查旧项目内 `.cbw/conf.json`
+
+### 场景：展示用 artifact path 与真实 state path 区分
+
+- **当** wo state 中包含 `.wo/runs/.../logs/...` 这类展示路径
+- **则** 测试可以断言其作为 artifact 文本或相对路径显示
+- **但** 不得把该展示路径误用为测试夹具的真实 state 读写位置
+
+## 需求：清理后不得残留旧失败基线
+
+测试套件中的失败不得作为长期豁免存在。
+
+### 场景：旧失败清单被消除
+
+- **当** 开发者运行 browser spec 和 e2e
+- **则** 历史上记录的 selector、fixture 路径、UI 文案和时序应全部修复或删除
+- **且** 若有新的真实回归，必须作为对应变更阻塞问题处理
+
+### 场景：文档说明当前测试策略
+
+- **当** 审阅者查看变更文档
+- **则** 应能看到哪些测试被删除、归并、更新或修复
+- **且** 能通过 `pnpm test` 复现最终验收结果
+
+## 需求：测试契约本身应纳入验收范围
+
+新增的测试基础设施变更必须有对应的契约测试确保不退化。
+
+### 场景：pnpm test 入口可被契约断言
+
+- **当** 运行 test:spec:node
+- **则** 应有测试断言 `pnpm test` 覆盖 typecheck、server、spec、e2e 各层
+- **且** 断言 `test:spec` 覆盖 node 和 browser 两个维度
+
+### 场景：已删除的重复测试不再出现
+
+- **当** 运行 test:spec:node
+- **则** 应有测试断言历史上删除的旧 proposal 测试路径不再存在于 `tests/`
+- **且** 断言对应的 canonical 测试仍存在于 `tests/server/` 或 `tests/spec/`
+
+### 场景：stale 旧文件名不重现
+
+- **当** 运行 test:spec:node
+- **则** 应有测试扫描 `tests/` 确认不引用已删除的 `.jsx`、旧运行态路径和旧重复日期路径
+
+### 场景：fixture helper 路径与生产一致
+
+- **当** 运行 test:spec:node
+- **则** 应有测试验证 playwright fixture 导入并使用 `resolveWoRunStatePath`
+- **且** 不得硬编码 `.wo/runs` 或 `.cbw/runs` 路径

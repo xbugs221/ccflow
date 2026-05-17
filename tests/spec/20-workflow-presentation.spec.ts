@@ -18,7 +18,7 @@ function readRepoFile(relPath: string) {
 
 test('workflow presentation acceptance tests exist and cover multi-round display', async () => {
   const source = readRepoFile(
-    'tests/2026-05-13-20-优化工作流卡片和详情链接呈现-workflow-presentation.test.js',
+    'tests/2026-05-13-20-优化工作流卡片和详情链接呈现-workflow-presentation.test.ts',
   );
   assert.match(source, /test\.describe\('多轮工作流呈现'/, 'must define the multi-round presentation test suite');
   assert.match(source, /项目卡片聚合审核和修复轮次/, 'must cover card-level review/repair round aggregation');

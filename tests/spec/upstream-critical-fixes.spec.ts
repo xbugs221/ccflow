@@ -172,7 +172,7 @@ test('Frontend download flow uses blob/arrayBuffer rather than text() (no UTF-8 
 
 test('Legacy service worker file is removed; frontend unregisters stale workers', async () => {
   // Change 30 deleted public/sw.js because no entry point registers it.
-  // Instead, src/main.jsx unregisters every existing service worker on load.
+  // Instead, src/main.tsx unregisters every existing service worker on load.
   const swPath = resolvePath(REPO_ROOT, 'public/sw.js');
   let swExists = false;
   try {
@@ -184,9 +184,9 @@ test('Legacy service worker file is removed; frontend unregisters stale workers'
   assert.equal(swExists, false, 'public/sw.js must no longer exist');
 
   // The frontend entry point must unregister stale workers.
-  const mainJsx = await readFile(resolvePath(REPO_ROOT, 'src/main.jsx'), 'utf8');
-  assert.match(mainJsx, /getRegistrations/, 'main.jsx must call getRegistrations to find stale workers');
-  assert.match(mainJsx, /\.unregister\(\)/, 'main.jsx must unregister each stale service worker');
+  const mainTsx = await readFile(resolvePath(REPO_ROOT, 'src/main.tsx'), 'utf8');
+  assert.match(mainTsx, /getRegistrations/, 'main.tsx must call getRegistrations to find stale workers');
+  assert.match(mainTsx, /\.unregister\(\)/, 'main.tsx must unregister each stale service worker');
 
   // Build output must not contain sw.js.
   const distSwPath = resolvePath(REPO_ROOT, 'dist', 'sw.js');

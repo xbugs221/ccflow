@@ -121,7 +121,7 @@ test('Deleted ClaudeLogo component no longer exists', async () => {
 });
 
 test('SetupForm does not reference /logo.svg asset', async () => {
-  const content = await readRepoFile('src/components/auth/SetupForm.jsx');
+  const content = await readRepoFile('src/components/auth/SetupForm.tsx');
   assert.doesNotMatch(content, /\/logo\.svg/);
   assert.match(content, /aria-label="cbw"/);
 });

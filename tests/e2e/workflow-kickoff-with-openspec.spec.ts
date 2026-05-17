@@ -11,6 +11,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
+import { resolveWoRunsRoot } from '../../server/domains/workflows/wo-runtime-paths.ts';
 import {
   openFixtureProject,
   PRIMARY_FIXTURE_PROJECT_PATH,
@@ -171,8 +172,13 @@ test('batch launch keeps successful workflow result when another change fails', 
 
 test('starting a new planning session does not create a wo run', async ({ page }) => {
   await openFixtureProject(page);
-  const runsRoot = path.join(PRIMARY_FIXTURE_PROJECT_PATH, '.wo', 'runs');
-  const beforeRuns = await fs.readdir(runsRoot);
+  const runsRoot = resolveWoRunsRoot(PRIMARY_FIXTURE_PROJECT_PATH);
+  let beforeRuns: string[] = [];
+  try {
+    beforeRuns = await fs.readdir(runsRoot);
+  } catch {
+    // Directory may not exist yet before first wo run
+  }
 
   await page.getByRole('button', { name: '工作流操作' }).click();
   await page.getByRole('button', { name: '发起新的规划' }).click();

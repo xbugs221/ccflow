@@ -35,7 +35,7 @@ test.describe('需求工作流详情路由与会话流程图预览', () => {
     await expect(page.getByTestId('workflow-stage-mini-map')).toHaveCount(0);
     await expect(page.getByTestId('workflow-stage-tree')).toHaveCount(0);
 
-    await page.getByTestId('workflow-role-row-executor').getByRole('button').click();
+    await page.getByTestId('workflow-role-row-executor').getByRole('button', { name: '会话' }).click();
     await expect(page).toHaveURL(/\/workspace\/fixture-project\/runs\/run-fixture\/sessions\/execution$/);
     await expect(page.getByTestId('workflow-minimap')).toHaveCount(0);
     await expect(page.getByTestId('workflow-minimap-drag-handle')).toHaveCount(0);

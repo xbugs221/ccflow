@@ -176,18 +176,18 @@ test('server files that depend on shared now import .ts', async () => {
 // 4. Frontend import paths updated
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('App.tsx and main.jsx import i18n config without .js extension', async () => {
+test('App.tsx and main.tsx import i18n config without .js extension', async () => {
   const appSource = await readSource('src/App.tsx');
   assert.match(appSource, /from ['"]\.\/i18n\/config['"]/);
   assert.doesNotMatch(appSource, /from ['"]\.\/i18n\/config\.js['"]/);
 
-  const mainSource = await readSource('src/main.jsx');
+  const mainSource = await readSource('src/main.tsx');
   assert.match(mainSource, /['"]\.\/i18n\/config['"]/);
   assert.doesNotMatch(mainSource, /['"]\.\/i18n\/config\.js['"]/);
 });
 
 test('LanguageSelector still imports languages', async () => {
-  const selectorSource = await readSource('src/components/settings/view/controls/LanguageSelector.jsx');
+  const selectorSource = await readSource('src/components/settings/view/controls/LanguageSelector.tsx');
   assert.match(selectorSource, /from ['"][^'"]*i18n\/languages['"]/);
 });
 

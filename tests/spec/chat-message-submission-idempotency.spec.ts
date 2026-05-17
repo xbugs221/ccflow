@@ -53,7 +53,7 @@ function composer(page) {
  */
 async function openFixtureChat(page) {
   await openFixtureProject(page);
-  await page.getByRole('button', { name: /fixture-project session/ }).first().click();
+  await page.getByRole('button', { name: /fixture-project manual-only session/ }).first().click();
   await expect(page.locator('textarea').first()).toBeVisible();
 }
 

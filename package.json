@@ -32,6 +32,7 @@
     "build": "pnpm run build:server && vite build",
     "build:server": "tsc -p tsconfig.build.json",
     "preview": "vite preview",
+    "test": "pnpm run typecheck && pnpm run test:server && pnpm run test:spec && pnpm run test:e2e",
     "typecheck": "tsc -b --noEmit",
     "test:server": "tsx --test tests/server/*.test.ts",
     "test:e2e": "playwright test",

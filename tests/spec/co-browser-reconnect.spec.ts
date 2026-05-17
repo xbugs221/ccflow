@@ -13,6 +13,7 @@ import {
   openFixtureProject,
   PRIMARY_FIXTURE_PROJECT_PATH,
 } from './helpers/spec-test-helpers.ts';
+import { getProjectLocalConfigPath } from '../../server/project-config-store.ts';
 
 async function openNewProviderSession(page, provider) {
   page.once('dialog', async (dialog) => {
@@ -74,7 +75,7 @@ async function readProjectConfig() {
    * Read the fixture project's cbw config without going through the app;
    * this narrows reload failures to backend state versus browser rendering.
    */
-  const configPath = path.join(PRIMARY_FIXTURE_PROJECT_PATH, '.cbw', 'conf.json');
+  const configPath = getProjectLocalConfigPath(PRIMARY_FIXTURE_PROJECT_PATH);
   return JSON.parse(await fs.readFile(configPath, 'utf8'));
 }
 

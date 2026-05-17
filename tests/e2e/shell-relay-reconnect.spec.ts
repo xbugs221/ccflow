@@ -174,26 +174,19 @@ test('shell relay reconnects and flushes queued input after an unexpected websoc
   test.setTimeout(60_000);
 
   const entryPath = SESSION_ID ? `/session/${SESSION_ID}` : '/workspace/fixture-project';
-  await page.goto(entryPath, { waitUntil: 'domcontentloaded' });
+  await page.goto(entryPath, { waitUntil: 'networkidle' });
 
   if (!SESSION_ID) {
-    const hasOpenShell = await page.waitForFunction(
-      () => {
-        const sockets = window.__trackedSockets || [];
-        return sockets.some((socket) => {
-          return typeof socket.url === 'string' &&
-            socket.url.includes('/shell') &&
-            socket.readyState === 1;
-        });
-      },
-      undefined,
-      { timeout: 5_000 },
-    ).then(() => true, () => false);
-
-    if (!hasOpenShell) {
-      await clickVisibleButtonByPrefix(page, PROJECT_BUTTON_PREFIX);
-    }
+    // Wait for the project button to appear and click it to ensure
+    // the workspace has fully loaded.
+    await expect(page.getByRole('button', { name: /^fixture-project\b/i }).first()).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: /^fixture-project\b/i }).first().click();
   }
+
+  // Explicitly open the shell dock panel to trigger shell websocket creation.
+  const shellButton = page.getByRole('button', { name: /^Shell$|^终端$/ });
+  await expect(shellButton).toBeVisible({ timeout: 10_000 });
+  await shellButton.click();
 
   const terminalSurface = page.locator('.xterm');
   await waitForOpenShellSocket(page);

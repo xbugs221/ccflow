@@ -101,7 +101,7 @@ test('i18n only supports English and Simplified Chinese and rejects old saved lo
 
 test('old global Git and settings API key routes are removed while project Git route remains', async () => {
   const apiClient = await readRepoFile('src/utils/api.ts');
-  const onboarding = await readRepoFile('src/components/auth/Onboarding.jsx');
+  const onboarding = await readRepoFile('src/components/auth/Onboarding.tsx');
   assert.equal(routePaths(userRoutes).includes('/git-config'), false);
   assert.equal(routePaths(settingsRoutes).includes('/api-keys'), false);
   assert.equal(routePaths(settingsRoutes).includes('/credentials'), false);
@@ -111,7 +111,7 @@ test('old global Git and settings API key routes are removed while project Git r
 });
 
 test('project creation keeps one-time GitHub token input without settings credentials lookup', async () => {
-  const wizard = await readRepoFile('src/components/projects/view/ProjectCreationWizard.jsx');
+  const wizard = await readRepoFile('src/components/projects/view/ProjectCreationWizard.tsx');
 
   assert.doesNotMatch(wizard, /settings\/credentials|availableTokens|selectedGithubToken|githubTokenId/);
   assert.match(wizard, /newGithubToken/);

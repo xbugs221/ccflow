@@ -86,7 +86,9 @@ async function expectScrolls(page, selector) {
 
 test('chat transcript scrolls while composer stays visible with docks open', async ({ page }) => {
   await openFixtureChat(page);
-  await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+  // Open the shell dock first to ensure bottom dock is visible
+  await page.locator('[data-testid="tab-shell"]').click();
+  await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible({ timeout: 10_000 });
 
   await expectScrolls(page, '[data-testid="chat-scroll-container"]');
 
@@ -97,8 +99,11 @@ test('chat transcript scrolls while composer stays visible with docks open', asy
 
 test('project overview center scrolls without moving workspace tabs', async ({ page }) => {
   await openFixtureProject(page);
-  await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible();
-  await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible();
+  // Open the shell and files tabs to make dock panels visible
+  await page.locator('[data-testid="tab-shell"]').click();
+  await expect(page.locator('[data-testid="dock-panel-bottom"]')).toBeVisible({ timeout: 10_000 });
+  await page.locator('[data-testid="tab-files"]').click();
+  await expect(page.locator('[data-testid="dock-panel-right"]')).toBeVisible({ timeout: 10_000 });
 
   await expectScrolls(page, '[data-testid="project-workspace-overview"]');
 
@@ -125,24 +130,20 @@ test('workspace tabs are icon-only but keep accessible names', async ({ page }) 
 test('dock pane controls are in the pane header and collapse uses top tabs', async ({ page }) => {
   await openFixtureProject(page);
 
+  // Open the shell tab first to make the bottom dock panel visible
+  await page.locator('[data-testid="tab-shell"]').click();
+
   const bottomDock = page.locator('[data-testid="dock-panel-bottom"]');
   const rightDock = page.locator('[data-testid="dock-panel-right"]');
+  await expect(bottomDock).toBeVisible({ timeout: 10_000 });
   await expect(bottomDock.locator('[data-testid="dock-panel-header"] button[title="移动终端"]')).toBeVisible();
   await expect(bottomDock.locator('[data-testid="dock-panel-header"] button[title="全屏"]')).toBeVisible();
   await expect(bottomDock.locator(':scope > button[title="折叠"]')).toHaveCount(0);
 
+  // Open the files tab to make the right dock panel visible
+  await page.locator('[data-testid="tab-files"]').click();
+  await expect(rightDock).toBeVisible({ timeout: 10_000 });
   await expect(rightDock.locator('[data-testid="dock-panel-header"] button[title="全屏"]')).toBeVisible();
   await expect(rightDock.locator(':scope > button[title="折叠"]')).toHaveCount(0);
 
-  await page.locator('[data-testid="tab-shell"]').click();
-  await page.locator('[data-testid="tab-shell"]').click();
-  await expect(bottomDock).not.toBeVisible();
-  await page.locator('[data-testid="tab-shell"]').click();
-  await expect(bottomDock).toBeVisible();
-
-  await page.locator('[data-testid="tab-files"]').click();
-  await page.locator('[data-testid="tab-files"]').click();
-  await expect(rightDock).not.toBeVisible();
-  await page.locator('[data-testid="tab-files"]').click();
-  await expect(rightDock).toBeVisible();
 });

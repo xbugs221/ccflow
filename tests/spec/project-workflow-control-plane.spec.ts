@@ -14,6 +14,7 @@ import {
 } from './helpers/spec-test-helpers.ts';
 import { PLAYWRIGHT_FIXTURE_HOME, PLAYWRIGHT_FIXTURE_PROJECT_PATHS } from '../e2e/helpers/playwright-fixture.ts';
 import { resolveWoRunStatePath } from '../../server/domains/workflows/wo-runtime-paths.ts';
+import { getProjectLocalConfigPath } from '../../server/project-config-store.ts';
 
 /**
  * Write one synthetic Codex session fixture so acceptance tests can exercise
@@ -367,7 +368,7 @@ test.describe('项目内需求工作流控制面', () => {
     await openFixtureProject(page);
     await page.getByRole('button', { name: /自动工作流/ }).click();
     await page.getByRole('button', { name: /登录升级/ }).click();
-    await page.getByTestId('workflow-role-row-planning').getByRole('button').click();
+    await page.getByTestId('workflow-role-row-planning').getByRole('button', { name: '会话' }).click();
 
     await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/planning$/);
     await expect(page).not.toHaveURL(/\/session\/new-session-/);
@@ -443,7 +444,7 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(page.getByTestId('workflow-stage-mini-map')).toHaveCount(0);
     await expect(page.getByTestId('workflow-inspection-tree')).toHaveCount(0);
 
-    await page.getByTestId('workflow-role-row-planning').getByRole('button').click();
+    await page.getByTestId('workflow-role-row-planning').getByRole('button', { name: '会话' }).click();
     await expect(page).toHaveURL(/\/runs\/run-fixture\/sessions\/planning$/);
     await expect(page.getByTestId('workflow-minimap')).toHaveCount(0);
     await expect(page.getByTestId('workflow-minimap-drag-handle')).toHaveCount(0);
@@ -768,13 +769,7 @@ test.describe('项目内需求工作流控制面', () => {
 
   test('项目主页的工作流和会话右键菜单支持收藏、待处理、隐藏及恢复', async ({ page }) => {
     await openFixtureProject(page);
-    const projectConfPath = path.join(
-      PLAYWRIGHT_FIXTURE_HOME,
-      'workspace',
-      'fixture-project',
-      '.cbw',
-      'conf.json',
-    );
+    const projectConfPath = getProjectLocalConfigPath(PLAYWRIGHT_FIXTURE_PROJECT_PATHS[0]);
 
     const fixtureSessionName = /^fixture-project manual-only session\b/;
     const sidebarSessionCard = page.getByTestId('manual-session-group').getByRole('button', { name: fixtureSessionName }).first();

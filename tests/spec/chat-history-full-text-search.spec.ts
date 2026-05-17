@@ -7,6 +7,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { PLAYWRIGHT_FIXTURE_HOME } from '../e2e/helpers/playwright-fixture.ts';
+import { resolveWoRunStatePath } from '../../server/domains/workflows/wo-runtime-paths.ts';
 import {
   PRIMARY_FIXTURE_PROJECT_PATH,
   authenticatePage,
@@ -85,15 +86,7 @@ async function writeCodexSessionFile({ fileName, entries }) {
  * @returns {Promise<void>}
  */
 async function pointFixtureWorkflowExecutionAtThread(thread) {
-  const statePath = path.join(
-    PLAYWRIGHT_FIXTURE_HOME,
-    'workspace',
-    'fixture-project',
-    '.cbw',
-    'runs',
-    'run-fixture',
-    'state.json',
-  );
+  const statePath = resolveWoRunStatePath(PRIMARY_FIXTURE_PROJECT_PATH, 'run-fixture');
   const state = JSON.parse(await fs.readFile(statePath, 'utf8'));
   const processes = Array.isArray(state.processes)
     ? state.processes.map((process) => (

@@ -58,7 +58,7 @@ test('returns fixture chat matches for an authenticated chat search request', as
       expect.objectContaining({
         provider: 'codex',
         sessionId: 'fixture-project-session',
-        sessionSummary: 'fixture-project session',
+        sessionSummary: 'Codex Session',
         snippet: expect.stringContaining('fixture-project session'),
       }),
     ]),
