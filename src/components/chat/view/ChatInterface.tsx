@@ -135,6 +135,7 @@ function ChatInterface({
   const awaitingBackendResponseRef = useRef(false);
   const [workflowTurnOutcomes, setWorkflowTurnOutcomes] = useState<Record<string, 'completed' | 'failed'>>({});
   const [isFollowingLatest, setIsFollowingLatest] = useState(false);
+  const [searchHighlightRetry, setSearchHighlightRetry] = useState(0);
 
   const activeSearchTarget = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -150,6 +151,10 @@ function ChatInterface({
       messageKey,
     };
   }, [location.search]);
+
+  useEffect(() => {
+    setSearchHighlightRetry(0);
+  }, [activeSearchTarget?.messageKey, activeSearchTarget?.query]);
   const resetStreamingState = useCallback(() => {
     if (streamTimerRef.current) {
       clearTimeout(streamTimerRef.current);
@@ -215,6 +220,8 @@ function ChatInterface({
     visibleMessages,
     loadEarlierMessages,
     loadAllMessages,
+    loadMessagesUntilTarget,
+    revealLoadedMessage,
     allMessagesLoaded,
     isLoadingAllMessages,
     loadAllJustFinished,
@@ -258,11 +265,14 @@ function ChatInterface({
     handleCommandSelect,
     handleToggleCommandMenu,
     showFileDropdown,
+    fileSearchQuery,
+    setFileSearchQuery,
     filteredFiles,
     selectedFileIndex,
     renderInputWithMentions,
     selectFile,
     openFileDropdown,
+    handleFileMentionsKeyDown,
     attachedUploads,
     setAttachedUploads,
     uploadingAttachments,
@@ -681,17 +691,23 @@ function ChatInterface({
     }
 
     const hasTargetMessage = chatMessages.some((message) => message.messageKey === activeSearchTarget.messageKey);
-    if (hasTargetMessage || isLoadingAllMessages || allMessagesLoaded) {
+    if (hasTargetMessage) {
+      revealLoadedMessage(activeSearchTarget.messageKey);
+      return;
+    }
+    if (isLoadingMoreMessages || isLoadingAllMessages || allMessagesLoaded) {
       return;
     }
 
-    void loadAllMessages();
+    void loadMessagesUntilTarget({ messageKey: activeSearchTarget.messageKey });
   }, [
     activeSearchTarget,
     allMessagesLoaded,
     chatMessages,
+    isLoadingMoreMessages,
     isLoadingAllMessages,
-    loadAllMessages,
+    loadMessagesUntilTarget,
+    revealLoadedMessage,
     selectedSession?.id,
   ]);
 
@@ -717,6 +733,14 @@ function ChatInterface({
     const selector = `.chat-message[data-message-key="${CSS.escape(activeSearchTarget.messageKey)}"]`;
     const targetElement = document.querySelector<HTMLElement>(selector);
     if (!targetElement) {
+      if (searchHighlightRetry < 6) {
+        const retryHandle = window.setTimeout(() => {
+          setSearchHighlightRetry((attempt) => attempt + 1);
+        }, 50);
+        return () => {
+          window.clearTimeout(retryHandle);
+        };
+      }
       return;
     }
 
@@ -788,7 +812,7 @@ function ChatInterface({
     return () => {
       clearHighlights();
     };
-  }, [activeSearchTarget, chatMessages, selectedSession?.id]);
+  }, [activeSearchTarget, chatMessages, searchHighlightRetry, selectedSession?.id, visibleMessages]);
 
   useEffect(() => {
     if (hasPersistentSession) {
@@ -927,9 +951,12 @@ function ChatInterface({
           uploadingAttachments={uploadingAttachments}
           attachmentErrors={attachmentErrors}
           showFileDropdown={showFileDropdown}
+          fileSearchQuery={fileSearchQuery}
+          onFileSearchQueryChange={setFileSearchQuery}
           filteredFiles={filteredFiles}
           selectedFileIndex={selectedFileIndex}
           onSelectFile={selectFile}
+          onFileMenuKeyDown={handleFileMentionsKeyDown}
           filteredCommands={filteredCommands}
           selectedCommandIndex={selectedCommandIndex}
           onCommandSelect={handleCommandSelect}

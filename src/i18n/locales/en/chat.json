@@ -108,6 +108,10 @@
     "disabled": "Input disabled",
     "attachFiles": "Attach files",
     "attachFolder": "Attach folder",
+    "insertProjectFile": "Insert project file",
+    "searchProjectFiles": "Search project files...",
+    "noMatchingFiles": "No matching files",
+    "noProjectFiles": "No project files",
     "send": "Send",
     "stop": "Stop",
     "hintText": {

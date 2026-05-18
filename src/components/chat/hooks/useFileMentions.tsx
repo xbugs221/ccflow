@@ -1,7 +1,11 @@
+/**
+ * PURPOSE: Load project files, fuzzy-search mentionable paths, and insert selected file references into chat input.
+ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, KeyboardEvent, RefObject, SetStateAction } from 'react';
 import { api } from '../../../utils/api';
 import { escapeRegExp } from '../utils/chatFormatting';
+import { filterMentionableFiles, type MentionableFile } from '../utils/fileMentionSearch';
 import type { Project } from '../../../types/app';
 
 interface ProjectFileNode {
@@ -11,12 +15,6 @@ interface ProjectFileNode {
   children?: ProjectFileNode[];
 }
 
-export interface MentionableFile {
-  name: string;
-  path: string;
-  relativePath?: string;
-}
-
 interface UseFileMentionsOptions {
   selectedProject: Project | null;
   input: string;
@@ -24,6 +22,9 @@ interface UseFileMentionsOptions {
   textareaRef: RefObject<HTMLTextAreaElement>;
 }
 
+/**
+ * Flatten the API tree so the composer can search files by display path without exposing directories as references.
+ */
 const flattenFileTree = (files: ProjectFileNode[], basePath = ''): MentionableFile[] => {
   let flattened: MentionableFile[] = [];
 
@@ -46,10 +47,13 @@ const flattenFileTree = (files: ProjectFileNode[], basePath = ''): MentionableFi
   return flattened;
 };
 
+/**
+ * Manage project file mention state for the chat composer.
+ */
 export function useFileMentions({ selectedProject, input, setInput, textareaRef }: UseFileMentionsOptions) {
   const [fileList, setFileList] = useState<MentionableFile[]>([]);
   const [fileMentions, setFileMentions] = useState<string[]>([]);
-  const [filteredFiles, setFilteredFiles] = useState<MentionableFile[]>([]);
+  const [fileSearchQuery, setFileSearchQuery] = useState('');
   const [showFileDropdown, setShowFileDropdown] = useState(false);
   const [selectedFileIndex, setSelectedFileIndex] = useState(-1);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -61,11 +65,10 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
       const projectName = selectedProject?.name;
       const projectPath = selectedProject?.fullPath || selectedProject?.path || '';
       setFileList([]);
-      setFilteredFiles([]);
+      setFileSearchQuery('');
       if (!projectName) {
         return;
       }
-
 
       try {
         const response = await api.getFiles(projectName, {
@@ -93,17 +96,32 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
     };
   }, [selectedProject?.fullPath, selectedProject?.name, selectedProject?.path]);
 
+  const filteredFiles = useMemo(
+    () => filterMentionableFiles(fileList, fileSearchQuery),
+    [fileList, fileSearchQuery],
+  );
+
+  useEffect(() => {
+    if (!showFileDropdown) {
+      setSelectedFileIndex(-1);
+      return;
+    }
+
+    setSelectedFileIndex(filteredFiles.length > 0 ? 0 : -1);
+  }, [filteredFiles.length, fileSearchQuery, showFileDropdown]);
+
   const openFileDropdown = useCallback(() => {
     if (showFileDropdown) {
       setShowFileDropdown(false);
       setSelectedFileIndex(-1);
+      setFileSearchQuery('');
       return;
     }
 
     const selectionStart = textareaRef.current?.selectionStart ?? input.length;
     setCursorPosition(selectionStart);
-    setSelectedFileIndex(-1);
-    setFilteredFiles(fileList.slice(0, 50));
+    setFileSearchQuery('');
+    setSelectedFileIndex(fileList.length > 0 ? 0 : -1);
     setShowFileDropdown(true);
   }, [fileList, input.length, showFileDropdown, textareaRef]);
 
@@ -174,18 +192,26 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
       );
 
       setShowFileDropdown(false);
+      setFileSearchQuery('');
+      window.setTimeout(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(newCursorPosition, newCursorPosition);
+      }, 0);
     },
-    [cursorPosition, input, setInput],
+    [cursorPosition, input, setInput, textareaRef],
   );
 
   const handleFileMentionsKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
-      if (!showFileDropdown || filteredFiles.length === 0) {
+    (event: KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>): boolean => {
+      if (!showFileDropdown) {
         return false;
       }
 
       if (event.key === 'ArrowDown') {
         event.preventDefault();
+        if (filteredFiles.length === 0) {
+          return true;
+        }
         setSelectedFileIndex((previousIndex) =>
           previousIndex < filteredFiles.length - 1 ? previousIndex + 1 : 0,
         );
@@ -194,6 +220,9 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
 
       if (event.key === 'ArrowUp') {
         event.preventDefault();
+        if (filteredFiles.length === 0) {
+          return true;
+        }
         setSelectedFileIndex((previousIndex) =>
           previousIndex > 0 ? previousIndex - 1 : filteredFiles.length - 1,
         );
@@ -202,6 +231,9 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
 
       if (event.key === 'Tab' || event.key === 'Enter') {
         event.preventDefault();
+        if (filteredFiles.length === 0) {
+          return true;
+        }
         if (selectedFileIndex >= 0) {
           selectFile(filteredFiles[selectedFileIndex]);
         } else if (filteredFiles.length > 0) {
@@ -213,6 +245,7 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
       if (event.key === 'Escape') {
         event.preventDefault();
         setShowFileDropdown(false);
+        setFileSearchQuery('');
         return true;
       }
 
@@ -223,6 +256,8 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
 
   return {
     showFileDropdown,
+    fileSearchQuery,
+    setFileSearchQuery,
     filteredFiles,
     selectedFileIndex,
     renderInputWithMentions,

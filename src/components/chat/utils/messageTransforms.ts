@@ -549,6 +549,7 @@ export const convertSessionMessages = (rawMessages: any[]): ChatMessage[] => {
     }
 
     if (message.type === 'tool_use' && message.toolName) {
+      const isSubagentContainer = message.toolName === 'Task' || message.toolName === 'Agent';
       converted.push({
         type: 'assistant',
         content: '',
@@ -559,6 +560,14 @@ export const convertSessionMessages = (rawMessages: any[]): ChatMessage[] => {
         toolName: message.toolName,
         toolInput: normalizeToolInput(message.toolInput),
         toolCallId: message.toolCallId,
+        isSubagentContainer,
+        subagentState: isSubagentContainer
+          ? {
+              childTools: [],
+              currentToolIndex: -1,
+              isComplete: false,
+            }
+          : undefined,
       });
       return;
     }
@@ -574,6 +583,24 @@ export const convertSessionMessages = (rawMessages: any[]): ChatMessage[] => {
             content: normalizeToolResultContent(message.output),
             isError: false,
           };
+          if (
+            (convertedMessage.toolName === 'Task' || convertedMessage.toolName === 'Agent') &&
+            Array.isArray(message.subagentTools)
+          ) {
+            const childTools = message.subagentTools.map((tool: any) => ({
+              toolId: tool.toolId,
+              toolName: tool.toolName,
+              toolInput: tool.toolInput,
+              toolResult: tool.toolResult || null,
+              timestamp: new Date(tool.timestamp || message.timestamp || Date.now()),
+            }));
+            convertedMessage.isSubagentContainer = true;
+            convertedMessage.subagentState = {
+              childTools,
+              currentToolIndex: childTools.length > 0 ? childTools.length - 1 : -1,
+              isComplete: true,
+            };
+          }
           break;
         }
       }

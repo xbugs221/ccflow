@@ -29,9 +29,14 @@ type CodeBlockProps = {
   children?: React.ReactNode;
 };
 
+const LARGE_CODE_BLOCK_LINE_THRESHOLD = 80;
+const LARGE_CODE_BLOCK_CHAR_THRESHOLD = 8_000;
+const LARGE_CODE_BLOCK_PREVIEW_LINES = 12;
+
 const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockProps) => {
   const { t } = useTranslation('chat');
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const raw = Array.isArray(children) ? children.join('') : String(children ?? '');
   const looksMultiline = /[\r\n]/.test(raw);
   const inlineDetected = inline || (node && node.type === 'inlineCode');
@@ -51,6 +56,33 @@ const CodeBlock = ({ node, inline, className, children, ...props }: CodeBlockPro
 
   const match = /language-(\w+)/.exec(className || '');
   const language = match ? match[1] : 'text';
+  const lines = raw.split(/\r?\n/);
+  const isLargeCodeBlock = lines.length > LARGE_CODE_BLOCK_LINE_THRESHOLD || raw.length > LARGE_CODE_BLOCK_CHAR_THRESHOLD;
+
+  if (isLargeCodeBlock && !expanded) {
+    const preview = lines.slice(0, LARGE_CODE_BLOCK_PREVIEW_LINES).join('\n');
+    return (
+      <div className="my-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 overflow-hidden">
+        <div className="flex items-center justify-between gap-3 border-b border-gray-200 dark:border-gray-700 px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+          <span className="font-mono uppercase">{language}</span>
+          <span>{lines.length} lines</span>
+        </div>
+        <pre
+          data-testid="large-code-block-summary"
+          className="max-h-56 overflow-hidden p-3 text-xs font-mono whitespace-pre-wrap break-words text-gray-700 dark:text-gray-200"
+        >
+          {preview}
+        </pre>
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="border-t border-gray-200 dark:border-gray-700 px-3 py-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+        >
+          Show full code
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="relative group my-2">

@@ -4913,6 +4913,7 @@ function mapCodexEntryToMessages(entry) {
       messageKey: nextMessageKey(),
       toolCallId: entry.payload.call_id || fallbackToolCallId(),
       output: extractCodexToolOutput(entry.payload),
+      subagentTools: Array.isArray(entry.payload.subagentTools) ? entry.payload.subagentTools : undefined,
     });
     return messages;
   }

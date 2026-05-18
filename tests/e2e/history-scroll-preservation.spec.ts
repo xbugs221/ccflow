@@ -24,6 +24,13 @@ const [{ generateToken }, { userDb }] = await Promise.all([
 const HISTORY_SCROLL_PROJECT_INDEX = 5;
 const HISTORY_SCROLL_SESSION_ID = PLAYWRIGHT_FIXTURE_SESSION_IDS[HISTORY_SCROLL_PROJECT_INDEX];
 const HISTORY_SCROLL_PROJECT_PATH = PLAYWRIGHT_FIXTURE_PROJECT_PATHS[HISTORY_SCROLL_PROJECT_INDEX];
+const MIXED_LONG_SESSION_ID = 'fixture-mixed-long-virtual-session';
+const MIXED_LONG_PROJECT_PATH = HISTORY_SCROLL_PROJECT_PATH;
+const MIXED_LONG_TARGET_TEXT = 'mixed long virtual target needle 520';
+const MIXED_LONG_HIDDEN_CODE_TEXT = 'mixed long virtual full code line 090';
+const MIXED_LONG_HIDDEN_DIFF_TEXT = 'new virtual diff final hidden line 220';
+const MIXED_LONG_HIDDEN_TOOL_OUTPUT_TEXT = 'mixed long virtual full tool output hidden line 140';
+const MIXED_LONG_HIDDEN_SUBAGENT_TEXT = 'mixed long virtual subagent child hidden output 25';
 
 /**
  * Encode a project path the same way project API routes address project roots.
@@ -51,8 +58,10 @@ function createLocalAuthToken() {
 
 /**
  * Append a new assistant message to the fixture session file to trigger `projects_updated`.
+ *
+ * @param {string} content
  */
-function appendAssistantHistoryMessage() {
+function appendAssistantHistoryMessage(content = 'history scroll externally appended assistant turn') {
   const sessionDir = path.join(
     PLAYWRIGHT_FIXTURE_HOME,
     '.codex',
@@ -71,12 +80,13 @@ function appendAssistantHistoryMessage() {
       payload: {
         type: 'message',
         role: 'assistant',
-        content: [{ type: 'output_text', text: 'history scroll externally appended assistant turn' }],
+        content: [{ type: 'output_text', text: content }],
       },
     })}\n`,
     'utf8',
   );
 }
+
 
 const AUTH_TOKEN = createLocalAuthToken();
 
@@ -117,6 +127,101 @@ test('opening a long history session does not silently load the full transcript'
   expect(messageRequests.some((url) => new URL(url).searchParams.get('limit') === '100')).toBe(true);
 });
 
+test('1000+ mixed long session keeps DOM bounded and search reveals offscreen target', async ({ page }) => {
+  const messageRequests = [];
+  await page.route(/\/api\/(?:projects\/.*\/sessions|codex\/sessions)\/.*\/messages.*/, async (route) => {
+    messageRequests.push(route.request().url());
+    await route.continue();
+  });
+
+  await page.goto(`/session/${MIXED_LONG_SESSION_ID}`, { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('mixed long virtual markdown turn 1050');
+
+  const unboundedRequests = messageRequests.filter((url) => {
+    const parsedUrl = new URL(url);
+    return !parsedUrl.searchParams.has('limit') && !parsedUrl.searchParams.has('afterLine');
+  });
+  expect(unboundedRequests).toEqual([]);
+  await expect
+    .poll(async () => page.locator('.chat-message').count())
+    .toBeLessThanOrEqual(150);
+  await expect(page.getByTestId('codex-tool-card')).toHaveCount(3);
+  await expect(page.getByTestId('large-code-block-summary')).toBeVisible();
+  await expect(page.getByText(MIXED_LONG_HIDDEN_CODE_TEXT)).toHaveCount(0);
+  await expect(page.getByText(MIXED_LONG_HIDDEN_DIFF_TEXT)).toHaveCount(0);
+  await expect(page.getByText(MIXED_LONG_HIDDEN_TOOL_OUTPUT_TEXT)).toHaveCount(0);
+  await expect(page.getByText(MIXED_LONG_HIDDEN_SUBAGENT_TEXT)).toHaveCount(0);
+  await expect(page.getByTestId('collapsible-lazy-content')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Show full code' }).click();
+  await expect(page.getByText(MIXED_LONG_HIDDEN_CODE_TEXT)).toBeVisible();
+
+  const diffToolCard = page.getByTestId('codex-tool-card').filter({ hasText: 'virtual-long-diff.ts' });
+  await expect(diffToolCard).toHaveAttribute('data-collapsed', 'true');
+  await diffToolCard.locator('summary').first().click();
+  await expect(diffToolCard.getByTestId('large-diff-summary')).toBeVisible();
+  await expect(page.getByText(MIXED_LONG_HIDDEN_DIFF_TEXT)).toHaveCount(0);
+  await diffToolCard.getByRole('button', { name: 'Show full diff' }).click();
+  await expect(page.getByText(MIXED_LONG_HIDDEN_DIFF_TEXT)).toBeVisible();
+
+  const outputToolCard = page.getByTestId('codex-tool-card').filter({ hasText: 'write_stdin' });
+  await expect(outputToolCard).toHaveAttribute('data-collapsed', 'true');
+  await outputToolCard.locator('summary').filter({ hasText: 'Output' }).click();
+  await expect(outputToolCard.getByTestId('large-tool-output-summary')).toBeVisible();
+  await expect(page.getByText(MIXED_LONG_HIDDEN_TOOL_OUTPUT_TEXT)).toHaveCount(0);
+  await outputToolCard.getByRole('button', { name: /Show .* more lines/ }).click();
+  await expect(page.getByText(MIXED_LONG_HIDDEN_TOOL_OUTPUT_TEXT)).toBeVisible();
+
+  const subagentToolCard = page.getByTestId('codex-tool-card').filter({ hasText: 'Deep virtual audit' });
+  await expect(subagentToolCard).toHaveAttribute('data-collapsed', 'true');
+  await expect(subagentToolCard).not.toContainText('Steps');
+  await subagentToolCard.locator('summary').first().click();
+  await expect(subagentToolCard).toContainText('25/25 done');
+  await expect(subagentToolCard).toContainText('Steps');
+  await expect(page.getByText(MIXED_LONG_HIDDEN_SUBAGENT_TEXT)).toHaveCount(0);
+  await subagentToolCard.getByText('printf "subagent child 25"').click();
+  await expect(page.getByText(MIXED_LONG_HIDDEN_SUBAGENT_TEXT)).toBeVisible();
+  await expect
+    .poll(async () => page.locator('.chat-message').count())
+    .toBeLessThanOrEqual(150);
+
+  await page.evaluate(() => window.openChatHistorySearch?.());
+  await page.route('**/api/chat/search**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        results: [{
+          resultType: 'message',
+          projectName: '',
+          projectDisplayName: 'history-scroll',
+          provider: 'codex',
+          sessionId: MIXED_LONG_SESSION_ID,
+          sessionSummary: 'Codex Session',
+          messageKey: `codex:${MIXED_LONG_SESSION_ID}:line:1041:msg:0`,
+          snippet: MIXED_LONG_TARGET_TEXT,
+          timestamp: '2026-04-17T08:40:40.000Z',
+        }],
+      }),
+    });
+  });
+  await expect(page.getByTestId('chat-history-search-input')).toBeVisible();
+  await page.getByTestId('chat-history-search-input').fill(MIXED_LONG_TARGET_TEXT);
+  await page.getByTestId('chat-history-search-input').press('Enter');
+  const result = page.getByTestId('chat-history-search-result').first();
+  await expect(result).toContainText(MIXED_LONG_TARGET_TEXT);
+  await result.click();
+
+  const target = page.locator('.chat-message').filter({ hasText: MIXED_LONG_TARGET_TEXT }).first();
+  await expect(target).toBeVisible();
+  await expect(target).toBeInViewport();
+  await expect(target.locator('.chat-search-highlight')).toContainText(MIXED_LONG_TARGET_TEXT);
+  await expect
+    .poll(async () => page.locator('.chat-message').count())
+    .toBeLessThanOrEqual(150);
+});
+
 test('scrolling up through history loads older messages', async ({ page }) => {
   await page.goto(`/session/${HISTORY_SCROLL_SESSION_ID}`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('history scroll fixture session assistant turn 80');
@@ -127,9 +232,54 @@ test('scrolling up through history loads older messages', async ({ page }) => {
     element.dispatchEvent(new Event('scroll'));
   });
 
-  // After scrolling up, earlier content should be visible alongside the latest
-  await expect(page.locator('body')).toContainText('history scroll fixture session assistant turn 03');
+  // After prepending older history, the previous read anchor stays in view
+  // instead of jumping to the top of the newly loaded page.
   await expect(page.locator('body')).toContainText('history scroll fixture session assistant turn 12');
+  await expect
+    .poll(async () => scrollContainer.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+});
+
+test('scrolling to the top preserves the read anchor after older history prepends', async ({ page }) => {
+  await page.goto(`/session/${HISTORY_SCROLL_SESSION_ID}`, { waitUntil: 'networkidle' });
+  const scrollContainer = page.getByTestId('chat-scroll-container');
+  await expect(page.locator('body')).toContainText('history scroll fixture session assistant turn 80');
+
+  await scrollContainer.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event('scroll'));
+  });
+
+  await expect(page.locator('body')).toContainText('history scroll fixture session assistant turn 12');
+  await expect
+    .poll(async () => scrollContainer.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+  await expect(page.locator('body')).toContainText('history scroll fixture session assistant turn 31');
+});
+
+test('external append while scrolled up does not force bottom follow', async ({ page }) => {
+  const appendedText = `history scroll externally appended while reading ${Date.now()}`;
+  await page.goto(`/session/${HISTORY_SCROLL_SESSION_ID}`, { waitUntil: 'networkidle' });
+  const scrollContainer = page.getByTestId('chat-scroll-container');
+  await expect(page.locator('body')).toContainText('history scroll fixture session assistant turn 80');
+
+  await scrollContainer.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event('scroll'));
+  });
+  await expect(page.locator('body')).toContainText('history scroll fixture session assistant turn 12');
+  const distanceBeforeAppend = await scrollContainer.evaluate(
+    (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
+  );
+
+  appendAssistantHistoryMessage(appendedText);
+  await page.waitForTimeout(1500);
+  const distanceAfterAppend = await scrollContainer.evaluate(
+    (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
+  );
+
+  expect(distanceAfterAppend).toBeGreaterThanOrEqual(Math.max(1, distanceBeforeAppend - 4));
+  await expect(page.getByText(appendedText)).toBeHidden();
 });
 
 // This test appends to the fixture file, so it must run after the scroll test above.

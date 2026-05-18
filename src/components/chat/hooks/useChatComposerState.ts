@@ -409,6 +409,8 @@ export function useChatComposerState({
 
   const {
     showFileDropdown,
+    fileSearchQuery,
+    setFileSearchQuery,
     filteredFiles,
     selectedFileIndex,
     renderInputWithMentions,
@@ -1115,11 +1117,14 @@ export function useChatComposerState({
     handleCommandSelect,
     handleToggleCommandMenu,
     showFileDropdown,
+    fileSearchQuery,
+    setFileSearchQuery,
     filteredFiles: filteredFiles as MentionableFile[],
     selectedFileIndex,
     renderInputWithMentions,
     selectFile,
     openFileDropdown,
+    handleFileMentionsKeyDown,
     attachedUploads,
     setAttachedUploads,
     uploadingAttachments,

@@ -228,10 +228,10 @@ export const SubagentContainer: React.FC<SubagentContainerProps> = ({
   const completedTools = childTools.filter(c => c.toolResult && !c.toolResult.isError).length;
   const errorTools = childTools.filter(c => c.toolResult?.isError).length;
 
-  // Default collapsed; only expand when user explicitly requests it
-  const defaultOpen = autoExpandTools;
+  // Keep large child timelines collapsed so history rendering only mounts the summary row.
+  const defaultOpen = autoExpandTools && childTools.length <= 20;
 
-  const title = `${subagentType}: ${description}`;
+  const title = `${subagentType}: ${description} (${completedTools}/${totalTools} done${errorTools > 0 ? `, ${errorTools} errors` : ''})`;
 
   /* ─── result content ─── */
   const resultContent = useMemo(() => {

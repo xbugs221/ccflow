@@ -108,6 +108,10 @@
     "disabled": "输入已禁用",
     "attachFiles": "附加文件",
     "attachFolder": "附加文件夹",
+    "insertProjectFile": "引用项目文件",
+    "searchProjectFiles": "搜索项目文件...",
+    "noMatchingFiles": "没有匹配文件",
+    "noProjectFiles": "没有项目文件",
     "send": "发送",
     "stop": "停止",
     "hintText": {

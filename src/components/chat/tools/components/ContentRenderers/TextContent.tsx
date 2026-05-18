@@ -7,6 +7,10 @@ interface TextContentProps {
   maxLines?: number;
 }
 
+const LARGE_TEXT_LINE_THRESHOLD = 120;
+const LARGE_TEXT_CHAR_THRESHOLD = 10_000;
+const LARGE_TEXT_PREVIEW_LINES = 20;
+
 /**
  * Renders plain text, JSON, or code content
  * Used by: Raw parameters, generic text results, JSON responses
@@ -21,18 +25,42 @@ export const TextContent: React.FC<TextContentProps> = ({
 
   const lineState = useMemo(() => {
     const lines = content.split('\n');
-    const shouldTruncate = Boolean(maxLines && maxLines > 0 && lines.length > maxLines);
+    const effectiveMaxLines = maxLines || LARGE_TEXT_PREVIEW_LINES;
+    const isLargeContent = lines.length > LARGE_TEXT_LINE_THRESHOLD || content.length > LARGE_TEXT_CHAR_THRESHOLD;
+    const shouldTruncate = Boolean((maxLines && maxLines > 0 && lines.length > maxLines) || isLargeContent);
     const visible = shouldTruncate && !expanded
-      ? lines.slice(0, maxLines).join('\n')
+      ? lines.slice(0, effectiveMaxLines).join('\n')
       : content;
     return {
       lines,
+      effectiveMaxLines,
+      isLargeContent,
       shouldTruncate,
       visible
     };
   }, [content, expanded, maxLines]);
 
   if (format === 'json') {
+    if (lineState.isLargeContent && !expanded) {
+      return (
+        <div className={className}>
+          <pre
+            data-testid="large-tool-output-summary"
+            className="mt-1 text-xs bg-gray-900 dark:bg-gray-950 text-gray-100 p-2.5 rounded overflow-hidden font-mono whitespace-pre-wrap"
+          >
+            {lineState.visible}
+          </pre>
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="mt-1 text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+          >
+            Show full output
+          </button>
+        </div>
+      );
+    }
+
     let formattedJson = content;
     try {
       const parsed = JSON.parse(content);
@@ -51,7 +79,10 @@ export const TextContent: React.FC<TextContentProps> = ({
   if (format === 'code') {
     return (
       <div className={className}>
-        <pre className="mt-1 text-xs bg-gray-50 dark:bg-gray-800/50 border border-gray-200/50 dark:border-gray-700/50 p-2 rounded whitespace-pre-wrap break-words overflow-hidden text-gray-700 dark:text-gray-300 font-mono">
+        <pre
+          data-testid={lineState.isLargeContent && !expanded ? 'large-tool-output-summary' : undefined}
+          className="mt-1 text-xs bg-gray-50 dark:bg-gray-800/50 border border-gray-200/50 dark:border-gray-700/50 p-2 rounded whitespace-pre-wrap break-words overflow-hidden text-gray-700 dark:text-gray-300 font-mono"
+        >
           {lineState.visible}
         </pre>
         {lineState.shouldTruncate && (
@@ -60,7 +91,7 @@ export const TextContent: React.FC<TextContentProps> = ({
             onClick={() => setExpanded((v) => !v)}
             className="mt-1 text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
           >
-            {expanded ? 'Show less' : `Show ${lineState.lines.length - (maxLines || 0)} more lines`}
+            {expanded ? 'Show less' : `Show ${lineState.lines.length - lineState.effectiveMaxLines} more lines`}
           </button>
         )}
       </div>
@@ -70,7 +101,10 @@ export const TextContent: React.FC<TextContentProps> = ({
   // Plain text
   return (
     <div className={className}>
-      <div className="mt-1 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+      <div
+        data-testid={lineState.isLargeContent && !expanded ? 'large-tool-output-summary' : undefined}
+        className="mt-1 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap"
+      >
         {lineState.visible}
       </div>
       {lineState.shouldTruncate && (
@@ -79,7 +113,7 @@ export const TextContent: React.FC<TextContentProps> = ({
           onClick={() => setExpanded((v) => !v)}
           className="mt-1 text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
         >
-          {expanded ? 'Show less' : `Show ${lineState.lines.length - (maxLines || 0)} more lines`}
+          {expanded ? 'Show less' : `Show ${lineState.lines.length - lineState.effectiveMaxLines} more lines`}
         </button>
       )}
     </div>

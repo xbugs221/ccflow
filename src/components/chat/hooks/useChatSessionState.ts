@@ -31,6 +31,7 @@ import { getIntrinsicMessageKey } from '../utils/messageKeys';
 
 const MESSAGES_PER_PAGE = 100;
 const INITIAL_VISIBLE_MESSAGES = 100;
+const LOCAL_RECOVERY_MESSAGE_LIMIT = 100;
 
 type PendingViewSession = {
   sessionId: string | null;
@@ -51,6 +52,10 @@ interface UseChatSessionStateArgs {
 type LoadAllMessagesOptions = {
   reveal?: boolean;
   silent?: boolean;
+};
+
+type LoadMessagesUntilTargetOptions = {
+  messageKey: string;
 };
 
 interface ScrollRestoreState {
@@ -194,6 +199,7 @@ export function useChatSessionState({
   const loadAllOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionMessagesRef = useRef<any[]>(sessionMessages);
   const chatMessagesRef = useRef<ChatMessage[]>(chatMessages);
+  const hasMoreMessagesRef = useRef(hasMoreMessages);
   const totalMessagesRef = useRef(totalMessages);
   const isUserScrolledUpRef = useRef(isUserScrolledUp);
   const lastHydratedSessionIdRef = useRef<string | null>(null);
@@ -204,6 +210,7 @@ export function useChatSessionState({
   const refreshLatestMessagesRef = useRef<() => Promise<void>>(async () => {});
   sessionMessagesRef.current = sessionMessages;
   chatMessagesRef.current = chatMessages;
+  hasMoreMessagesRef.current = hasMoreMessages;
   totalMessagesRef.current = totalMessages;
   isUserScrolledUpRef.current = isUserScrolledUp;
   frozenTailMessageKeyRef.current = frozenTailMessageKey;
@@ -427,6 +434,47 @@ export function useChatSessionState({
     window.requestAnimationFrame(scrollToBottom);
   }, [scrollToBottom]);
 
+  const revealLoadedMessage = useCallback((messageKey: string) => {
+    /**
+     * Search works against all loaded messages, while visibleMessages may still
+     * be a tail window. Expand the data window enough for the target to become
+     * part of the virtualized transcript without rendering the whole DOM.
+     */
+    if (!messageKey) {
+      return false;
+    }
+
+    const displayMessages = dedupeAdjacentChatMessages(chatMessagesRef.current) as ChatMessage[];
+    const targetIndex = displayMessages.findIndex((message) => message.messageKey === messageKey);
+    if (targetIndex < 0) {
+      return false;
+    }
+
+    let endIndex = displayMessages.length;
+    if (frozenTailMessageKeyRef.current) {
+      const frozenIndex = displayMessages.findIndex((message, index) =>
+        getViewMessageKey(message, index) === frozenTailMessageKeyRef.current,
+      );
+      if (frozenIndex >= 0) {
+        endIndex = frozenIndex + 1;
+      }
+    }
+
+    if (targetIndex >= endIndex) {
+      frozenTailMessageKeyRef.current = null;
+      setFrozenTailMessageKey(null);
+      endIndex = displayMessages.length;
+    }
+
+    setVisibleMessageCount((previousCount) => {
+      const requiredCount = Math.max(INITIAL_VISIBLE_MESSAGES, endIndex - targetIndex);
+      return Number.isFinite(previousCount)
+        ? Math.max(previousCount, requiredCount)
+        : previousCount;
+    });
+    return true;
+  }, []);
+
   const loadOlderMessages = useCallback(
     async (container: HTMLDivElement) => {
       if (!container || isLoadingMoreRef.current || isLoadingMoreMessages) {
@@ -580,20 +628,9 @@ export function useChatSessionState({
       resetSessionViewState();
     }
 
-    if (!pendingScrollRestoreRef.current || !scrollContainerRef.current) {
-      return;
-    }
-
-    const { height, top } = pendingScrollRestoreRef.current;
-    const container = scrollContainerRef.current;
-    const newScrollHeight = container.scrollHeight;
-    const scrollDiff = newScrollHeight - height;
-    container.scrollTop = top + Math.max(scrollDiff, 0);
-    pendingScrollRestoreRef.current = null;
   }, [
     currentSessionId,
     isSystemSessionChange,
-    pendingScrollRestoreRef,
     resetSessionViewState,
     selectedSession?.__provider,
     selectedSession?.id,
@@ -818,8 +855,15 @@ export function useChatSessionState({
       }
 
       if (newMessages.length > 0) {
-        if (frozenTailMessageKeyRef.current || isUserScrolledUpRef.current) {
-          return;
+        const shouldKeepCurrentViewport = frozenTailMessageKeyRef.current || isUserScrolledUpRef.current;
+        if (shouldKeepCurrentViewport && !frozenTailMessageKeyRef.current) {
+          const currentMessages = chatMessagesRef.current;
+          const lastIndex = currentMessages.length - 1;
+          if (lastIndex >= 0) {
+            const frozenKey = getViewMessageKey(currentMessages[lastIndex], lastIndex);
+            frozenTailMessageKeyRef.current = frozenKey;
+            setFrozenTailMessageKey(frozenKey);
+          }
         }
 
         const uniqueNewMessages = getUniqueIncomingSessionMessages(
@@ -836,7 +880,7 @@ export function useChatSessionState({
           ...uniqueNewMessages,
         ]));
         messagesOffsetRef.current += uniqueNewMessages.length;
-        if (!frozenTailMessageKeyRef.current) {
+        if (!shouldKeepCurrentViewport) {
           setVisibleMessageCount((previousCount) =>
             Number.isFinite(previousCount) ? previousCount + uniqueNewMessages.length : previousCount,
           );
@@ -926,9 +970,17 @@ export function useChatSessionState({
   useEffect(() => {
     if (selectedProject && chatMessages.length > 0) {
       const dedupedMessages = dedupeAdjacentChatMessages(chatMessages) as ChatMessage[];
-      safeLocalStorage.setItem(`chat_messages_${selectedProject.name}`, JSON.stringify(dedupedMessages));
+      const recoveryMessages = dedupedMessages
+        .filter((message) => (
+          isTemporarySessionId(currentSessionId) ||
+          message.deliveryStatus === 'sent' ||
+          message.deliveryStatus === 'failed' ||
+          message.source === 'optimistic'
+        ))
+        .slice(-LOCAL_RECOVERY_MESSAGE_LIMIT);
+      safeLocalStorage.setItem(`chat_messages_${selectedProject.name}`, JSON.stringify(recoveryMessages));
     }
-  }, [chatMessages, selectedProject]);
+  }, [chatMessages, currentSessionId, selectedProject]);
 
   useEffect(() => {
     if (!selectedProject || !selectedSession?.id || isTemporarySessionId(selectedSession.id)) {
@@ -985,6 +1037,18 @@ export function useChatSessionState({
     return displayMessages.slice(endIndex - visibleCount, endIndex);
   }, [chatMessages, frozenTailMessageKey, visibleMessageCount]);
 
+  useLayoutEffect(() => {
+    if (!pendingScrollRestoreRef.current || !scrollContainerRef.current) {
+      return;
+    }
+
+    const { height, top } = pendingScrollRestoreRef.current;
+    const container = scrollContainerRef.current;
+    const scrollDiff = container.scrollHeight - height;
+    container.scrollTop = top + Math.max(scrollDiff, 0);
+    pendingScrollRestoreRef.current = null;
+  }, [visibleMessages.length]);
+
   useEffect(() => {
     if (isFollowingLatest) {
       setFrozenTailMessageKey(null);
@@ -1032,7 +1096,7 @@ export function useChatSessionState({
   const loadAllMessages = useCallback(async (options: LoadAllMessagesOptions = {}) => {
     if (!selectedSession || !selectedProject) return;
     if (isLoadingAllMessagesRef.current) return;
-    const { reveal = true, silent = false } = options;
+    const { reveal = false, silent = false } = options;
     const sessionProvider = resolveSessionProvider(selectedProject, selectedSession) || 'codex';
     const sessionProjectName = getSessionProjectName(selectedProject, selectedSession);
 
@@ -1080,7 +1144,8 @@ export function useChatSessionState({
         messagesOffsetRef.current = Array.isArray(allMessages) ? allMessages.length : 0;
 
         if (reveal) {
-          setVisibleMessageCount(Infinity);
+          const loadedMessageCount = Array.isArray(allMessages) ? allMessages.length : INITIAL_VISIBLE_MESSAGES;
+          setVisibleMessageCount(Math.max(loadedMessageCount, INITIAL_VISIBLE_MESSAGES));
           setFrozenTailMessageKey(null);
         }
         setAllMessagesLoaded(true);
@@ -1109,6 +1174,110 @@ export function useChatSessionState({
       }
     }
   }, [selectedSession, selectedProject, currentSessionId]);
+
+  const loadMessagesUntilTarget = useCallback(async ({ messageKey }: LoadMessagesUntilTargetOptions) => {
+    /**
+     * Search navigation must page older history into memory without using the
+     * unbounded load-all endpoint, then let the virtual transcript reveal it.
+     */
+    if (!messageKey || !selectedSession || !selectedProject) {
+      return false;
+    }
+    if (chatMessagesRef.current.some((message) => message.messageKey === messageKey)) {
+      return revealLoadedMessage(messageKey);
+    }
+    if (isLoadingMoreRef.current || isLoadingAllMessagesRef.current) {
+      return false;
+    }
+
+    const sessionProvider = resolveSessionProvider(selectedProject, selectedSession) || 'codex';
+    const sessionProjectName = getSessionProjectName(selectedProject, selectedSession);
+    const requestSessionId = selectedSession.id;
+    let loadedMessages = sessionMessagesRef.current;
+    let loadedVisibleCount = visibleMessageCount;
+
+    isLoadingMoreRef.current = true;
+    setIsLoadingMoreMessages(true);
+
+    try {
+      for (let attempts = 0; attempts < 100; attempts += 1) {
+        if (!hasMoreMessagesRef.current && totalMessagesRef.current <= messagesOffsetRef.current) {
+          allMessagesLoadedRef.current = true;
+          setAllMessagesLoaded(true);
+          setHasMoreMessages(false);
+          return false;
+        }
+
+        const currentOffset = messagesOffsetRef.current;
+        const result = await fetchSessionMessages(
+          sessionProjectName,
+          requestSessionId,
+          MESSAGES_PER_PAGE,
+          currentOffset,
+          sessionProvider,
+        );
+
+        if (currentSessionId !== requestSessionId || result.error) {
+          return false;
+        }
+
+        const loadedCount = result.messages.length;
+        if (loadedCount === 0) {
+          setHasMoreMessages(false);
+          allMessagesLoadedRef.current = true;
+          setAllMessagesLoaded(true);
+          return false;
+        }
+
+        messagesOffsetRef.current = currentOffset + loadedCount;
+        setTotalMessages(result.total > 0 ? result.total : messagesOffsetRef.current);
+        const moreAvailable = result.total > 0
+          ? result.total > messagesOffsetRef.current
+          : result.hasMore;
+        hasMoreMessagesRef.current = moreAvailable;
+        setHasMoreMessages(moreAvailable);
+
+        const uniqueMoreMessages = getUniqueIncomingSessionMessages(loadedMessages, result.messages);
+        if (uniqueMoreMessages.length > 0) {
+          loadedMessages = dedupeSessionMessagesByIdentity([
+            ...uniqueMoreMessages,
+            ...loadedMessages,
+          ]);
+          sessionMessagesRef.current = loadedMessages;
+          setSessionMessages(loadedMessages);
+          loadedVisibleCount += uniqueMoreMessages.length;
+          setVisibleMessageCount((previousCount) => previousCount + uniqueMoreMessages.length);
+
+          const converted = convertSessionMessages(loadedMessages);
+          if (converted.some((message) => message.messageKey === messageKey)) {
+            setFrozenTailMessageKey(null);
+            frozenTailMessageKeyRef.current = null;
+            window.requestAnimationFrame(() => revealLoadedMessage(messageKey));
+            return true;
+          }
+        }
+
+        if (!moreAvailable) {
+          allMessagesLoadedRef.current = true;
+          setAllMessagesLoaded(true);
+          setVisibleMessageCount(Math.max(loadedVisibleCount, INITIAL_VISIBLE_MESSAGES));
+          return false;
+        }
+      }
+
+      return false;
+    } finally {
+      isLoadingMoreRef.current = false;
+      setIsLoadingMoreMessages(false);
+    }
+  }, [
+    currentSessionId,
+    fetchSessionMessages,
+    revealLoadedMessage,
+    selectedProject,
+    selectedSession,
+    visibleMessageCount,
+  ]);
 
   const loadEarlierMessages = useCallback(() => {
     setVisibleMessageCount((previousCount) => previousCount + 100);
@@ -1140,6 +1309,8 @@ export function useChatSessionState({
     visibleMessages,
     loadEarlierMessages,
     loadAllMessages,
+    loadMessagesUntilTarget,
+    revealLoadedMessage,
     allMessagesLoaded,
     isLoadingAllMessages,
     loadAllJustFinished,

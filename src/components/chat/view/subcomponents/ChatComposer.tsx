@@ -66,9 +66,12 @@ interface ChatComposerProps {
   uploadingAttachments: Map<string, number>;
   attachmentErrors: Map<string, string>;
   showFileDropdown: boolean;
+  fileSearchQuery: string;
+  onFileSearchQueryChange: (query: string) => void;
   filteredFiles: MentionableFile[];
   selectedFileIndex: number;
   onSelectFile: (file: MentionableFile) => void;
+  onFileMenuKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
   filteredCommands: SlashCommand[];
   selectedCommandIndex: number;
   onCommandSelect: (command: SlashCommand, index: number, isHover: boolean) => void;
@@ -123,9 +126,12 @@ export default function ChatComposer({
   uploadingAttachments,
   attachmentErrors,
   showFileDropdown,
+  fileSearchQuery,
+  onFileSearchQueryChange,
   filteredFiles,
   selectedFileIndex,
   onSelectFile,
+  onFileMenuKeyDown,
   filteredCommands,
   selectedCommandIndex,
   onCommandSelect,
@@ -156,6 +162,7 @@ export default function ChatComposer({
   const { isConnected } = useWebSocket();
   const folderInputRef = useRef<HTMLInputElement>(null);
   const uploadMenuRef = useRef<HTMLDivElement>(null);
+  const fileSearchInputRef = useRef<HTMLInputElement>(null);
   const trimmedInput = input.trim();
   const canSubmit = !isComposerSubmitting && Boolean(trimmedInput) && isConnected;
   const [isUploadMenuOpen, setIsUploadMenuOpen] = useState(false);
@@ -201,6 +208,18 @@ export default function ChatComposer({
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [isUploadMenuOpen]);
 
+  /**
+   * Put keyboard focus into file search immediately after the mention picker opens.
+   */
+  useEffect(() => {
+    if (!showFileDropdown) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => fileSearchInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [showFileDropdown]);
+
   const guardedAbort = () => {
     if (abortGuardRef.current) {
       return;
@@ -243,30 +262,56 @@ export default function ChatComposer({
           </div>
         )}
 
-        {showFileDropdown && filteredFiles.length > 0 && (
-          <div className="absolute bottom-full left-0 right-0 mb-2 bg-card/95 backdrop-blur-md border border-border/50 rounded-xl shadow-lg max-h-48 overflow-y-auto z-50">
-            {filteredFiles.map((file, index) => (
-              <div
-                key={file.path}
-                className={`px-4 py-3 cursor-pointer border-b border-border/30 last:border-b-0 touch-manipulation ${
-                  index === selectedFileIndex
-                    ? 'bg-primary/8 text-primary'
-                    : 'hover:bg-accent/50 text-foreground'
-                }`}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onSelectFile(file);
-                }}
-              >
-                <div className="font-medium text-sm">{file.name}</div>
-                <div className="text-xs text-muted-foreground font-mono">{file.path}</div>
+        {showFileDropdown && (
+          <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border/50 bg-card/95 shadow-lg backdrop-blur-md">
+            <div className="border-b border-border/30 p-2">
+              <input
+                ref={fileSearchInputRef}
+                type="search"
+                value={fileSearchQuery}
+                onChange={(event) => onFileSearchQueryChange(event.target.value)}
+                onKeyDown={onFileMenuKeyDown}
+                onMouseDown={(event) => event.stopPropagation()}
+                placeholder={t('input.searchProjectFiles', { defaultValue: 'Search project files...' })}
+                aria-label={t('input.searchProjectFiles', { defaultValue: 'Search project files...' })}
+                className="h-9 w-full rounded-lg border border-border/60 bg-background/90 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+              />
+            </div>
+
+            {filteredFiles.length > 0 ? (
+              <div role="listbox" aria-label={t('input.insertProjectFile', { defaultValue: 'Insert project file' })} className="max-h-64 overflow-y-auto">
+                {filteredFiles.map((file, index) => (
+                  <div
+                    key={file.path}
+                    role="option"
+                    aria-selected={index === selectedFileIndex}
+                    className={`cursor-pointer border-b border-border/30 px-4 py-3 last:border-b-0 touch-manipulation ${
+                      index === selectedFileIndex
+                        ? 'bg-primary/8 text-primary'
+                        : 'text-foreground hover:bg-accent/50'
+                    }`}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onSelectFile(file);
+                    }}
+                  >
+                    <div className="truncate text-sm font-medium">{file.name}</div>
+                    <div className="truncate font-mono text-xs text-muted-foreground">{file.path}</div>
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : (
+              <div className="px-4 py-5 text-center text-sm text-muted-foreground">
+                {fileSearchQuery.trim()
+                  ? t('input.noMatchingFiles', { defaultValue: 'No matching files' })
+                  : t('input.noProjectFiles', { defaultValue: 'No project files' })}
+              </div>
+            )}
           </div>
         )}
 

@@ -2,13 +2,14 @@
  * PURPOSE: Render the scrollable chat transcript, including history pagination affordances.
  */
 import { useTranslation } from 'react-i18next';
-import { useCallback, useRef } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   Dispatch,
   KeyboardEvent as ReactKeyboardEvent,
   RefObject,
   SetStateAction,
   TouchEvent as ReactTouchEvent,
+  UIEvent as ReactUIEvent,
   WheelEvent as ReactWheelEvent,
 } from 'react';
 
@@ -17,6 +18,14 @@ import ProviderSelectionEmptyState from './ProviderSelectionEmptyState';
 import type { ChatMessage } from '../../types/types';
 import type { Project, ProjectSession, SessionProvider } from '../../../../types/app';
 import { getIntrinsicMessageKey } from '../../utils/messageKeys';
+import {
+  buildTranscriptVirtualLayout,
+  calculateTranscriptVirtualRange,
+} from '../../utils/transcriptVirtualization';
+
+const MAX_RENDERED_TRANSCRIPT_MESSAGES = 150;
+const VIRTUAL_MESSAGE_OVERSCAN = 32;
+const ESTIMATED_MESSAGE_HEIGHT = 96;
 
 interface ChatMessagesPaneProps {
   scrollContainerRef: RefObject<HTMLDivElement>;
@@ -103,6 +112,10 @@ export default function ChatMessagesPane({
   const messageKeyMapRef = useRef<WeakMap<ChatMessage, string>>(new WeakMap());
   const allocatedKeysRef = useRef<Set<string>>(new Set());
   const generatedMessageKeyCounterRef = useRef(0);
+  const measuredHeightsRef = useRef<Map<string, number>>(new Map());
+  const [measurementVersion, setMeasurementVersion] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
   const renderedMessageCount = chatMessages.length;
   const visibleRenderedMessageCount = visibleMessages.length;
   const hasHiddenRenderedHistory = renderedMessageCount > visibleRenderedMessageCount;
@@ -133,16 +146,114 @@ export default function ChatMessagesPane({
     return candidateKey;
   }, []);
 
+  const reactMessageKeys = useMemo(() => visibleMessages.map((message) => getMessageKey(message)), [
+    getMessageKey,
+    visibleMessages,
+  ]);
+  const businessMessageKeys = useMemo(
+    () => visibleMessages.map((message) => message.messageKey || getMessageKey(message)),
+    [getMessageKey, visibleMessages],
+  );
+
+  /**
+   * Estimate prefix offsets from measured row heights so the rendered DOM range
+   * can move continuously through already-loaded messages.
+   */
+  const virtualLayout = useMemo(() => {
+    return buildTranscriptVirtualLayout(
+      reactMessageKeys,
+      measuredHeightsRef.current,
+      ESTIMATED_MESSAGE_HEIGHT,
+    );
+  }, [reactMessageKeys, measurementVersion, visibleMessages.length]);
+
+  const virtualRange = useMemo(() => {
+    return calculateTranscriptVirtualRange({
+      messageCount: visibleMessages.length,
+      offsets: virtualLayout.offsets,
+      totalHeight: virtualLayout.totalHeight,
+      scrollTop,
+      viewportHeight,
+      estimatedMessageHeight: ESTIMATED_MESSAGE_HEIGHT,
+      maxRenderedMessages: MAX_RENDERED_TRANSCRIPT_MESSAGES,
+      overscan: VIRTUAL_MESSAGE_OVERSCAN,
+    });
+  }, [scrollTop, viewportHeight, virtualLayout, visibleMessages.length]);
+
+  const virtualMessages = useMemo(
+    () => visibleMessages.slice(virtualRange.start, virtualRange.end),
+    [virtualRange.end, virtualRange.start, visibleMessages],
+  );
+
+  const handleScroll = useCallback((event: ReactUIEvent<HTMLDivElement>) => {
+    const element = event.currentTarget;
+    setScrollTop(element.scrollTop);
+    setViewportHeight(element.clientHeight);
+  }, []);
+
+  const measureMessage = useCallback((messageKey: string, element: HTMLDivElement | null) => {
+    if (!element) {
+      return;
+    }
+
+    const nextHeight = Math.max(1, element.getBoundingClientRect().height);
+    const previousHeight = measuredHeightsRef.current.get(messageKey);
+    if (!previousHeight || Math.abs(previousHeight - nextHeight) > 1) {
+      measuredHeightsRef.current.set(messageKey, nextHeight);
+      setMeasurementVersion((version) => version + 1);
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    setScrollTop(container.scrollTop);
+    setViewportHeight(container.clientHeight);
+  }, [scrollContainerRef, visibleMessages.length]);
+
+  useLayoutEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const targetKey = params.get('messageKey');
+    if (!targetKey || visibleMessages.length === 0) {
+      return;
+    }
+
+    const targetIndex = businessMessageKeys.findIndex((key) => key === targetKey);
+    const container = scrollContainerRef.current;
+    if (targetIndex < 0 || !container) {
+      return;
+    }
+
+    const targetTop = virtualLayout.offsets[targetIndex] || 0;
+    container.scrollTop = Math.max(0, targetTop - Math.floor(container.clientHeight / 2));
+    setScrollTop(container.scrollTop);
+    setViewportHeight(container.clientHeight);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const targetElement = document.querySelector<HTMLElement>(
+          `.chat-message[data-message-key="${CSS.escape(targetKey)}"]`,
+        );
+        targetElement?.scrollIntoView({ block: 'center', behavior: 'auto' });
+      });
+    });
+  }, [businessMessageKeys, scrollContainerRef, virtualLayout.offsets, visibleMessages.length]);
+
   return (
     <div
       ref={scrollContainerRef}
       data-testid="chat-scroll-container"
+      data-virtualized="true"
+      data-render-window-size={MAX_RENDERED_TRANSCRIPT_MESSAGES}
+      onScroll={handleScroll}
       onWheel={onWheel}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onKeyDown={onKeyDown}
       tabIndex={0}
-      className="relative min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-0 py-3 sm:space-y-4 sm:p-4"
+      className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-0 py-3 sm:p-4"
     >
       {isLoadingSessionMessages && chatMessages.length === 0 ? (
         <div className="text-center text-gray-500 dark:text-gray-400 mt-8">
@@ -257,25 +368,41 @@ export default function ChatMessagesPane({
             </div>
           )}
 
-          {visibleMessages.map((message, index) => {
-            const prevMessage = index > 0 ? visibleMessages[index - 1] : null;
+          {virtualRange.paddingTop > 0 && (
+            <div aria-hidden="true" style={{ height: virtualRange.paddingTop }} />
+          )}
+
+          {virtualMessages.map((message, index) => {
+            const sourceIndex = virtualRange.start + index;
+            const prevMessage = sourceIndex > 0 ? visibleMessages[sourceIndex - 1] : null;
+            const messageKey = reactMessageKeys[sourceIndex] || getMessageKey(message);
             return (
-              <MessageComponent
-                key={getMessageKey(message)}
-                message={message}
-                index={index}
-                prevMessage={prevMessage}
-                createDiff={createDiff}
-                onFileOpen={onFileOpen}
-                onShowSettings={onShowSettings}
-                autoExpandTools={autoExpandTools}
-                showRawParameters={showRawParameters}
-                showThinking={showThinking}
-                selectedProject={selectedProject}
-                provider={provider}
-              />
+              <div
+                key={messageKey}
+                ref={(element) => measureMessage(messageKey, element)}
+                className="mb-3 sm:mb-4 last:mb-0"
+                data-virtual-row="chat-message"
+              >
+                <MessageComponent
+                  message={message}
+                  index={sourceIndex}
+                  prevMessage={prevMessage}
+                  createDiff={createDiff}
+                  onFileOpen={onFileOpen}
+                  onShowSettings={onShowSettings}
+                  autoExpandTools={autoExpandTools}
+                  showRawParameters={showRawParameters}
+                  showThinking={showThinking}
+                  selectedProject={selectedProject}
+                  provider={provider}
+                />
+              </div>
             );
           })}
+
+          {virtualRange.paddingBottom > 0 && (
+            <div aria-hidden="true" style={{ height: virtualRange.paddingBottom }} />
+          )}
         </>
       )}
     </div>

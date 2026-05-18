@@ -74,7 +74,101 @@ const FIXTURE_PROJECT_EXTRA_SESSIONS = [
     userMessage: 'fixture-project execution fixture session',
     baseTimestamp: '2026-04-18T09:00:00.000Z',
   },
+  {
+    projectLabel: 'history-scroll',
+    sessionId: 'fixture-mixed-long-virtual-session',
+    userMessage: 'mixed long virtual',
+    messagePairs: 1050,
+    baseTimestamp: '2026-04-17T08:00:00.000Z',
+  },
 ];
+
+/**
+ * Build a large Markdown code block that must render through the lazy code summary.
+ *
+ * @param {string} userMessage
+ * @returns {string}
+ */
+function buildLongVirtualCodeBlock(userMessage) {
+  const lines = Array.from({ length: 96 }, (_, index) => {
+    const lineNumber = String(index + 1).padStart(3, '0');
+    return `const virtualCodeLine${lineNumber} = "mixed long virtual full code line ${lineNumber}";`;
+  });
+  return [
+    `${userMessage} markdown turn 1050`,
+    '',
+    '```ts',
+    ...lines,
+    '```',
+  ].join('\n');
+}
+
+/**
+ * Build a large edit payload that must render through DiffViewer's lazy summary.
+ *
+ * @returns {{old_string: string, new_string: string, file_path: string}}
+ */
+function buildLongVirtualEditInput() {
+  const oldLines = Array.from({ length: 220 }, (_, index) => {
+    const lineNumber = String(index + 1).padStart(3, '0');
+    return `old virtual diff line ${lineNumber}`;
+  });
+  const newLines = Array.from({ length: 220 }, (_, index) => {
+    const lineNumber = String(index + 1).padStart(3, '0');
+    return index === 219
+      ? 'new virtual diff final hidden line 220'
+      : `new virtual diff line ${lineNumber}`;
+  });
+  return {
+    file_path: 'src/virtual-long-diff.ts',
+    old_string: oldLines.join('\n'),
+    new_string: newLines.join('\n'),
+  };
+}
+
+/**
+ * Build a large tool output that must stay out of the DOM until its result is expanded.
+ *
+ * @returns {string}
+ */
+function buildLongVirtualToolOutput() {
+  return Array.from({ length: 140 }, (_, index) => {
+    const lineNumber = String(index + 1).padStart(3, '0');
+    return index === 139
+      ? 'mixed long virtual full tool output hidden line 140'
+      : `mixed long virtual tool output line ${lineNumber}`;
+  }).join('\n');
+}
+
+/**
+ * Build child tool history for a Task/Agent subagent container.
+ *
+ * @param {string} timestamp
+ * @returns {Array<Record<string, unknown>>}
+ */
+function buildLongVirtualSubagentTools(timestamp) {
+  return Array.from({ length: 25 }, (_, index) => {
+    const toolNumber = index + 1;
+    return {
+      toolId: `mixed-long-subagent-child-${toolNumber}`,
+      toolName: toolNumber % 3 === 0 ? 'Edit' : 'Bash',
+      toolInput: toolNumber % 3 === 0
+        ? {
+            file_path: `src/subagent-${toolNumber}.ts`,
+            old_string: `old child ${toolNumber}`,
+            new_string: `new child ${toolNumber}`,
+          }
+        : { command: `printf "subagent child ${toolNumber}"` },
+      toolResult: {
+        content: toolNumber === 25
+          ? 'mixed long virtual subagent child hidden output 25'
+          : `mixed long virtual subagent child output ${toolNumber}`,
+        isError: false,
+      },
+      timestamp,
+    };
+  });
+}
 
 /**
  * Write a minimal Codex session JSONL file that project discovery can parse quickly.
@@ -122,15 +216,111 @@ function writeCodexSessionFixture(projectPath, sessionId, userMessage, messagePa
       },
     }));
 
+    let assistantContent = `${userMessage} assistant turn ${String(pairNumber).padStart(2, '0')}`;
+    if (messagePairs > 1000) {
+      const longTurn = String(pairNumber).padStart(4, '0');
+      assistantContent = `${userMessage} assistant turn ${longTurn}`;
+      if (pairNumber === 520) {
+        assistantContent = 'mixed long virtual target needle 520 inside a virtualized offscreen message';
+      } else if (pairNumber % 25 === 0) {
+        assistantContent = pairNumber === 1050
+          ? buildLongVirtualCodeBlock(userMessage)
+          : [
+              `${userMessage} markdown turn ${longTurn}`,
+              '',
+              '```ts',
+              `const turn${pairNumber} = ${pairNumber};`,
+              '```',
+            ].join('\n');
+      } else if (pairNumber % 40 === 0) {
+        assistantContent = `${userMessage} diff turn ${longTurn}\n--- old\n+++ new\n+added line ${pairNumber}`;
+      } else if (pairNumber % 55 === 0) {
+        assistantContent = `${userMessage} tool output turn ${longTurn}\n${'output line\n'.repeat(20)}`;
+      }
+    }
+
     sessionLines.push(JSON.stringify({
       type: 'response_item',
       timestamp: new Date(new Date(timestamp).getTime() + 1000).toISOString(),
       payload: {
         type: 'message',
         role: 'assistant',
-        content: [{ type: 'output_text', text: `${userMessage} assistant turn ${String(pairNumber).padStart(2, '0')}` }],
+        content: [{ type: 'output_text', text: assistantContent }],
       },
     }));
+
+    if (messagePairs > 1000 && pairNumber === 1048) {
+      const toolTimestamp = new Date(new Date(timestamp).getTime() + 2000).toISOString();
+      sessionLines.push(JSON.stringify({
+        type: 'response_item',
+        timestamp: toolTimestamp,
+        payload: {
+          type: 'function_call',
+          call_id: `${sessionId}-long-diff`,
+          name: 'Edit',
+          arguments: JSON.stringify(buildLongVirtualEditInput()),
+        },
+      }));
+      sessionLines.push(JSON.stringify({
+        type: 'response_item',
+        timestamp: new Date(new Date(timestamp).getTime() + 3000).toISOString(),
+        payload: {
+          type: 'function_call_output',
+          call_id: `${sessionId}-long-diff`,
+          output: 'edit complete',
+        },
+      }));
+    }
+
+    if (messagePairs > 1000 && pairNumber === 1049) {
+      sessionLines.push(JSON.stringify({
+        type: 'response_item',
+        timestamp: new Date(new Date(timestamp).getTime() + 2000).toISOString(),
+        payload: {
+          type: 'function_call',
+          call_id: `${sessionId}-long-output`,
+          name: 'write_stdin',
+          arguments: JSON.stringify({ session_id: 'mixed-long-output', chars: 'run long output' }),
+        },
+      }));
+      sessionLines.push(JSON.stringify({
+        type: 'response_item',
+        timestamp: new Date(new Date(timestamp).getTime() + 3000).toISOString(),
+        payload: {
+          type: 'function_call_output',
+          call_id: `${sessionId}-long-output`,
+          output: buildLongVirtualToolOutput(),
+        },
+      }));
+    }
+
+    if (messagePairs > 1000 && pairNumber === 1050) {
+      const subagentTimestamp = new Date(new Date(timestamp).getTime() + 2000).toISOString();
+      sessionLines.push(JSON.stringify({
+        type: 'response_item',
+        timestamp: subagentTimestamp,
+        payload: {
+          type: 'function_call',
+          call_id: `${sessionId}-subagent`,
+          name: 'Task',
+          arguments: JSON.stringify({
+            subagent_type: 'Agent',
+            description: 'Deep virtual audit',
+            prompt: 'Review the long virtual transcript without mounting every child row.',
+          }),
+        },
+      }));
+      sessionLines.push(JSON.stringify({
+        type: 'response_item',
+        timestamp: new Date(new Date(timestamp).getTime() + 3000).toISOString(),
+        payload: {
+          type: 'function_call_output',
+          call_id: `${sessionId}-subagent`,
+          output: 'subagent complete',
+          subagentTools: buildLongVirtualSubagentTools(subagentTimestamp),
+        },
+      }));
+    }
   }
 
   fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
@@ -298,7 +488,7 @@ export function ensurePlaywrightFixture(options = {}) {
       project.path,
       extraSession.sessionId,
       extraSession.userMessage,
-      1,
+      extraSession.messagePairs || 1,
       false,
       extraSession.baseTimestamp,
     );

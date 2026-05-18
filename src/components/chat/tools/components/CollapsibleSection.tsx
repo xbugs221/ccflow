@@ -1,5 +1,5 @@
 // PURPOSE: Render chat tool output in an accessible collapsible details section.
-import React from 'react';
+import React, { useState } from 'react';
 
 interface CollapsibleSectionProps {
   title: string;
@@ -25,13 +25,18 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   className = '',
   wrapTitle = false
 }) => {
+  const [isOpen, setIsOpen] = useState(open);
   const titleClassName = wrapTitle
     ? 'text-gray-600 dark:text-gray-400 flex-1 min-w-0 whitespace-normal break-words'
     : 'text-gray-600 dark:text-gray-400 truncate flex-1';
   const openButtonClassName = 'text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-mono hover:underline flex-shrink-0';
 
   return (
-    <details className={`relative group/details ${className}`} open={open}>
+    <details
+      className={`relative group/details ${className}`}
+      open={isOpen}
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
+    >
       <summary className="flex items-center gap-1.5 text-xs cursor-pointer py-0.5 pr-12 select-none group-open/details:sticky group-open/details:top-0 group-open/details:z-10 group-open/details:bg-background group-open/details:-mx-1 group-open/details:px-1">
         <svg
           className="w-3 h-3 text-gray-400 dark:text-gray-500 transition-transform duration-150 group-open/details:rotate-90 flex-shrink-0"
@@ -67,9 +72,11 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
           {action && <span className="flex-shrink-0">{action}</span>}
         </div>
       )}
-      <div className="mt-1.5 pl-[18px]">
-        {children}
-      </div>
+      {isOpen && (
+        <div className="mt-1.5 pl-[18px]" data-testid="collapsible-lazy-content">
+          {children}
+        </div>
+      )}
     </details>
   );
 };
