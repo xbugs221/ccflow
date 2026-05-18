@@ -40,8 +40,8 @@ function normalizeCoEventPayload(payload) {
  * Read chat requests for one co conversation in creation order.
  */
 async function readCoConversationRequests(conversationId) {
-    const records = [];
-    for (const bucket of ['done', 'running', 'pending']) {
+    const recordsById = new Map();
+    for (const bucket of ['pending', 'claimed', 'running', 'done']) {
         const bucketDir = path.join(resolveCoHome(), 'requests', bucket);
         let entries = [];
         try {
@@ -61,7 +61,8 @@ async function readCoConversationRequests(conversationId) {
             try {
                 const request = JSON.parse(await fsPromises.readFile(requestPath, 'utf8'));
                 if (request?.conversation_id === conversationId) {
-                    records.push(request);
+                    const id = request.request_id || request.id || entry.name.replace(/\.json$/, '');
+                    recordsById.set(id, { ...request, request_id: request.request_id || id });
                 }
             } catch (error) {
                 console.warn('[co] Failed to parse request record:', error.message);
@@ -69,9 +70,51 @@ async function readCoConversationRequests(conversationId) {
         }
     }
 
+    const records = [...recordsById.values()];
     return records.sort((left, right) => (
         new Date(left.created_at || 0).getTime() - new Date(right.created_at || 0).getTime()
     ));
+}
+
+/**
+ * Read one JSON metadata file from a co turn directory.
+ */
+async function readTurnMetadataFile(turnDir, fileName) {
+    try {
+        return JSON.parse(await fsPromises.readFile(path.join(turnDir, fileName), 'utf8'));
+    } catch (error) {
+        if (error?.code && error.code !== 'ENOENT') {
+            console.warn('[co] Failed to parse turn metadata:', error.message);
+        }
+        return null;
+    }
+}
+
+/**
+ * Resolve the request id recorded by a turn without relying on request.json.
+ */
+async function readCoTurnRequestId(turnId, conversationId, requestByRequestId) {
+    const turnDir = path.join(resolveCoHome(), 'turns', turnId);
+    for (const fileName of ['request.json', 'state.json', 'result.json']) {
+        const metadata = await readTurnMetadataFile(turnDir, fileName);
+        if (!metadata) {
+            continue;
+        }
+        const requestId = metadata.request_id || metadata.requestId || metadata.id;
+        const metadataConversationId = metadata.conversation_id || metadata.conversationId;
+        if (!requestId) {
+            continue;
+        }
+        if (metadataConversationId && metadataConversationId !== conversationId) {
+            continue;
+        }
+        if (requestByRequestId.has(requestId) || metadataConversationId === conversationId) {
+            return requestId;
+        }
+    }
+
+    const possibleRequestId = turnId.startsWith('turn_') ? turnId.slice(5) : turnId;
+    return requestByRequestId.has(possibleRequestId) ? possibleRequestId : null;
 }
 
 /**
@@ -99,9 +142,10 @@ export async function readCoConversationMessages(conversation, provider, limit =
 
     // Scan the turns directory for ALL turn subdirectories belonging to this
     // conversation. The conversation state's turns array may be truncated or
-    // overwritten by the co daemon (it writes turns: [latestTurnId]), so we
-    // discover turns from the filesystem by reading each turn's request.json.
+    // overwritten by the co daemon, so discover turns from request/state/result
+    // metadata instead of relying on request.json alone.
     const turnIds = new Set<string>();
+    const requestIdByTurnId = new Map();
     const turnsDir = path.join(resolveCoHome(), 'turns');
     try {
         const entries = await fsPromises.readdir(turnsDir, { withFileTypes: true });
@@ -109,22 +153,10 @@ export async function readCoConversationMessages(conversation, provider, limit =
             if (!entry.isDirectory()) {
                 continue;
             }
-            const requestJsonPath = path.join(turnsDir, entry.name, 'request.json');
-            try {
-                const turnRequest = JSON.parse(await fsPromises.readFile(requestJsonPath, 'utf8'));
-                const requestId = turnRequest?.request_id || turnRequest?.id;
-                if (requestId && (requestByRequestId.has(requestId) || turnRequest?.conversation_id === conversationId)) {
-                    turnIds.add(entry.name);
-                    continue;
-                }
-            } catch {
-                // request.json may not exist; fall through to suffix matching.
-            }
-            const possibleRequestId = entry.name.startsWith('turn_')
-                ? entry.name.slice(5)
-                : entry.name;
-            if (requestByRequestId.has(possibleRequestId)) {
+            const requestId = await readCoTurnRequestId(entry.name, conversationId, requestByRequestId);
+            if (requestId) {
                 turnIds.add(entry.name);
+                requestIdByTurnId.set(entry.name, requestId);
             }
         }
     } catch (error) {
@@ -134,26 +166,32 @@ export async function readCoConversationMessages(conversation, provider, limit =
     }
     for (const turnId of turns) {
         turnIds.add(turnId);
+        if (!requestIdByTurnId.has(turnId)) {
+            const requestId = await readCoTurnRequestId(turnId, conversationId, requestByRequestId);
+            if (requestId) {
+                requestIdByTurnId.set(turnId, requestId);
+            }
+        }
     }
 
     // Sort turns by their request creation time for deterministic ordering.
     const sortedTurnIds = [...turnIds].sort((a, b) => {
-        const requestA = requestByRequestId.get(a.startsWith('turn_') ? a.slice(5) : a);
-        const requestB = requestByRequestId.get(b.startsWith('turn_') ? b.slice(5) : b);
+        const requestA = requestByRequestId.get(requestIdByTurnId.get(a) || (a.startsWith('turn_') ? a.slice(5) : a));
+        const requestB = requestByRequestId.get(requestIdByTurnId.get(b) || (b.startsWith('turn_') ? b.slice(5) : b));
         const timeA = requestA?.created_at || '0';
         const timeB = requestB?.created_at || '0';
         return new Date(timeA).getTime() - new Date(timeB).getTime();
     });
 
     for (const turnId of sortedTurnIds) {
-        const possibleRequestId = turnId.startsWith('turn_') ? turnId.slice(5) : turnId;
-        const request = requestByRequestId.get(possibleRequestId) || null;
+        const requestId = requestIdByTurnId.get(turnId) || (turnId.startsWith('turn_') ? turnId.slice(5) : turnId);
+        const request = requestByRequestId.get(requestId) || null;
         if (request?.text) {
             messages.push({
                 type: 'user',
                 timestamp: request.created_at || new Date().toISOString(),
                 requestId: request.request_id || request.id || '',
-                messageKey: `co:${conversationId}:${turnId}:user`,
+                messageKey: `co:${conversationId}:${turnId}:user:${request.request_id || request.id || requestId}`,
                 message: {
                     role: 'user',
                     content: request.text,

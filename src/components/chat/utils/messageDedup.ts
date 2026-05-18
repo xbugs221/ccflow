@@ -10,7 +10,9 @@ export interface ChatMessage {
   content?: string;
   timestamp?: string | number | Date;
   reasoning?: string;
+  messageKey?: string;
   clientRequestId?: string;
+  requestId?: string;
   deliveryStatus?: string;
   isToolUse?: boolean;
   isStreaming?: boolean;
@@ -73,6 +75,47 @@ function getAttachmentSignature(message: ChatMessage): string {
 }
 
 /**
+ * Collect durable send identities that separate real repeat sends from echoes.
+ */
+function getReliableSendIdentityValues(message: ChatMessage): string[] {
+  return [
+    message.clientRequestId,
+    message.requestId,
+    message.messageKey,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+}
+
+/**
+ * Check whether both rows can be proven to represent the same send.
+ */
+function hasSharedReliableSendIdentity(previousMessage: ChatMessage, nextMessage: ChatMessage): boolean {
+  const previousIdentities = getReliableSendIdentityValues(previousMessage);
+  const nextIdentities = getReliableSendIdentityValues(nextMessage);
+  if (previousIdentities.length === 0 || nextIdentities.length === 0) {
+    return false;
+  }
+
+  const nextIdentitySet = new Set(nextIdentities);
+  return previousIdentities.some((identity) => nextIdentitySet.has(identity));
+}
+
+/**
+ * Check whether stable send identities prove two rows are different sends.
+ */
+function hasConflictingReliableSendIdentity(previousMessage: ChatMessage, nextMessage: ChatMessage): boolean {
+  const identityKeys = ['clientRequestId', 'requestId', 'messageKey'] as const;
+  return identityKeys.some((identityKey) => {
+    const previousIdentity = previousMessage[identityKey];
+    const nextIdentity = nextMessage[identityKey];
+    return typeof previousIdentity === 'string'
+      && previousIdentity.length > 0
+      && typeof nextIdentity === 'string'
+      && nextIdentity.length > 0
+      && previousIdentity !== nextIdentity;
+  });
+}
+
+/**
  * Restrict deduping to transcript entries that do not represent tool/runtime UI.
  */
 function isPlainTranscriptMessage(message: ChatMessage): boolean {
@@ -95,15 +138,15 @@ function isAdjacentDuplicate(previousMessage: ChatMessage, nextMessage: ChatMess
     return false;
   }
 
-  if (
-    typeof previousMessage.clientRequestId === 'string'
-    && previousMessage.clientRequestId
-    && previousMessage.clientRequestId === nextMessage.clientRequestId
-  ) {
+  if (previousMessage.type !== nextMessage.type) {
+    return false;
+  }
+
+  if (hasSharedReliableSendIdentity(previousMessage, nextMessage)) {
     return true;
   }
 
-  if (previousMessage.type !== nextMessage.type) {
+  if (hasConflictingReliableSendIdentity(previousMessage, nextMessage)) {
     return false;
   }
 
@@ -203,6 +246,7 @@ interface SeenUserTurnDetail {
   reasoning: string;
   attachmentSignature: string;
   dedupedIndex: number;
+  message: ChatMessage;
 }
 
 /**
@@ -222,7 +266,8 @@ function findSeenUserTurnIndex(seenUserTurns: SeenUserTurnDetail[], message: Cha
   }
 
   return seenUserTurns.findIndex((seen) => (
-    seen.content === content
+    !hasConflictingReliableSendIdentity(seen.message, message)
+    && seen.content === content
     && seen.reasoning === reasoning
     && seen.attachmentSignature === attachmentSignature
     && Math.abs(timestamp - seen.timestamp) <= ADJACENT_DUPLICATE_WINDOW_MS
@@ -238,7 +283,6 @@ export function dedupeAdjacentChatMessages(messages: ChatMessage[]): ChatMessage
   }
 
   const dedupedMessages: ChatMessage[] = [];
-  const seenUserTurns = new Set<string>();
   const seenUserTurnDetails: SeenUserTurnDetail[] = [];
 
   for (const message of messages) {
@@ -250,16 +294,13 @@ export function dedupeAdjacentChatMessages(messages: ChatMessage[]): ChatMessage
     }
 
     const seenUserTurnIndex = findSeenUserTurnIndex(seenUserTurnDetails, message);
-    if (userTurnKey && (seenUserTurns.has(userTurnKey) || seenUserTurnIndex >= 0)) {
-      if (seenUserTurnIndex >= 0) {
-        const dedupedIndex = seenUserTurnDetails[seenUserTurnIndex].dedupedIndex;
-        dedupedMessages[dedupedIndex] = mergeDuplicateMessage(dedupedMessages[dedupedIndex], message);
-      }
+    if (seenUserTurnIndex >= 0) {
+      const dedupedIndex = seenUserTurnDetails[seenUserTurnIndex].dedupedIndex;
+      dedupedMessages[dedupedIndex] = mergeDuplicateMessage(dedupedMessages[dedupedIndex], message);
       continue;
     }
 
     if (userTurnKey) {
-      seenUserTurns.add(userTurnKey);
       const ts = toTimestampMs(message.timestamp);
       seenUserTurnDetails.push({
         timestamp: ts ?? 0,
@@ -267,6 +308,7 @@ export function dedupeAdjacentChatMessages(messages: ChatMessage[]): ChatMessage
         reasoning: normalizeText(message.reasoning),
         attachmentSignature: getAttachmentSignature(message),
         dedupedIndex: dedupedMessages.length,
+        message,
       });
     }
     dedupedMessages.push(message);

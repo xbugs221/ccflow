@@ -39,6 +39,7 @@ export interface ChatMessage {
   phase?: string;
   messageKey?: string;
   clientRequestId?: string;
+  requestId?: string;
   submittedContent?: string;
   attachments?: ChatAttachment[];
   images?: ChatAttachment[];

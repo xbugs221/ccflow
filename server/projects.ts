@@ -1620,6 +1620,48 @@ function getManualDraftSessionsForProject(config, { projectName, projectPath, pr
 }
 
 /**
+ * Rehydrate finalized provider sessions that are known only through cbw route config.
+ */
+function getPersistedChatRouteSessionsForProject(config, { projectPath, provider }) {
+  const normalizedProvider = normalizeProjectChatProvider(provider);
+  return Object.entries(config?.chat || {})
+    .map(([routeIndexKey, record]) => {
+      if (!record || typeof record !== 'object') {
+        return null;
+      }
+      if (normalizeProjectChatProvider(record.provider) !== normalizedProvider) {
+        return null;
+      }
+      if (parseManualSessionRouteIndex(record.sessionId)) {
+        return null;
+      }
+      const routeIndex = Number(routeIndexKey);
+      if (!record.sessionId || !Number.isInteger(routeIndex) || routeIndex <= 0) {
+        return null;
+      }
+      const title = record.title || record.summary || record.sessionId;
+      return {
+        id: record.sessionId,
+        routeIndex,
+        title,
+        summary: record.summary || title,
+        name: title,
+        createdAt: record.createdAt || record.updatedAt || new Date().toISOString(),
+        updated_at: record.updatedAt || record.createdAt || new Date().toISOString(),
+        lastActivity: record.updatedAt || record.createdAt || new Date().toISOString(),
+        messageCount: 0,
+        provider: normalizedProvider,
+        __provider: normalizedProvider,
+        projectPath,
+        providerSessionId: record.pendingProviderSessionId || record.sessionId,
+        workflowId: typeof record.workflowId === 'string' ? record.workflowId : undefined,
+        stageKey: typeof record.stageKey === 'string' ? record.stageKey : undefined,
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
  * Return the normalized persisted UI-state map for sessions.
  */
 function getSessionUiStateMap(config, projectPath = '') {
@@ -4235,6 +4277,10 @@ async function getOpencodeSessions(projectPath, options = {}) {
     projectPath,
     provider: 'opencode',
   });
+  const persistedRouteRecords = getPersistedChatRouteSessionsForProject(config, {
+    projectPath,
+    provider: 'opencode',
+  });
   const boundProviderSessionIds = new Set();
   manualDraftRecords
     .map((session) => session.providerSessionId)
@@ -4255,7 +4301,11 @@ async function getOpencodeSessions(projectPath, options = {}) {
   const routeVisibleStandaloneSessions = standaloneSessions
     .filter((session) => !boundProviderSessionIds.has(session.id));
   const sessionsWithDrafts = Array.from(
-    new Map([...routeVisibleStandaloneSessions, ...manualDraftRecords].map((session) => [session?.id, session])).values(),
+    new Map([
+      ...routeVisibleStandaloneSessions,
+      ...persistedRouteRecords,
+      ...manualDraftRecords,
+    ].map((session) => [session?.id, session])).values(),
   )
     .sort((sessionA, sessionB) => new Date(sessionB.lastActivity || 0) - new Date(sessionA.lastActivity || 0));
   const annotatedSessions = await annotateSessionCollectionVisibility(sessionsWithDrafts, projectPath);
