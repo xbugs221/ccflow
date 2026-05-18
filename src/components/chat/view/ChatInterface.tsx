@@ -267,6 +267,9 @@ function ChatInterface({
     showFileDropdown,
     fileSearchQuery,
     setFileSearchQuery,
+    fileTree,
+    expandedFileTreePaths,
+    toggleFileTreeDirectory,
     filteredFiles,
     selectedFileIndex,
     renderInputWithMentions,
@@ -953,6 +956,9 @@ function ChatInterface({
           showFileDropdown={showFileDropdown}
           fileSearchQuery={fileSearchQuery}
           onFileSearchQueryChange={setFileSearchQuery}
+          fileTree={fileTree}
+          expandedFileTreePaths={expandedFileTreePaths}
+          onToggleFileTreeDirectory={toggleFileTreeDirectory}
           filteredFiles={filteredFiles}
           selectedFileIndex={selectedFileIndex}
           onSelectFile={selectFile}

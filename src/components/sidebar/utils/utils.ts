@@ -118,14 +118,14 @@ export const compareSessionsByCardSortMode = (
 
 export const getSessionName = (session: SessionWithProvider, t: TFunction): string => {
   if (session.__provider === 'codex') {
-    return session.label || session.summary || session.title || session.name || t('projects.codexSession');
+    return session.label || session.routeTitle || session.summary || session.title || session.name || t('projects.codexSession');
   }
 
   if (session.__provider === 'pi') {
-    return session.label || session.summary || session.title || session.name || t('projects.piSession');
+    return session.label || session.routeTitle || session.summary || session.title || session.name || t('projects.piSession');
   }
 
-  return session.label || session.summary || session.title || t('projects.newSession');
+  return session.label || session.routeTitle || session.summary || session.title || t('projects.newSession');
 };
 
 export const getSessionTime = (session: SessionWithProvider): string => {
@@ -144,7 +144,9 @@ export const createSessionViewModel = (
     isActive: isSessionActive(session, currentTime),
     sessionName: getSessionName(session, t),
     sessionTime: getSessionTime(session),
-    messageCount: Number(session.messageCount || 0),
+    messageCount: typeof session.messageCount === 'number' && Number.isFinite(session.messageCount)
+      ? session.messageCount
+      : null,
   };
 };
 

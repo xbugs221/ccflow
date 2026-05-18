@@ -33,6 +33,13 @@ interface MentionableFile {
   path: string;
 }
 
+interface FileTreeItem {
+  name: string;
+  type: 'file' | 'directory';
+  fullPath: string;
+  children?: FileTreeItem[];
+}
+
 interface SlashCommand {
   name: string;
   description?: string;
@@ -68,6 +75,9 @@ interface ChatComposerProps {
   showFileDropdown: boolean;
   fileSearchQuery: string;
   onFileSearchQueryChange: (query: string) => void;
+  fileTree: FileTreeItem[];
+  expandedFileTreePaths: Set<string>;
+  onToggleFileTreeDirectory: (path: string) => void;
   filteredFiles: MentionableFile[];
   selectedFileIndex: number;
   onSelectFile: (file: MentionableFile) => void;
@@ -128,6 +138,9 @@ export default function ChatComposer({
   showFileDropdown,
   fileSearchQuery,
   onFileSearchQueryChange,
+  fileTree,
+  expandedFileTreePaths,
+  onToggleFileTreeDirectory,
   filteredFiles,
   selectedFileIndex,
   onSelectFile,
@@ -167,6 +180,46 @@ export default function ChatComposer({
   const canSubmit = !isComposerSubmitting && Boolean(trimmedInput) && isConnected;
   const [isUploadMenuOpen, setIsUploadMenuOpen] = useState(false);
   const textareaRect = textareaRef.current?.getBoundingClientRect();
+
+  const renderFileTreeItems = (items: FileTreeItem[], depth = 0): ReactNode => {
+    /**
+     * Render only expanded branches so large project trees do not fill the picker by default.
+     */
+    return items.map((item) => {
+      const isDirectory = item.type === 'directory';
+      const isExpanded = expandedFileTreePaths.has(item.fullPath);
+      const file = { name: item.name, path: item.fullPath };
+
+      return (
+        <div key={item.fullPath}>
+          <button
+            type="button"
+            className="flex w-full min-w-0 items-center gap-2 border-b border-border/30 px-3 py-2 text-left text-sm text-foreground hover:bg-accent/50"
+            style={{ paddingLeft: `${12 + depth * 16}px` }}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (isDirectory) {
+                onToggleFileTreeDirectory(item.fullPath);
+                return;
+              }
+              onSelectFile(file);
+            }}
+          >
+            <span className="w-4 shrink-0 text-muted-foreground">{isDirectory ? (isExpanded ? '▾' : '▸') : '@'}</span>
+            <span className="min-w-0 truncate">{item.name}</span>
+          </button>
+          {isDirectory && isExpanded && item.children && item.children.length > 0 && (
+            <div>{renderFileTreeItems(item.children, depth + 1)}</div>
+          )}
+        </div>
+      );
+    });
+  };
 
   // Guard against click-through: when isLoading transitions from false→true
   // (send button becomes stop button in the same position), the browser's
@@ -278,7 +331,7 @@ export default function ChatComposer({
               />
             </div>
 
-            {filteredFiles.length > 0 ? (
+            {fileSearchQuery.trim() && filteredFiles.length > 0 ? (
               <div role="listbox" aria-label={t('input.insertProjectFile', { defaultValue: 'Insert project file' })} className="max-h-64 overflow-y-auto">
                 {filteredFiles.map((file, index) => (
                   <div
@@ -304,6 +357,10 @@ export default function ChatComposer({
                     <div className="truncate font-mono text-xs text-muted-foreground">{file.path}</div>
                   </div>
                 ))}
+              </div>
+            ) : !fileSearchQuery.trim() && fileTree.length > 0 ? (
+              <div className="max-h-64 overflow-y-auto" data-testid="file-mention-tree">
+                {renderFileTreeItems(fileTree)}
               </div>
             ) : (
               <div className="px-4 py-5 text-center text-sm text-muted-foreground">

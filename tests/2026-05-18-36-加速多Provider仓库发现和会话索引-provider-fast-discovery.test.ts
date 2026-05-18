@@ -15,6 +15,7 @@ import {
   buildOpencodeSessionsIndexFromSqlite,
   buildPiSessionsIndex,
   clearProjectDirectoryCache,
+  addProjectManually,
   getCodexSessionMessages,
   getPiSessions,
   getProjects,
@@ -27,9 +28,11 @@ import {
 async function withTemporaryHome(testBody) {
   const originalHome = process.env.HOME;
   const originalOpencodeDbPath = process.env.OPENCODE_DB_PATH;
+  const originalXdgStateHome = process.env.XDG_STATE_HOME;
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-provider-fast-'));
 
   process.env.HOME = homeDir;
+  process.env.XDG_STATE_HOME = path.join(homeDir, '.local', 'state');
   delete process.env.OPENCODE_DB_PATH;
   clearProjectDirectoryCache();
   try {
@@ -45,6 +48,11 @@ async function withTemporaryHome(testBody) {
       process.env.OPENCODE_DB_PATH = originalOpencodeDbPath;
     } else {
       delete process.env.OPENCODE_DB_PATH;
+    }
+    if (originalXdgStateHome) {
+      process.env.XDG_STATE_HOME = originalXdgStateHome;
+    } else {
+      delete process.env.XDG_STATE_HOME;
     }
     await fs.rm(homeDir, { recursive: true, force: true });
   }
@@ -81,7 +89,7 @@ test('Codex project discovery uses session_meta header and ignores malformed lat
     const sessions = index.get(path.resolve(projectPath)) || [];
     assert.equal(sessions.length, 1);
     assert.equal(sessions[0].provider, 'codex');
-    assert.equal(sessions[0].messageCount, 0);
+    assert.equal(sessions[0].messageCount, null);
   });
 });
 
@@ -225,6 +233,39 @@ test('OpenCode project discovery reads SQLite session table without CLI fallback
     assert.equal(sessions.length, 1);
     assert.equal(sessions[0].id, 'oc-fast');
     assert.equal(sessions[0].provider, 'opencode');
+    assert.equal(sessions[0].messageCount, null);
+    assert.equal(sessions[0].messageCountKnown, false);
+  });
+});
+
+test('getProjects returns manual projects when a provider index exceeds the home budget', async () => {
+  await withTemporaryHome(async (homeDir) => {
+    const projectPath = path.join(homeDir, 'work', 'manual-budget-project');
+    const codexSessionsRoot = path.join(homeDir, '.codex', 'sessions');
+    const originalReaddir = fs.readdir;
+
+    await fs.mkdir(projectPath, { recursive: true });
+    await fs.mkdir(codexSessionsRoot, { recursive: true });
+    await addProjectManually(projectPath, 'Manual Budget Project');
+    clearProjectDirectoryCache();
+
+    fs.readdir = async (...args) => {
+      if (path.resolve(String(args[0])) === path.resolve(codexSessionsRoot)) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+      return originalReaddir(...args);
+    };
+
+    try {
+      const startedAt = Date.now();
+      const projects = await getProjects();
+      const durationMs = Date.now() - startedAt;
+
+      assert.equal(projects.some((project) => project.fullPath === projectPath), true);
+      assert.ok(durationMs < 3500, `manual project discovery should degrade within the home budget, got ${durationMs}ms`);
+    } finally {
+      fs.readdir = originalReaddir;
+    }
   });
 });
 
@@ -315,7 +356,7 @@ test('Codex detail messages still deep-read transcript after header overview dis
     ]);
 
     const index = await buildCodexSessionsIndex();
-    assert.equal((index.get(path.resolve(projectPath)) || [])[0].messageCount, 0);
+    assert.equal((index.get(path.resolve(projectPath)) || [])[0].messageCount, null);
 
     const detail = await getCodexSessionMessages('codex-detail', null, 0);
     assert.equal(detail.messages.some((message) => message.message?.content === '详情消息必须仍可读取'), true);

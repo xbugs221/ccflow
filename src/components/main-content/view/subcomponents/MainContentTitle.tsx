@@ -27,10 +27,10 @@ function getTabTitle(activeTab: AppTab, t: (key: string) => string) {
 
 function getSessionTitle(session: ProjectSession): string {
   if (session.__provider === 'codex') {
-    return (session.summary as string) || (session.name as string) || 'Codex Session';
+    return (session.routeTitle as string) || (session.summary as string) || (session.name as string) || 'Codex Session';
   }
 
-  return (session.summary as string) || (session.name as string) || 'New Session';
+  return (session.routeTitle as string) || (session.summary as string) || (session.name as string) || 'New Session';
 }
 
 function isTemporaryOrRouteSessionId(sessionId: string): boolean {

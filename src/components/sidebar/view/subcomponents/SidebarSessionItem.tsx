@@ -472,7 +472,7 @@ export default function SidebarSessionItem({
                 )}
                 {isStarred && <Star className="h-3 w-3 fill-current text-yellow-500" />}
                 {isPending && <Clock className="h-3 w-3 text-amber-500" />}
-                {sessionView.messageCount > 0 && <span>{sessionView.messageCount} 条</span>}
+                {sessionView.messageCount !== null && sessionView.messageCount > 0 && <span>{sessionView.messageCount} 条</span>}
               </div>
             </div>
           )}
@@ -531,7 +531,7 @@ export default function SidebarSessionItem({
                     )}
                     {isStarred && <Star className="h-3 w-3 fill-current text-yellow-500" />}
                     {isPending && <Clock className="h-3 w-3 text-amber-500" />}
-                    {sessionView.messageCount > 0 && <span>{sessionView.messageCount} 条</span>}
+                    {sessionView.messageCount !== null && sessionView.messageCount > 0 && <span>{sessionView.messageCount} 条</span>}
                   </div>
                 </>
               )}

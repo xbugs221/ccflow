@@ -50,7 +50,7 @@ export type SessionViewModel = {
   isActive: boolean;
   sessionName: string;
   sessionTime: string;
-  messageCount: number;
+  messageCount: number | null;
 };
 
 export type MCPServerStatus = {

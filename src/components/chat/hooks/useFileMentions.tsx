@@ -6,14 +6,10 @@ import type { Dispatch, KeyboardEvent, RefObject, SetStateAction } from 'react';
 import { api } from '../../../utils/api';
 import { escapeRegExp } from '../utils/chatFormatting';
 import { filterMentionableFiles, type MentionableFile } from '../utils/fileMentionSearch';
+import { buildFileTree, flattenFileTree, type FileTreeItem, type ProjectFileNode } from '../utils/fileMentionTree';
 import type { Project } from '../../../types/app';
 
-interface ProjectFileNode {
-  name: string;
-  type: 'file' | 'directory';
-  path?: string;
-  children?: ProjectFileNode[];
-}
+export type { FileTreeItem, ProjectFileNode };
 
 interface UseFileMentionsOptions {
   selectedProject: Project | null;
@@ -23,40 +19,17 @@ interface UseFileMentionsOptions {
 }
 
 /**
- * Flatten the API tree so the composer can search files by display path without exposing directories as references.
- */
-const flattenFileTree = (files: ProjectFileNode[], basePath = ''): MentionableFile[] => {
-  let flattened: MentionableFile[] = [];
-
-  files.forEach((file) => {
-    const fullPath = basePath ? `${basePath}/${file.name}` : file.name;
-    if (file.type === 'directory' && file.children) {
-      flattened = flattened.concat(flattenFileTree(file.children, fullPath));
-      return;
-    }
-
-    if (file.type === 'file') {
-      flattened.push({
-        name: file.name,
-        path: fullPath,
-        relativePath: file.path,
-      });
-    }
-  });
-
-  return flattened;
-};
-
-/**
  * Manage project file mention state for the chat composer.
  */
 export function useFileMentions({ selectedProject, input, setInput, textareaRef }: UseFileMentionsOptions) {
   const [fileList, setFileList] = useState<MentionableFile[]>([]);
+  const [fileTree, setFileTree] = useState<FileTreeItem[]>([]);
   const [fileMentions, setFileMentions] = useState<string[]>([]);
   const [fileSearchQuery, setFileSearchQuery] = useState('');
   const [showFileDropdown, setShowFileDropdown] = useState(false);
   const [selectedFileIndex, setSelectedFileIndex] = useState(-1);
   const [cursorPosition, setCursorPosition] = useState(0);
+  const [expandedFileTreePaths, setExpandedFileTreePaths] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -65,7 +38,9 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
       const projectName = selectedProject?.name;
       const projectPath = selectedProject?.fullPath || selectedProject?.path || '';
       setFileList([]);
+      setFileTree([]);
       setFileSearchQuery('');
+      setExpandedFileTreePaths(new Set());
       if (!projectName) {
         return;
       }
@@ -81,6 +56,7 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
 
         const files = (await response.json()) as ProjectFileNode[];
         setFileList(flattenFileTree(files));
+        setFileTree(buildFileTree(files));
       } catch (error) {
         // Ignore aborts from rapid project switches; we only care about the latest request.
         if ((error as { name?: string })?.name === 'AbortError') {
@@ -201,6 +177,21 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
     [cursorPosition, input, setInput, textareaRef],
   );
 
+  const toggleFileTreeDirectory = useCallback((directoryPath: string) => {
+    /**
+     * Expand or collapse one directory without forcing the whole tree to render.
+     */
+    setExpandedFileTreePaths((previousPaths) => {
+      const nextPaths = new Set(previousPaths);
+      if (nextPaths.has(directoryPath)) {
+        nextPaths.delete(directoryPath);
+      } else {
+        nextPaths.add(directoryPath);
+      }
+      return nextPaths;
+    });
+  }, []);
+
   const handleFileMentionsKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>): boolean => {
       if (!showFileDropdown) {
@@ -258,6 +249,9 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
     showFileDropdown,
     fileSearchQuery,
     setFileSearchQuery,
+    fileTree,
+    expandedFileTreePaths,
+    toggleFileTreeDirectory,
     filteredFiles,
     selectedFileIndex,
     renderInputWithMentions,

@@ -106,6 +106,12 @@ const PROJECTS_CACHE_TTL_MS = (() => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 5 * 1000;
 })();
 const PROJECT_OVERVIEW_SESSION_LIMIT = Number.MAX_SAFE_INTEGER;
+const PROVIDER_INDEX_HOME_BUDGET_MS = (() => {
+  const parsed = Number.parseInt(process.env.PROVIDER_INDEX_HOME_BUDGET_MS || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 2500;
+})();
+const PROVIDER_ONLY_PROJECT_LIMIT = 50;
+const AUTO_IMPORTED_ROUTE_TITLE_SOURCE = 'auto-import';
 
 // Clear cache when needed (called when project files change)
 function clearProjectDirectoryCache() {
@@ -553,6 +559,72 @@ function createLiveProjectName(projectPath, usedProjectNames, provider) {
 }
 
 /**
+ * Return a stale provider index if a fresh build fails or exceeds the home-page budget.
+ * @param {string} label - Provider name used in logs.
+ * @param {Promise<Map<string, Array<object>>>} indexPromise - Fresh index build promise.
+ * @param {object|null} cache - Last successful cache entry.
+ * @returns {Promise<Map<string, Array<object>>>} Fresh, stale, or empty session index.
+ */
+async function resolveProviderIndexWithinHomeBudget(label, indexPromise, cache) {
+  const startedAt = Date.now();
+  let budgetTimer = null;
+  const budgetExceeded = new Promise((resolve) => {
+    budgetTimer = setTimeout(() => {
+      console.warn(`[Projects] ${label} index exceeded ${PROVIDER_INDEX_HOME_BUDGET_MS}ms; returning degraded home overview`);
+      resolve(cache?.value || new Map());
+    }, PROVIDER_INDEX_HOME_BUDGET_MS);
+  });
+
+  const guardedIndex = indexPromise
+    .then((index) => {
+      console.info(`[Projects] ${label} index ready in ${Date.now() - startedAt}ms`);
+      return index;
+    })
+    .catch((error) => {
+      console.warn(`[Projects] ${label} index failed; returning degraded home overview:`, error.message);
+      return cache?.value || new Map();
+    });
+
+  try {
+    return await Promise.race([guardedIndex, budgetExceeded]);
+  } finally {
+    if (budgetTimer) {
+      clearTimeout(budgetTimer);
+    }
+  }
+}
+
+/**
+ * Resolve all provider indexes through the home overview budget before project
+ * cards ask for per-provider session slices.
+ * @param {Object} refs - Mutable provider index references reused by session loaders.
+ * @returns {Promise<void>} Resolves when each provider has a fresh, stale, or empty index.
+ */
+async function hydrateProviderIndexesForHomeOverview(refs) {
+  const [codexSessionsByProject, opencodeSessionsByProject, piSessionsByProject] = await Promise.all([
+    resolveProviderIndexWithinHomeBudget(
+      'Codex',
+      getCachedCodexSessionsIndex(),
+      codexSessionsIndexCache,
+    ),
+    resolveProviderIndexWithinHomeBudget(
+      'OpenCode',
+      getCachedOpencodeSessionsIndex(),
+      opencodeSessionsIndexCache,
+    ),
+    resolveProviderIndexWithinHomeBudget(
+      'Pi',
+      getCachedPiSessionsIndex(),
+      piSessionsIndexCache,
+    ),
+  ]);
+
+  refs.codex.sessionsByProject = codexSessionsByProject;
+  refs.opencode.sessionsByProject = opencodeSessionsByProject;
+  refs.pi.sessionsByProject = piSessionsByProject;
+}
+
+/**
  * Build a synthetic sidebar session from an active provider process.
  * @param {Object} session - Active session descriptor.
  * @param {'codex'|'opencode'} provider - Session provider.
@@ -568,7 +640,8 @@ function createSyntheticActiveSession(session, provider) {
     createdAt: startedAt,
     lastActivity: startedAt,
     updated_at: startedAt,
-    messageCount: 0,
+    messageCount: null,
+    messageCountKnown: false,
     projectPath: session.projectPath || '',
     status: 'active',
   };
@@ -1133,9 +1206,13 @@ function getSessionSummaryOverrideMap(config) {
     return {};
   }
   if (config.schemaVersion === PROJECT_CONFIG_SCHEMA_VERSION) {
-    const summaryById = {};
+    const summaryById = {
+      ...normalizeSessionSummaryMapForRead(config[SESSION_SUMMARY_BY_ID_KEY], config),
+    };
     Object.values(config.chat || {}).forEach((record) => {
-      if (record?.sessionId && record?.title) summaryById[record.sessionId] = record.title;
+      if (record?.sessionId && record?.title && record.titleSource !== AUTO_IMPORTED_ROUTE_TITLE_SOURCE) {
+        summaryById[record.sessionId] = record.title;
+      }
     });
     Object.values(config.workflows || {}).forEach((workflow) => {
       Object.values(workflow?.chat || {}).forEach((record) => {
@@ -1649,7 +1726,8 @@ function getPersistedChatRouteSessionsForProject(config, { projectPath, provider
         createdAt: record.createdAt || record.updatedAt || new Date().toISOString(),
         updated_at: record.updatedAt || record.createdAt || new Date().toISOString(),
         lastActivity: record.updatedAt || record.createdAt || new Date().toISOString(),
-        messageCount: 0,
+        messageCount: null,
+        messageCountKnown: false,
         provider: normalizedProvider,
         __provider: normalizedProvider,
         projectPath,
@@ -2052,11 +2130,14 @@ async function cleanupDeletedSessionConfig(sessionId, projectPath = '', provider
 /**
  * Attach stable, non-recycled route indices to one project's manual sessions.
  */
-function attachSessionRouteIndices(config, projectPath, provider, sessions = []) {
+function attachSessionRouteIndices(config, projectPath, provider, sessions = [], options = {}) {
   /**
    * Rebuild route numbers from immutable creation time so deleting conf.json
    * still produces older sessions with smaller cN values.
    */
+  const routeTitleBySessionId = options.routeTitleBySessionId instanceof Map
+    ? options.routeTitleBySessionId
+    : new Map();
   const workflowOwnedRouteSessionIds = getWorkflowOwnedRouteSessionIds(config);
   config.schemaVersion = PROJECT_CONFIG_SCHEMA_VERSION;
   config.chat = config.chat && typeof config.chat === 'object' && !Array.isArray(config.chat) ? config.chat : {};
@@ -2102,12 +2183,20 @@ function attachSessionRouteIndices(config, projectPath, provider, sessions = [])
     usedRouteIndices.add(routeIndex);
     routeIndexBySessionId.set(session.id, routeIndex);
     if (session.id) {
+      const autoImportedTitle = routeTitleBySessionId.get(session.id);
       const nextRecord = {
         ...(config.chat[String(routeIndex)] || {}),
         sessionId: session.id,
-        title: session.title || session.summary || session.name || config.chat[String(routeIndex)]?.title,
+        title: autoImportedTitle
+          || session.title
+          || session.summary
+          || session.name
+          || config.chat[String(routeIndex)]?.title,
         provider,
       };
+      if (autoImportedTitle) {
+        nextRecord.titleSource = AUTO_IMPORTED_ROUTE_TITLE_SOURCE;
+      }
       if (config.chat[String(routeIndex)]?.ui && Object.keys(config.chat[String(routeIndex)].ui).length > 0) {
         nextRecord.ui = config.chat[String(routeIndex)].ui;
       }
@@ -2122,9 +2211,14 @@ function attachSessionRouteIndices(config, projectPath, provider, sessions = [])
     if (!session?.id) {
       return session;
     }
+    const routeIndex = routeIndexBySessionId.get(session.id);
+    const routeRecord = Number.isInteger(routeIndex) ? config.chat[String(routeIndex)] : null;
     return {
       ...session,
-      routeIndex: routeIndexBySessionId.get(session.id),
+      routeIndex,
+      routeTitle: typeof routeRecord?.title === 'string' && routeRecord.title.trim()
+        ? routeRecord.title.trim()
+        : undefined,
     };
   });
 
@@ -2549,8 +2643,15 @@ async function getProjects(progressCallback = null) {
   const opencodeSessionsIndexRef = { sessionsByProject: null };
   const piSessionsIndexRef = { sessionsByProject: null };
   let archiveIndexChanged = false;
+  let providerOnlyProjectCount = 0;
   let totalProjects = 0;
   let processedProjects = 0;
+
+  await hydrateProviderIndexesForHomeOverview({
+    codex: codexSessionsIndexRef,
+    opencode: opencodeSessionsIndexRef,
+    pi: piSessionsIndexRef,
+  });
 
   /**
    * Apply missing-path archival policy and tell caller whether to skip this project.
@@ -2670,42 +2771,40 @@ async function getProjects(progressCallback = null) {
     }
   }
 
-  // Add Codex-only projects that are not present in Claude/manual discovery.
-  if (!codexSessionsIndexRef.sessionsByProject) {
-    codexSessionsIndexRef.sessionsByProject = await getCachedCodexSessionsIndex();
-  }
+  // Add provider-only projects that are not present in manual discovery.
+  const collectProviderOnlyCandidates = (provider, indexRef) => [...indexRef.sessionsByProject.entries()]
+    .map(([normalizedProjectPath, providerSessions]) => ({
+      provider,
+      normalizedProjectPath,
+      providerSessions,
+      lastActivity: providerSessions
+        .map((session) => new Date(session?.lastActivity || session?.updated_at || session?.createdAt || 0).getTime())
+        .filter(Number.isFinite)
+        .sort((left, right) => right - left)[0] || 0,
+    }));
 
-  for (const [normalizedProjectPath, codexSessions] of codexSessionsIndexRef.sessionsByProject.entries()) {
+  const providerOnlyCandidates = [
+    ...collectProviderOnlyCandidates('codex', codexSessionsIndexRef),
+    ...collectProviderOnlyCandidates('opencode', opencodeSessionsIndexRef),
+    ...collectProviderOnlyCandidates('pi', piSessionsIndexRef),
+  ].sort((left, right) => right.lastActivity - left.lastActivity);
+
+  for (const { provider, normalizedProjectPath, providerSessions } of providerOnlyCandidates) {
+    if (providerOnlyProjectCount >= PROVIDER_ONLY_PROJECT_LIMIT) {
+      break;
+    }
     if (!normalizedProjectPath || knownProjectPaths.has(normalizedProjectPath)) {
       continue;
     }
 
-    const inferredProjectPath = codexSessions?.[0]?.cwd || normalizedProjectPath;
-    if (await shouldSkipProject(inferredProjectPath, 'codex')) {
+    const inferredProjectPath = providerSessions?.[0]?.cwd || providerSessions?.[0]?.projectPath || normalizedProjectPath;
+    if (await shouldSkipProject(inferredProjectPath, provider)) {
       continue;
     }
-    let baseProjectName = inferredProjectPath.replace(/[\\/:\s~_]/g, '-');
-    if (!baseProjectName) {
-      baseProjectName = `codex-${crypto.createHash('md5').update(normalizedProjectPath).digest('hex').slice(0, 12)}`;
-    }
-
-    let projectName = baseProjectName;
-    if (usedProjectNames.has(projectName)) {
-      const suffix = crypto.createHash('md5').update(normalizedProjectPath).digest('hex').slice(0, 8);
-      projectName = `${baseProjectName}-codex-${suffix}`;
-    }
-    while (usedProjectNames.has(projectName)) {
-      projectName = `${projectName}-1`;
-    }
-
+    const projectName = createLiveProjectName(inferredProjectPath, usedProjectNames, provider);
     const autoDisplayName = await generateDisplayName(projectName, inferredProjectPath);
-    const resolvedDisplayName = resolveProjectDisplayName(
-      config,
-      projectName,
-      inferredProjectPath,
-      autoDisplayName
-    );
-    const codexOnlyProject = {
+    const resolvedDisplayName = resolveProjectDisplayName(config, projectName, inferredProjectPath, autoDisplayName);
+    const project = {
       name: projectName,
       path: inferredProjectPath,
       routePath: buildProjectRoutePath(inferredProjectPath),
@@ -2713,98 +2812,40 @@ async function getProjects(progressCallback = null) {
       fullPath: inferredProjectPath,
       isCustomName: resolvedDisplayName.isCustomName,
       sessions: [],
-      codexSessions: await getCodexSessions(inferredProjectPath, {
+      codexSessions: [],
+      opencodeSessions: [],
+      piSessions: [],
+      sessionMeta: {
+        hasMore: false,
+        total: 0,
+      },
+    };
+
+    [project.codexSessions, project.opencodeSessions, project.piSessions] = await Promise.all([
+      getCodexSessions(inferredProjectPath, {
         limit: PROJECT_OVERVIEW_SESSION_LIMIT,
         indexRef: codexSessionsIndexRef,
         includeHidden: true,
         excludeWorkflowChildSessions: true,
-      }),
-      opencodeSessions: await getOpencodeSessions(inferredProjectPath, {
+      }).catch(() => []),
+      getOpencodeSessions(inferredProjectPath, {
         indexRef: opencodeSessionsIndexRef,
         includeHidden: true,
         excludeWorkflowChildSessions: true,
       }).catch(() => []),
-      piSessions: await getPiSessions(inferredProjectPath, {
+      getPiSessions(inferredProjectPath, {
         indexRef: piSessionsIndexRef,
         includeHidden: true,
         excludeWorkflowChildSessions: true,
       }).catch(() => []),
-      sessionMeta: {
-        hasMore: false,
-        total: 0
-      }
-    };
-    await attachManualSessionNextRouteIndex(codexOnlyProject, inferredProjectPath);
+    ]);
 
-    projects.push(codexOnlyProject);
+    await attachManualSessionNextRouteIndex(project, inferredProjectPath);
+    projects.push(project);
+    providerOnlyProjectCount++;
     usedProjectNames.add(projectName);
     knownProjectPaths.add(normalizedProjectPath);
   }
-
-  const addProviderOnlyProjects = async (provider, indexRef, sessionKey) => {
-    if (!indexRef.sessionsByProject) {
-      indexRef.sessionsByProject = provider === 'opencode'
-        ? await getCachedOpencodeSessionsIndex()
-        : await getCachedPiSessionsIndex();
-    }
-
-    for (const [normalizedProjectPath, providerSessions] of indexRef.sessionsByProject.entries()) {
-      if (!normalizedProjectPath || knownProjectPaths.has(normalizedProjectPath)) {
-        continue;
-      }
-
-      const inferredProjectPath = providerSessions?.[0]?.cwd || providerSessions?.[0]?.projectPath || normalizedProjectPath;
-      if (await shouldSkipProject(inferredProjectPath, provider)) {
-        continue;
-      }
-      const projectName = createLiveProjectName(inferredProjectPath, usedProjectNames, provider);
-      const autoDisplayName = await generateDisplayName(projectName, inferredProjectPath);
-      const resolvedDisplayName = resolveProjectDisplayName(config, projectName, inferredProjectPath, autoDisplayName);
-      const project = {
-        name: projectName,
-        path: inferredProjectPath,
-        routePath: buildProjectRoutePath(inferredProjectPath),
-        displayName: resolvedDisplayName.displayName,
-        fullPath: inferredProjectPath,
-        isCustomName: resolvedDisplayName.isCustomName,
-        sessions: [],
-        codexSessions: [],
-        opencodeSessions: [],
-        piSessions: [],
-        sessionMeta: {
-          hasMore: false,
-          total: 0,
-        },
-      };
-
-      if (provider === 'opencode') {
-        project[sessionKey] = await getOpencodeSessions(inferredProjectPath, {
-          indexRef,
-          includeHidden: true,
-          excludeWorkflowChildSessions: true,
-        });
-        project.piSessions = await getPiSessions(inferredProjectPath, {
-          indexRef: piSessionsIndexRef,
-          includeHidden: true,
-          excludeWorkflowChildSessions: true,
-        }).catch(() => []);
-      } else {
-        project[sessionKey] = await getPiSessions(inferredProjectPath, {
-          indexRef,
-          includeHidden: true,
-          excludeWorkflowChildSessions: true,
-        });
-      }
-
-      await attachManualSessionNextRouteIndex(project, inferredProjectPath);
-      projects.push(project);
-      usedProjectNames.add(projectName);
-      knownProjectPaths.add(normalizedProjectPath);
-    }
-  };
-
-  await addProviderOnlyProjects('opencode', opencodeSessionsIndexRef, 'opencodeSessions');
-  await addProviderOnlyProjects('pi', piSessionsIndexRef, 'piSessions');
 
   await mergeActiveProviderSessionsIntoProjects({
     projects,
@@ -3232,6 +3273,7 @@ async function renameCodexSession(sessionId, newSummary, projectPath = '') {
   const chatRecord = findProjectChatRecord(config, sessionId);
   if (chatRecord?.record) {
     chatRecord.record.title = trimmedSummary;
+    delete chatRecord.record.titleSource;
   }
   await saveProjectConfig(config, projectPath);
   clearProjectDirectoryCache();
@@ -3847,7 +3889,8 @@ async function buildCodexSessionsIndex() {
         id: sessionData.id,
         summary: codexSummaryById[sessionData.id] || sessionData.summary || 'Codex Session',
         title: codexSummaryById[sessionData.id] || sessionData.summary || 'Codex Session',
-        messageCount: sessionData.messageCount || 0,
+        messageCount: typeof sessionData.messageCount === 'number' ? sessionData.messageCount : null,
+        messageCountKnown: typeof sessionData.messageCount === 'number',
         createdAt: sessionData.createdAt ? new Date(sessionData.createdAt) : undefined,
         lastActivity: sessionData.timestamp ? new Date(sessionData.timestamp) : new Date(),
         cwd: sessionData.cwd,
@@ -3908,8 +3951,85 @@ async function parseCodexSessionHeader(filePath) {
     createdAt: timestamp,
     timestamp: stat?.mtime?.toISOString() || timestamp,
     summary: 'Codex Session',
-    messageCount: 0,
+    messageCount: null,
+    messageCountKnown: false,
   };
+}
+
+/**
+ * Build route title overrides for Codex sessions that still have the lightweight
+ * home overview title.
+ * @param {Array<object>} sessions - Visible Codex sessions about to get cN routes.
+ * @returns {Promise<Map<string, string>>} Session id to persisted route title.
+ */
+async function buildCodexRouteTitleBySessionId(sessions) {
+  const routeTitleBySessionId = new Map();
+
+  for (const session of sessions) {
+    if (!session?.id || session.summary !== 'Codex Session' || !session.filePath) {
+      continue;
+    }
+
+    const firstUserMessage = await readCodexFirstUserMessageForHeader(session.filePath);
+    if (!firstUserMessage) {
+      continue;
+    }
+    routeTitleBySessionId.set(
+      session.id,
+      firstUserMessage.length > 50 ? `${firstUserMessage.substring(0, 50)}...` : firstUserMessage,
+    );
+  }
+
+  return routeTitleBySessionId;
+}
+
+/**
+ * Read only the early Codex JSONL records needed to title imported terminal
+ * sessions without doing the full detail parse used by transcript views.
+ * @param {string} filePath - Codex JSONL transcript path.
+ * @param {number} maxLines - Safety cap that keeps project discovery lightweight.
+ * @returns {Promise<string|null>} First non-bootstrap user instruction.
+ */
+async function readCodexFirstUserMessageForHeader(filePath, maxLines = 80) {
+  try {
+    const fileStream = fsSync.createReadStream(filePath);
+    const rl = readline.createInterface({
+      input: fileStream,
+      crlfDelay: Infinity,
+    });
+    let lineCount = 0;
+
+    for await (const line of rl) {
+      lineCount += 1;
+      if (lineCount > maxLines) {
+        rl.close();
+        fileStream.destroy();
+        break;
+      }
+      if (!line.trim()) {
+        continue;
+      }
+
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type !== 'event_msg' || entry.payload?.type !== 'user_message') {
+          continue;
+        }
+        const message = typeof entry.payload.message === 'string' ? entry.payload.message.trim() : '';
+        if (message && !isBootstrapSessionPrompt(message)) {
+          rl.close();
+          fileStream.destroy();
+          return message;
+        }
+      } catch {
+        // Header parsing must tolerate partially written or malformed later lines.
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 /**
@@ -4018,11 +4138,13 @@ async function getCodexSessions(projectPath, options = {}) {
     const visibleSessions = includeHidden
       ? sessionsWithUiState
       : filterHiddenArchivedSessions(sessionsWithUiState);
+    const routeTitleBySessionId = await buildCodexRouteTitleBySessionId(visibleSessions);
     const indexedVisibleSessions = attachSessionRouteIndices(
       config,
       projectPath,
       'codex',
       visibleSessions,
+      { routeTitleBySessionId },
     );
     if (indexedVisibleSessions.changed) {
       await saveProjectConfig(config, projectPath);
@@ -4121,7 +4243,8 @@ async function buildOpencodeSessionsIndex() {
         name: session.title || session.id,
         lastActivity: session.updated || session.created || new Date().toISOString(),
         createdAt: session.created || new Date().toISOString(),
-        messageCount: 0,
+        messageCount: null,
+        messageCountKnown: false,
         provider: 'opencode',
         __provider: 'opencode',
         projectPath: session.directory,
@@ -4181,7 +4304,8 @@ async function buildOpencodeSessionsIndexFromSqlite(dbPath = process.env.OPENCOD
         summary: row.title || 'OpenCode Session',
         lastActivity: row.time_updated || row.time_created || new Date().toISOString(),
         createdAt: row.time_created || row.time_updated || new Date().toISOString(),
-        messageCount: 0,
+        messageCount: null,
+        messageCountKnown: false,
         provider: 'opencode',
         __provider: 'opencode',
         projectPath: row.directory,
@@ -4384,7 +4508,8 @@ async function parsePiSessionHeader(filePath) {
     createdAt,
     updated_at: stat?.mtime?.toISOString() || createdAt,
     lastActivity: stat?.mtime?.toISOString() || createdAt,
-    messageCount: 0,
+    messageCount: null,
+    messageCountKnown: false,
     cwd: firstRecord.cwd,
     projectPath: firstRecord.cwd,
     provider: 'pi',

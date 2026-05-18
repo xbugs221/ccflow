@@ -13,7 +13,7 @@ export interface Session {
   updatedAt?: string;
   created_at?: string;
   createdAt?: string;
-  messageCount?: number;
+  messageCount?: number | null;
   [key: string]: unknown;
 }
 
@@ -61,8 +61,10 @@ export function getSessionActivitySignature(session: Session): string {
     session.created_at ||
     session.createdAt ||
     '';
-  const messageCount = Number(session.messageCount || 0);
-  return `${Number.isFinite(messageCount) ? messageCount : 0}:${String(sessionTime)}`;
+  const messageCount = typeof session.messageCount === 'number' && Number.isFinite(session.messageCount)
+    ? session.messageCount
+    : 'unknown';
+  return `${messageCount}:${String(sessionTime)}`;
 }
 
 export function readViewedSessionSignature(sessionKey: string): string | null {

@@ -1221,7 +1221,9 @@ export default function ProjectOverviewPanel({
                               待处理
                             </span>
                           )}
-                          <span>{sessionView.messageCount} 条消息</span>
+                          {sessionView.messageCount !== null && (
+                            <span>{sessionView.messageCount} 条消息</span>
+                          )}
                         </div>
                       </button>
                     </div>

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  getProjects,
   getCodexSessions,
   saveProjectConfig,
 } from '../../server/projects.ts';
@@ -30,6 +31,30 @@ test('Scenario: 终端 Codex 会话使用第一条用户指令作为标题', asy
     assert.equal(persisted.chat['1'].sessionId, 'codex-terminal-real-1');
     assert.equal(persisted.chat['1'].title, '请重构 conf.json 会话配置');
     assert.equal(Object.hasOwn(persisted.chat['1'], 'ui'), false);
+  });
+});
+
+test('Scenario: 自动导入标题不会反向污染 Codex 首页概览摘要', async () => {
+  await withIsolatedProject(async ({ homeDir, projectPath }) => {
+    await createCodexTranscript(
+      homeDir,
+      projectPath,
+      'codex-terminal-real-2',
+      '请重构 conf.json 会话配置',
+    );
+
+    const firstProjects = await getProjects();
+    const firstProject = firstProjects.find((project) => project.fullPath === projectPath);
+    const persisted = await readProjectConf(projectPath);
+    const secondProjects = await getProjects();
+    const secondProject = secondProjects.find((project) => project.fullPath === projectPath);
+
+    assert.equal(firstProject?.codexSessions?.[0]?.summary, 'Codex Session');
+    assert.equal(firstProject?.codexSessions?.[0]?.routeTitle, '请重构 conf.json 会话配置');
+    assert.equal(persisted.chat['1'].title, '请重构 conf.json 会话配置');
+    assert.equal(persisted.chat['1'].titleSource, 'auto-import');
+    assert.equal(secondProject?.codexSessions?.[0]?.summary, 'Codex Session');
+    assert.equal(secondProject?.codexSessions?.[0]?.routeTitle, '请重构 conf.json 会话配置');
   });
 });
 

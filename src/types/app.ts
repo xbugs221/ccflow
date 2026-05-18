@@ -186,6 +186,7 @@ export interface ProjectWorkflow {
 export interface ProjectSession {
   id: string;
   routeIndex?: number;
+  routeTitle?: string;
   label?: string;
   title?: string;
   summary?: string;
@@ -197,7 +198,8 @@ export interface ProjectSession {
   created_at?: string;
   updated_at?: string;
   lastActivity?: string;
-  messageCount?: number;
+  messageCount?: number | null;
+  messageCountKnown?: boolean;
   status?: string;
   favorite?: boolean;
   pending?: boolean;
