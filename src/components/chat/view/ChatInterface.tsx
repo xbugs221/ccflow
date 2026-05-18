@@ -112,9 +112,6 @@ function ChatInterface({
   onInputFocusChange,
   onSessionActive,
   onSessionInactive,
-  onSessionProcessing,
-  onSessionNotProcessing,
-  processingSessions,
   onReplaceTemporarySession,
   onNavigateToSession,
   onNewSession,
@@ -222,8 +219,6 @@ function ChatInterface({
     isLoadingAllMessages,
     loadAllJustFinished,
     showLoadAllOverlay,
-    processingStatus,
-    setProcessingStatus,
     createDiff,
     scrollContainerRef,
     scrollToBottom,
@@ -241,7 +236,6 @@ function ChatInterface({
     isFollowingLatest,
     autoScrollToBottom,
     externalMessageUpdate,
-    processingSessions,
     resetStreamingState,
     pendingViewSessionRef,
   });
@@ -303,7 +297,6 @@ function ChatInterface({
     sendMessage,
     sendByCtrlEnter,
     onSessionActive,
-    onSessionProcessing,
     onInputFocusChange,
     onFileOpen,
     onShowSettings,
@@ -313,7 +306,6 @@ function ChatInterface({
     setSessionMessages,
     setIsLoading,
     setCanAbortSession,
-    setProcessingStatus,
     setIsUserScrolledUp,
     setPendingPermissionRequests,
     onRequestDispatched: () => {
@@ -331,7 +323,6 @@ function ChatInterface({
         pendingNetworkTimeoutRef.current = null;
         setIsLoading(false);
         setCanAbortSession(false);
-        setProcessingStatus(null);
         setChatMessages((previous) => [
           ...previous,
           {
@@ -490,9 +481,6 @@ function ChatInterface({
   }, [selectedSession?.id, selectedSession?.__provider, codexModelSwitchSessionId]);
 
   const reviewLaunchSessionId = selectedSession?.id || currentSessionId || '';
-  const isReviewLaunchSessionProcessing = Boolean(
-    reviewLaunchSessionId && processingSessions?.has(reviewLaunchSessionId),
-  );
   const reviewLaunchTurnOutcome = reviewLaunchSessionId ? workflowTurnOutcomes[reviewLaunchSessionId] : undefined;
 
   useEffect(() => {
@@ -536,7 +524,6 @@ function ChatInterface({
     setSessionMessages,
     setIsLoading,
     setCanAbortSession,
-    setProcessingStatus,
     setTokenBudget,
     setIsSystemSessionChange,
     setPendingPermissionRequests,
@@ -545,8 +532,6 @@ function ChatInterface({
     streamBufferRef,
     streamTimerRef,
     onSessionInactive,
-    onSessionProcessing,
-    onSessionNotProcessing,
     onReplaceTemporarySession,
     onNavigateToSession,
     codexModelSwitchSessionId,
@@ -907,7 +892,6 @@ function ChatInterface({
         />
 
         <ChatComposer
-          processingStatus={processingStatus}
           isLoading={isLoading}
           isComposerSubmitting={isComposerSubmitting}
           onAbortSession={handleAbortSession}

@@ -25,11 +25,8 @@ export default function AppContent() {
   const { ws, sendMessage, latestMessage, messageHistory } = useWebSocket();
   const {
     activeSessions,
-    processingSessions,
     markSessionAsActive,
     markSessionAsInactive,
-    markSessionAsProcessing,
-    markSessionAsNotProcessing,
     replaceTemporarySession,
   } = useSessionProtection();
 
@@ -260,9 +257,6 @@ export default function AppContent() {
       onInputFocusChange={setIsInputFocused}
       onSessionActive={markSessionAsActive}
       onSessionInactive={markSessionAsInactive}
-      onSessionProcessing={markSessionAsProcessing}
-      onSessionNotProcessing={markSessionAsNotProcessing}
-      processingSessions={processingSessions}
       onReplaceTemporarySession={replaceTemporarySession}
       onNavigateToSession={handleNavigateToSession}
       onSelectSession={handleSessionSelect}

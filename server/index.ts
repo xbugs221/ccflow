@@ -679,14 +679,77 @@ async function replayCoConversationEvents(ws, conversation) {
 async function readCoConversationMessages(conversation, provider, limit = null, offset = 0) {
     const conversationId = conversation?.conversation_id || '';
     const turns = Array.isArray(conversation?.turns) ? conversation.turns : [];
-    if (!conversationId || turns.length === 0) {
+    if (!conversationId) {
         return { messages: [], total: 0, hasMore: false };
     }
 
     const requests = await readCoConversationRequests(conversationId);
     const messages = [];
-    for (const [turnIndex, turnId] of turns.entries()) {
-        const request = requests[turnIndex] || null;
+
+    // Build a map of request_id → request for pairing with turn directories.
+    const requestByRequestId = new Map();
+    for (const request of requests) {
+        const id = request?.request_id || request?.id;
+        if (id) {
+            requestByRequestId.set(id, request);
+        }
+    }
+
+    // Scan the turns directory for ALL turn subdirectories belonging to this
+    // conversation. The conversation state's turns array may be truncated or
+    // overwritten by the co daemon (it writes turns: [latestTurnId]), so we
+    // discover turns from the filesystem by reading each turn's request.json.
+    const turnIds = new Set<string>();
+    const turnsDir = path.join(resolveCoHome(), 'turns');
+    try {
+        const entries = await fsPromises.readdir(turnsDir, { withFileTypes: true });
+        for (const entry of entries) {
+            if (!entry.isDirectory()) {
+                continue;
+            }
+            // Read the turn's request.json to get the request_id, then check
+            // whether that request belongs to this conversation.
+            const requestJsonPath = path.join(turnsDir, entry.name, 'request.json');
+            try {
+                const turnRequest = JSON.parse(await fsPromises.readFile(requestJsonPath, 'utf8'));
+                const requestId = turnRequest?.request_id || turnRequest?.id;
+                if (requestId && (requestByRequestId.has(requestId) || turnRequest?.conversation_id === conversationId)) {
+                    turnIds.add(entry.name);
+                    continue;
+                }
+            } catch {
+                // request.json may not exist; fall through to suffix matching.
+            }
+            // Fallback: turn directories named turn_<request_id>
+            const possibleRequestId = entry.name.startsWith('turn_')
+                ? entry.name.slice(5)
+                : entry.name;
+            if (requestByRequestId.has(possibleRequestId)) {
+                turnIds.add(entry.name);
+            }
+        }
+    } catch (error) {
+        if (error?.code !== 'ENOENT') {
+            console.warn('[co] Failed to scan turns directory:', error.message);
+        }
+    }
+    // Also include turns from the conversation state (covers non-standard turn names).
+    for (const turnId of turns) {
+        turnIds.add(turnId);
+    }
+
+    // Sort turns by their request creation time for deterministic ordering.
+    const sortedTurnIds = [...turnIds].sort((a, b) => {
+        const requestA = requestByRequestId.get(a.startsWith('turn_') ? a.slice(5) : a);
+        const requestB = requestByRequestId.get(b.startsWith('turn_') ? b.slice(5) : b);
+        const timeA = requestA?.created_at || '0';
+        const timeB = requestB?.created_at || '0';
+        return new Date(timeA).getTime() - new Date(timeB).getTime();
+    });
+
+    for (const turnId of sortedTurnIds) {
+        const possibleRequestId = turnId.startsWith('turn_') ? turnId.slice(5) : turnId;
+        const request = requestByRequestId.get(possibleRequestId) || null;
         if (request?.text) {
             messages.push({
                 type: 'user',
@@ -1653,10 +1716,25 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
                 const providerSessionId = runtimeContext.pendingProviderSessionId;
                 const indexedProvider = runtimeContext.provider === 'opencode' ? 'opencode' : runtimeContext.provider === 'pi' ? 'pi' : 'codex';
                 const fetchProvider = resolvedProvider || indexedProvider;
+
+                // co-owned codex cN sessions must read from co conversation read model,
+                // not the native Codex JSONL. Previously this was masked by realtime
+                // direct transcript writes that have since been removed.
+                const coConversation = await findCoConversationForSession(sessionId);
+                if (fetchProvider === 'codex' && coConversation) {
+                    const nativeResult = await readCoConversationMessages(
+                        coConversation,
+                        'codex',
+                        parsedLimit,
+                        parsedAfterLine ?? parsedOffset,
+                    );
+                    return res.json(nativeResult);
+                }
+
                 const nativeResult = fetchProvider === 'codex'
                     ? await getCodexSessionMessages(providerSessionId, parsedLimit, parsedOffset, parsedAfterLine)
                     : await readCoConversationMessages(
-                        await findCoConversationForSession(sessionId),
+                        coConversation,
                         fetchProvider === 'pi' ? 'pi' : 'opencode',
                         parsedLimit,
                         parsedOffset,
@@ -1684,6 +1762,12 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
             }
         }
 
+        // Non-cN codex sessions always read from native Codex JSONL.
+        // Co conversations have cN route IDs (isCcflowRouteSessionId), so
+        // any session reaching this branch is NOT co-owned for codex.
+        // Checking findCoConversationForSession here would scan arbitrary
+        // co state.json files by provider_session_id and could falsely
+        // route native Codex JSONL sessions to the co read model.
         const result = resolvedProvider === 'codex'
             ? await getCodexSessionMessages(sessionId, parsedLimit, parsedOffset, parsedAfterLine)
             : await readCoConversationMessages(

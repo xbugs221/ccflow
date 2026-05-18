@@ -223,15 +223,32 @@ const resolveRouteSelection = (
         return { project, workflow: null, session };
       }
     }
-    if (legacySessionId.startsWith('codex-') && projects[0]) {
+    // Fallback: create a synthetic session for cN and codex-prefixed IDs
+    // so provider-complete handlers can resolve selectedProject / selectedSession
+    // and call reloadCodexSessionMessages without short-circuiting.
+    const cNMatch = legacySessionId.match(/^c(\d+)$/);
+    const isCNSession = cNMatch !== null;
+    if ((legacySessionId.startsWith('codex-') || isCNSession) && projects[0]) {
+      const routeIndex = cNMatch ? Number(cNMatch[1]) : undefined;
+      // Resolve project from query param so the session is scoped to the
+      // correct read model (co home) when no indexed session is found.
+      const searchParams = new URLSearchParams(window.location.search);
+      const projectPathParam = searchParams.get('projectPath') || '';
+      const providerParam = searchParams.get('provider') || 'codex';
+      const resolvedProject = projectPathParam
+        ? projects.find((p) => (p.fullPath || p.path) === projectPathParam) || projects[0]
+        : projects[0];
       return {
-        project: projects[0],
+        project: resolvedProject,
         workflow: null,
         session: {
           id: legacySessionId,
-          summary: 'Codex Session',
-          provider: 'codex',
-          __provider: 'codex',
+          routeIndex,
+          summary: legacySessionId.startsWith('codex-') ? 'Codex Session' : `会话${String(routeIndex ?? '')}`,
+          provider: providerParam as ProjectSession['provider'],
+          __provider: providerParam as ProjectSession['__provider'],
+          __projectName: resolvedProject?.name,
+          projectPath: projectPathParam || resolvedProject?.fullPath || resolvedProject?.path || '',
         } as ProjectSession,
       };
     }
@@ -715,11 +732,13 @@ export function useProjectsState({
         const existingSession = matchedSession?.session || getProjectSessions(resolvedProject).find(
           (entry) => entry.id === decodedSessionId && (entry.__provider || hintedProvider) === hintedProvider,
         );
+        const cNMatch = decodedSessionId.match(/^c(\d+)$/);
+        const cNRouteIndex = cNMatch ? Number(cNMatch[1]) : undefined;
         const fallbackSession = {
           id: decodedSessionId,
           title: requestedSessionSummary || decodedSessionId,
           summary: requestedSessionSummary || decodedSessionId,
-          routeIndex: existingSession?.routeIndex,
+          routeIndex: existingSession?.routeIndex ?? cNRouteIndex,
         } as ProjectSession;
         const nextSession = withSessionProjectMetadata(
           existingSession || fallbackSession,

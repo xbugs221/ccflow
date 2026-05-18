@@ -50,7 +50,6 @@ interface UseChatComposerStateArgs {
   sendMessage: (message: unknown) => void;
   sendByCtrlEnter?: boolean;
   onSessionActive?: (sessionId?: string | null) => void;
-  onSessionProcessing?: (sessionId?: string | null) => void;
   onInputFocusChange?: (focused: boolean) => void;
   onFileOpen?: (filePath: string, diffInfo?: unknown) => void;
   onShowSettings?: () => void;
@@ -60,7 +59,7 @@ interface UseChatComposerStateArgs {
   setSessionMessages?: Dispatch<SetStateAction<any[]>>;
   setIsLoading: (loading: boolean) => void;
   setCanAbortSession: (canAbort: boolean) => void;
-  setProcessingStatus: (status: { text: string; tokens: number; can_interrupt: boolean } | null) => void;
+
   setIsUserScrolledUp: (isScrolledUp: boolean) => void;
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
   onRequestDispatched?: () => void;
@@ -191,7 +190,6 @@ export function useChatComposerState({
   sendMessage,
   sendByCtrlEnter,
   onSessionActive,
-  onSessionProcessing,
   onInputFocusChange,
   onFileOpen,
   onShowSettings,
@@ -201,7 +199,6 @@ export function useChatComposerState({
   setSessionMessages,
   setIsLoading,
   setCanAbortSession,
-  setProcessingStatus,
   setIsUserScrolledUp,
   setPendingPermissionRequests,
   onRequestDispatched,
@@ -638,12 +635,9 @@ export function useChatComposerState({
       // Disable abort before dispatching the new command to prevent a stale
       // abort-session from a previous session racing with the new request.
       setCanAbortSession(false);
+      // Loading state for stop-button visibility; authoritative running status
+      // comes from co session-status events, not from the local composer.
       setIsLoading(true);
-      setProcessingStatus({
-        text: 'Processing',
-        tokens: 0,
-        can_interrupt: true,
-      });
 
       setIsUserScrolledUp(false);
       setTimeout(() => scrollToBottom(), 100);
@@ -678,9 +672,7 @@ export function useChatComposerState({
         };
       }
       onSessionActive?.(sessionToActivate);
-      if (effectiveSessionId && !isTemporarySessionId(effectiveSessionId)) {
-        onSessionProcessing?.(effectiveSessionId);
-      }
+      // onSessionProcessing removed: provider lifecycle is authoritative from co/wo.
 
       const getToolsSettings = () => {
         try {
@@ -798,8 +790,10 @@ export function useChatComposerState({
           },
         });
       }
-      // Re-enable abort only after the command has been dispatched.
-      setCanAbortSession(true);
+      // Do NOT re-enable abort here.  Authoritative abortability comes
+      // exclusively from co session-status events carrying an active_turn_id.
+      // Setting canAbortSession prematurely would allow abort-session to be
+      // sent before co acknowledges a turn, violating the spec.
       armSubmitCooldown();
       onRequestDispatched?.();
 
@@ -826,7 +820,6 @@ export function useChatComposerState({
       executeCommand,
       onSessionActive,
       isConnected,
-      onSessionProcessing,
       pendingViewSessionRef,
       permissionMode,
       provider,
@@ -837,7 +830,6 @@ export function useChatComposerState({
       sendMessage,
       setCanAbortSession,
       setChatMessages,
-      setProcessingStatus,
       setIsLoading,
       setIsUserScrolledUp,
       slashCommands,
@@ -846,6 +838,7 @@ export function useChatComposerState({
       armSubmitCooldown,
       resetComposerSubmit,
       updateComposerSubmitPhase,
+      setIsLoading,
     ],
   );
 
@@ -1053,7 +1046,13 @@ export function useChatComposerState({
       console.warn('Abort requested but no session ID is available yet.');
       return;
     }
-    const targetTurnId = sessionStorage.getItem(`cbw-active-turn:${targetSessionId}`) || '';
+    const targetTurnId = sessionStorage.getItem(`cbw-active-turn:${targetSessionId}`);
+
+    if (!targetTurnId) {
+      console.warn('Abort requested but no active turn ID is available. Awaiting co session-status.');
+      alert('正在等待协作服务确认运行状态，请稍后重试。');
+      return;
+    }
 
     sendMessage({
       type: 'abort-session',

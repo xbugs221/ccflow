@@ -8,6 +8,7 @@ import type { SocketMessageEnvelope } from '../../../contexts/WebSocketContext';
 import { getPendingSocketMessages } from '../../../../shared/socket-message-utils';
 import { decodeHtmlEntities, formatUsageLimitText } from '../utils/chatFormatting';
 import { safeLocalStorage } from '../utils/chatStorage';
+import { convertSessionMessages } from '../utils/messageTransforms';
 import type { ChatMessage, PendingPermissionRequest } from '../types/types';
 import type { Project, ProjectSession, SessionProvider } from '../../../types/app';
 
@@ -45,7 +46,6 @@ interface UseChatRealtimeHandlersArgs {
   setSessionMessages: Dispatch<SetStateAction<any[]>>;
   setIsLoading: (loading: boolean) => void;
   setCanAbortSession: (canAbort: boolean) => void;
-  setProcessingStatus: (status: { text: string; tokens: number; can_interrupt: boolean } | null) => void;
   setTokenBudget: (budget: Record<string, unknown> | null) => void;
   setIsSystemSessionChange: (isSystemSessionChange: boolean) => void;
   setPendingPermissionRequests: Dispatch<SetStateAction<PendingPermissionRequest[]>>;
@@ -87,79 +87,6 @@ const isCcflowRouteSessionId = (sessionId?: string | null): boolean =>
 
 const isUnsavedNewSessionId = (sessionId?: string | null): boolean =>
   Boolean(sessionId && sessionId.startsWith('new-session-'));
-
-/**
- * Build the same durable co message identity used by persisted history loaders.
- */
-const buildCoRealtimeMessageKey = (latestMessage: LatestChatMessage, providerData: any): string | null => {
-  const explicitMessageKey = providerData?.messageKey
-    || providerData?.message_key
-    || providerData?.message?.messageKey
-    || providerData?.message?.message_key
-    || latestMessage.messageKey
-    || latestMessage.message_key;
-  if (typeof explicitMessageKey === 'string' && explicitMessageKey.trim()) {
-    return explicitMessageKey;
-  }
-
-  const conversationId = latestMessage.cbwSessionId
-    || latestMessage.cbw_session_id
-    || latestMessage.conversation_id
-    || latestMessage.conversationId
-    || providerData?.conversation_id;
-  const turnId = latestMessage.turn_id || latestMessage.turnId || providerData?.turn_id || providerData?.turnId;
-  const eventSequence = latestMessage.seq
-    ?? latestMessage.sequence
-    ?? latestMessage.eventSeq
-    ?? providerData?.seq
-    ?? providerData?.sequence
-    ?? providerData?.eventSeq;
-  if (conversationId && turnId && eventSequence !== undefined && eventSequence !== null) {
-    return `co:${conversationId}:${turnId}:event:${eventSequence}`;
-  }
-
-  const eventId = latestMessage.event_id || latestMessage.eventId || providerData?.event_id || providerData?.eventId;
-  if (conversationId && turnId && eventId) {
-    return `co:${conversationId}:${turnId}:event:${eventId}`;
-  }
-
-  return null;
-};
-
-/**
- * Append a realtime assistant response only when its stable identity is new.
- */
-const appendRealtimeAssistantMessage = (
-  setChatMessages: Dispatch<SetStateAction<ChatMessage[]>>,
-  latestMessage: LatestChatMessage,
-  providerData: any,
-  source: 'codex-realtime' | 'opencode-realtime' | 'pi-realtime',
-) => {
-  const content = providerData?.message?.content;
-  if (typeof content !== 'string' || !content.trim()) {
-    return;
-  }
-
-  const messageKey = buildCoRealtimeMessageKey(latestMessage, providerData);
-  setChatMessages((previous) => {
-    const persistedPrevious = markUserMessagesPersisted(previous);
-    if (messageKey && persistedPrevious.some((message) => message.messageKey === messageKey)) {
-      return persistedPrevious;
-    }
-
-    return [
-      ...persistedPrevious,
-      {
-        type: 'assistant',
-        content,
-        timestamp: new Date(),
-        source,
-        messageKey: messageKey || undefined,
-        clientRequestId: latestMessage.clientRequestId || providerData?.clientRequestId,
-      },
-    ];
-  });
-};
 
 /** 
  * Check whether a provider session-created event belongs to the draft request
@@ -326,6 +253,8 @@ const reloadCodexSessionMessages = async ({
   sessionId,
   loadSessionMessages,
   setSessionMessages,
+  setChatMessages,
+  provider: fallbackProvider,
 }: {
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
@@ -337,18 +266,46 @@ const reloadCodexSessionMessages = async ({
     provider?: string,
   ) => Promise<any[]>;
   setSessionMessages: Dispatch<SetStateAction<any[]>>;
+  setChatMessages: Dispatch<SetStateAction<ChatMessage[]>>;
+  provider?: string;
 }) => {
   if (!selectedProject?.name || !sessionId || isUnsavedNewSessionId(sessionId)) {
     return;
   }
 
-  const provider = selectedSession?.__provider || 'codex';
-  const projectName = provider === 'codex'
+  // For cN/co-owned sessions, use the cN route ID so the server reads from
+  // the co conversation read model.  Ordinary Codex JSONL sessions keep their
+  // UUID id.  We check selectedSession.id directly — routeIndex is a sidebar
+  // slot that ALL sessions have and must NOT be used to infer co ownership.
+  const resolvedSessionId = selectedSession?.id && isCcflowRouteSessionId(selectedSession.id)
+    ? selectedSession.id
+    : sessionId;
+
+  const resolvedProvider = selectedSession?.__provider || fallbackProvider || 'codex';
+  const projectName = resolvedProvider === 'codex'
     ? selectedProject.name
     : selectedSession?.__projectName || selectedProject.name;
 
-  const messages = await loadSessionMessages(projectName, sessionId, false, provider);
-  setSessionMessages(Array.isArray(messages) ? messages : []);
+  const messages = await loadSessionMessages(projectName, resolvedSessionId, false, resolvedProvider);
+  const rawMessages = Array.isArray(messages) ? messages : [];
+  // Directly update chat transcript so the DOM reflects the reloaded read-model.
+  // NOTE: intentionally NOT updating sessionMessages here — doing so would trigger
+  // the useEffect-based merge in useChatSessionState (line ~1086) which races with
+  // this direct replacement and causes message loss on multi-turn conversations.
+  // The sessionMessages / convertedMessages pipeline is only used for initial load.
+  setChatMessages((previous) => {
+    const persisted = convertSessionMessages(rawMessages);
+    // Guard: don't wipe existing chat on an empty reload. Transient read-model
+    // race conditions can cause the API to return [] while turns are still
+    // materializing, and a full replace would make prior responses disappear.
+    if (rawMessages.length === 0 && previous.some((m) => m.type === 'assistant' || m.messageKey)) {
+      return previous;
+    }
+    const optimisticUsers = previous.filter((m) =>
+      m.type === 'user' && m.deliveryStatus === 'pending',
+    );
+    return [...persisted, ...optimisticUsers];
+  });
 };
 
 export function useChatRealtimeHandlers({
@@ -362,7 +319,6 @@ export function useChatRealtimeHandlers({
   setSessionMessages,
   setIsLoading,
   setCanAbortSession,
-  setProcessingStatus,
   setTokenBudget,
   setIsSystemSessionChange,
   setPendingPermissionRequests,
@@ -385,6 +341,8 @@ export function useChatRealtimeHandlers({
    * Replay buffered socket messages for routes that mount after the socket event.
    */
   const lastProcessedSequenceRef = useRef(0);
+  /** Debounce timer for content-event-driven read-model invalidation. */
+  const contentReloadTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let bridgedSocket: any = null;
@@ -432,6 +390,16 @@ export function useChatRealtimeHandlers({
     };
   }, [setChatMessages]);
 
+  // Clean up the content-event debounce timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (contentReloadTimerRef.current !== null) {
+        window.clearTimeout(contentReloadTimerRef.current);
+        contentReloadTimerRef.current = null;
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const pendingMessages = getPendingSocketMessages(
       messageHistory,
@@ -472,7 +440,9 @@ export function useChatRealtimeHandlers({
           selectedSession,
           sessionId: codexReloadSessionId,
           loadSessionMessages,
+          setChatMessages,
           setSessionMessages,
+          provider,
         });
       }
       const lifecycleMessageTypes = new Set([
@@ -544,7 +514,6 @@ export function useChatRealtimeHandlers({
       const clearLoadingIndicators = () => {
         setIsLoading(false);
         setCanAbortSession(false);
-        setProcessingStatus(null);
       };
 
       const markSessionsAsCompleted = (...sessionIds: Array<string | null | undefined>) => {
@@ -968,8 +937,29 @@ export function useChatRealtimeHandlers({
           console.log('[Codex] Unhandled item type:', codexData.itemType, codexData);
         }
 
+        // Realtime item content is NOT directly appended to the transcript.
+        // Final assistant content MUST come from the persisted session message read model.
+        // Content events trigger debounced read-model invalidation so the durable
+        // transcript eventually reflects the latest provider output.
         if (codexData.type === 'item' && codexData.itemType === 'agent_message') {
-          appendRealtimeAssistantMessage(setChatMessages, latestMessage, codexData, 'codex-realtime');
+          const reloadSessionId = latestMessage.sessionId || currentSessionId || selectedSession?.id || null;
+          if (reloadSessionId) {
+            if (contentReloadTimerRef.current !== null) {
+              window.clearTimeout(contentReloadTimerRef.current);
+            }
+            contentReloadTimerRef.current = window.setTimeout(() => {
+              contentReloadTimerRef.current = null;
+              void reloadCodexSessionMessages({
+                selectedProject,
+                selectedSession,
+                sessionId: reloadSessionId,
+                loadSessionMessages,
+                setChatMessages,
+                setSessionMessages,
+              provider,
+              });
+            }, 1000);
+          }
         }
 
         if (codexData.type === 'turn_complete') {
@@ -1032,7 +1022,9 @@ export function useChatRealtimeHandlers({
           selectedSession,
           sessionId: codexCompletedSessionId,
           loadSessionMessages,
+          setChatMessages,
           setSessionMessages,
+          provider,
         });
         window.setTimeout(() => {
           const retrySessionId =
@@ -1044,7 +1036,9 @@ export function useChatRealtimeHandlers({
             selectedSession,
             sessionId: retrySessionId,
             loadSessionMessages,
+            setChatMessages,
             setSessionMessages,
+            provider,
           });
         }, 500);
         break;
@@ -1076,8 +1070,27 @@ export function useChatRealtimeHandlers({
           console.log('[OpenCode] Unhandled item type:', opencodeData.itemType, opencodeData);
         }
 
+        // Realtime item content is NOT directly appended to the transcript.
+        // Content events trigger debounced read-model invalidation.
         if (opencodeData.type === 'item' && opencodeData.itemType === 'agent_message') {
-          appendRealtimeAssistantMessage(setChatMessages, latestMessage, opencodeData, 'opencode-realtime');
+          const reloadSessionId = latestMessage.sessionId || currentSessionId || selectedSession?.id || null;
+          if (reloadSessionId) {
+            if (contentReloadTimerRef.current !== null) {
+              window.clearTimeout(contentReloadTimerRef.current);
+            }
+            contentReloadTimerRef.current = window.setTimeout(() => {
+              contentReloadTimerRef.current = null;
+              void reloadCodexSessionMessages({
+                selectedProject,
+                selectedSession,
+                sessionId: reloadSessionId,
+                loadSessionMessages,
+                setChatMessages,
+                setSessionMessages,
+              provider,
+              });
+            }, 1000);
+          }
         }
 
         if (opencodeData.type === 'turn_complete') {
@@ -1129,6 +1142,17 @@ export function useChatRealtimeHandlers({
         if (selectedProject) {
           safeLocalStorage.removeItem(`chat_messages_${selectedProject.name}`);
         }
+
+        // Reload persisted session messages to replace any transient realtime state.
+        void reloadCodexSessionMessages({
+          selectedProject,
+          selectedSession,
+          sessionId: opencodeCompletedSessionId,
+          loadSessionMessages,
+          setChatMessages,
+          setSessionMessages,
+          provider,
+        });
         break;
       }
 
@@ -1142,8 +1166,27 @@ export function useChatRealtimeHandlers({
           console.log('[Pi] Unhandled item type:', piData.itemType, piData);
         }
 
+        // Realtime item content is NOT directly appended to the transcript.
+        // Content events trigger debounced read-model invalidation.
         if (piData.type === 'item' && piData.itemType === 'agent_message') {
-          appendRealtimeAssistantMessage(setChatMessages, latestMessage, piData, 'pi-realtime');
+          const reloadSessionId = latestMessage.sessionId || currentSessionId || selectedSession?.id || null;
+          if (reloadSessionId) {
+            if (contentReloadTimerRef.current !== null) {
+              window.clearTimeout(contentReloadTimerRef.current);
+            }
+            contentReloadTimerRef.current = window.setTimeout(() => {
+              contentReloadTimerRef.current = null;
+              void reloadCodexSessionMessages({
+                selectedProject,
+                selectedSession,
+                sessionId: reloadSessionId,
+                loadSessionMessages,
+                setChatMessages,
+                setSessionMessages,
+              provider,
+              });
+            }, 1000);
+          }
         }
 
         if (piData.type === 'turn_complete') {
@@ -1195,6 +1238,17 @@ export function useChatRealtimeHandlers({
         if (selectedProject) {
           safeLocalStorage.removeItem(`chat_messages_${selectedProject.name}`);
         }
+
+        // Reload persisted session messages to replace any transient realtime state.
+        void reloadCodexSessionMessages({
+          selectedProject,
+          selectedSession,
+          sessionId: piCompletedSessionId,
+          loadSessionMessages,
+          setChatMessages,
+          setSessionMessages,
+          provider,
+        });
         break;
       }
 
@@ -1279,11 +1333,14 @@ export function useChatRealtimeHandlers({
         if (latestMessage.isProcessing) {
           if (latestMessage.turnId || latestMessage.turn_id) {
             sessionStorage.setItem(`cbw-active-turn:${statusSessionId}`, String(latestMessage.turnId || latestMessage.turn_id));
+            // Only allow abort when co has confirmed an active turn.
+            if (isCurrentSession) {
+              setCanAbortSession(true);
+            }
           }
           onSessionProcessing?.(statusSessionId);
           if (isCurrentSession) {
             setIsLoading(true);
-            setCanAbortSession(true);
           }
           break;
         }
@@ -1294,42 +1351,6 @@ export function useChatRealtimeHandlers({
         if (isCurrentSession) {
           clearLoadingIndicators();
         }
-        break;
-      }
-
-      case 'claude-status': {
-        const statusData = latestMessage.data;
-        if (!statusData) {
-          break;
-        }
-
-        const statusInfo: { text: string; tokens: number; can_interrupt: boolean } = {
-          text: 'Working...',
-          tokens: 0,
-          can_interrupt: true,
-        };
-
-        if (statusData.message) {
-          statusInfo.text = statusData.message;
-        } else if (statusData.status) {
-          statusInfo.text = statusData.status;
-        } else if (typeof statusData === 'string') {
-          statusInfo.text = statusData;
-        }
-
-        if (statusData.tokens) {
-          statusInfo.tokens = statusData.tokens;
-        } else if (statusData.token_count) {
-          statusInfo.tokens = statusData.token_count;
-        }
-
-        if (statusData.can_interrupt !== undefined) {
-          statusInfo.can_interrupt = statusData.can_interrupt;
-        }
-
-        setProcessingStatus(statusInfo);
-        setIsLoading(true);
-        setCanAbortSession(statusInfo.can_interrupt);
         break;
       }
 
@@ -1347,7 +1368,6 @@ export function useChatRealtimeHandlers({
     setChatMessages,
     setIsLoading,
     setCanAbortSession,
-    setProcessingStatus,
     setTokenBudget,
     setIsSystemSessionChange,
     setPendingPermissionRequests,

@@ -243,7 +243,6 @@ interface UseChatSessionStateArgs {
   isFollowingLatest?: boolean;
   autoScrollToBottom?: boolean;
   externalMessageUpdate?: number;
-  processingSessions?: Set<string>;
   resetStreamingState: () => void;
   pendingViewSessionRef: MutableRefObject<PendingViewSession | null>;
 }
@@ -313,6 +312,21 @@ function getSessionProjectName(selectedProject: Project | null, selectedSession:
 }
 
 /**
+ * Resolve the session ID used for server message API calls.
+ * cN/co-owned sessions have a cN route ID as their id (e.g. "c61") and must
+ * use it unchanged so the server reads from the co conversation read model.
+ * Ordinary Codex JSONL sessions have a UUID id and must keep it so the
+ * server reads from the native Codex JSONL.  Do NOT reconstruct cN from
+ * routeIndex — routeIndex is a sidebar slot that ALL sessions have.
+ */
+function getSessionLoadId(session: ProjectSession | null): string {
+  if (!session?.id) {
+    return '';
+  }
+  return session.id;
+}
+
+/**
  * Resolve a stable key for anchoring a frozen transcript tail.
  */
 function getViewMessageKey(message: ChatMessage, index: number): string {
@@ -326,7 +340,6 @@ export function useChatSessionState({
   isFollowingLatest = false,
   autoScrollToBottom,
   externalMessageUpdate,
-  processingSessions,
   resetStreamingState,
   pendingViewSessionRef,
 }: UseChatSessionStateArgs) {
@@ -359,7 +372,6 @@ export function useChatSessionState({
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [tokenBudget, setTokenBudget] = useState<Record<string, unknown> | null>(null);
   const [visibleMessageCount, setVisibleMessageCount] = useState(INITIAL_VISIBLE_MESSAGES);
-  const [processingStatus, setProcessingStatus] = useState<{ text: string; tokens: number; can_interrupt: boolean } | null>(null);
   const [allMessagesLoaded, setAllMessagesLoaded] = useState(false);
   const [isLoadingAllMessages, setIsLoadingAllMessages] = useState(false);
   const [loadAllJustFinished, setLoadAllJustFinished] = useState(false);
@@ -547,7 +559,6 @@ export function useChatSessionState({
     setIsLoading(false);
     setIsLoadingSessionMessages(false);
     setIsLoadingMoreMessages(false);
-    setProcessingStatus(null);
     setCanAbortSession(false);
     setTokenBudget(null);
     messagesOffsetRef.current = 0;
@@ -635,7 +646,7 @@ export function useChatSessionState({
       try {
         const moreMessages = await loadSessionMessages(
           sessionProjectName,
-          selectedSession.id,
+          getSessionLoadId(selectedSession),
           true,
           sessionProvider,
         );
@@ -871,7 +882,6 @@ export function useChatSessionState({
             }
             setSessionMessages([]);
             setSessionMessagesError(null);
-            setProcessingStatus(null);
             setCanAbortSession(false);
           }
 
@@ -916,7 +926,7 @@ export function useChatSessionState({
         if (!isSystemSessionChange || shouldResetForSessionLoad) {
           const messages = await loadSessionMessages(
             sessionProjectName,
-            curSession.id,
+            getSessionLoadId(curSession),
             false,
             sessionProvider,
           );
@@ -936,7 +946,6 @@ export function useChatSessionState({
           setChatMessages([]);
          setSessionMessages([]);
           setSessionMessagesError(null);
-          setProcessingStatus(null);
           setCanAbortSession(false);
           setIsLoading(false);
         }
@@ -983,7 +992,7 @@ export function useChatSessionState({
       const knownTotal = totalMessagesRef.current;
       const result = await fetchSessionMessages(
         sessionProjectName,
-        curSession.id,
+        getSessionLoadId(curSession),
         null,
         0,
         resolveSessionProvider(curProject, curSession) || 'codex',
@@ -1194,18 +1203,8 @@ export function useChatSessionState({
     return () => container.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
-  useEffect(() => {
-    const activeViewSessionId = selectedSession?.id || currentSessionId;
-    if (!activeViewSessionId || !processingSessions) {
-      return;
-    }
-
-    const shouldBeProcessing = processingSessions.has(activeViewSessionId);
-    if (shouldBeProcessing && !isLoading) {
-      setIsLoading(true);
-      setCanAbortSession(true);
-    }
-  }, [currentSessionId, isLoading, processingSessions, selectedSession?.id]);
+  // processingSessions frontend Set has been removed as an authoritative lifecycle source.
+  // Loading and abort states are driven exclusively by co session-status events.
 
   // Show "Load all" overlay after a batch finishes loading, persist for 2s then hide
   const prevLoadingRef = useRef(false);
@@ -1344,8 +1343,6 @@ export function useChatSessionState({
     isLoadingAllMessages,
     loadAllJustFinished,
     showLoadAllOverlay,
-    processingStatus,
-    setProcessingStatus,
     createDiff,
     scrollContainerRef,
     scrollToBottom,

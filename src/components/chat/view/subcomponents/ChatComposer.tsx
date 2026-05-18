@@ -14,7 +14,6 @@ import SessionModelControls from './SessionModelControls';
 import { useTranslation } from 'react-i18next';
 import { useWebSocket } from '../../../../contexts/WebSocketContext';
 import { useEffect, useRef, useState } from 'react';
-import ProcessingStatus from './ProcessingStatus';
 import type {
   ChangeEvent,
   ClipboardEvent,
@@ -45,7 +44,6 @@ interface SlashCommand {
 }
 
 interface ChatComposerProps {
-  processingStatus: { text: string; tokens: number; can_interrupt: boolean } | null;
   isLoading: boolean;
   isComposerSubmitting: boolean;
   onAbortSession: () => void;
@@ -103,7 +101,6 @@ interface ChatComposerProps {
  * Render chat composer UI and wire user interactions to callbacks from state hooks.
  */
 export default function ChatComposer({
-  processingStatus,
   isLoading,
   isComposerSubmitting,
   onAbortSession,
@@ -213,12 +210,6 @@ export default function ChatComposer({
 
   return (
     <div className="flex-shrink-0 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:p-4 sm:pb-4 md:p-4 md:pb-6">
-      <ProcessingStatus
-        status={processingStatus}
-        isLoading={isLoading}
-        onAbort={onAbortSession}
-        provider={provider}
-      />
       <form onSubmit={onSubmit as (event: FormEvent<HTMLFormElement>) => void} className="relative max-w-4xl mx-auto">
         {isDragActive && (
           <div className="absolute inset-0 bg-primary/15 border-2 border-dashed border-primary/50 rounded-2xl flex items-center justify-center z-50">

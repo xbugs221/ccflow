@@ -53,9 +53,6 @@ function MainContent({
   onInputFocusChange,
   onSessionActive,
   onSessionInactive,
-  onSessionProcessing,
-  onSessionNotProcessing,
-  processingSessions,
   onReplaceTemporarySession,
   onNavigateToSession,
   onSelectSession,
@@ -419,9 +416,6 @@ function MainContent({
               onInputFocusChange={onInputFocusChange}
               onSessionActive={onSessionActive}
               onSessionInactive={onSessionInactive}
-              onSessionProcessing={onSessionProcessing}
-              onSessionNotProcessing={onSessionNotProcessing}
-              processingSessions={processingSessions}
               onReplaceTemporarySession={onReplaceTemporarySession}
               onNavigateToSession={onNavigateToSession}
               onNewSession={onNewSession}
@@ -640,9 +634,6 @@ function MainContent({
               onInputFocusChange={onInputFocusChange}
               onSessionActive={onSessionActive}
               onSessionInactive={onSessionInactive}
-              onSessionProcessing={onSessionProcessing}
-              onSessionNotProcessing={onSessionNotProcessing}
-              processingSessions={processingSessions}
               onReplaceTemporarySession={onReplaceTemporarySession}
               onNavigateToSession={onNavigateToSession}
               onNewSession={onNewSession}

@@ -146,7 +146,7 @@ export const api = {
     afterLine: number | null = null,
   ): Promise<Response> => {
     const params = new URLSearchParams();
-    if (afterLine !== null) {
+    if (typeof afterLine === 'number') {
       params.append('afterLine', String(afterLine));
     } else if (limit !== null) {
       params.append('limit', String(limit));

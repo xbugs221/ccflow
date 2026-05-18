@@ -28,9 +28,6 @@ export type MainContentProps = {
   onInputFocusChange: (focused: boolean) => void;
   onSessionActive: SessionLifecycleHandler;
   onSessionInactive: SessionLifecycleHandler;
-  onSessionProcessing: SessionLifecycleHandler;
-  onSessionNotProcessing: SessionLifecycleHandler;
-  processingSessions: Set<string>;
   onReplaceTemporarySession: SessionLifecycleHandler;
   onNavigateToSession: (
     targetSessionId: string,

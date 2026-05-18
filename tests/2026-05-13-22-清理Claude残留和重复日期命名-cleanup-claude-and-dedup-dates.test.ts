@@ -67,26 +67,23 @@ test('shared/modelConstants.ts does not export CLAUDE_MODELS', async () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. ClaudeStatus component renamed to ProcessingStatus
+// 3. ProcessingStatus component removed; bottom status bar deleted
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('ClaudeStatus.tsx no longer exists; ProcessingStatus.tsx exists', async () => {
+test('ClaudeStatus.tsx no longer exists', async () => {
   assert.equal(
     await fileExists('src/components/chat/view/subcomponents/ClaudeStatus.tsx'),
     false,
-    'ClaudeStatus.tsx must be renamed',
-  );
-  assert.equal(
-    await fileExists('src/components/chat/view/subcomponents/ProcessingStatus.tsx'),
-    true,
-    'ProcessingStatus.tsx must exist',
+    'ClaudeStatus.tsx must not exist',
   );
 });
 
-test('ProcessingStatus component uses provider-neutral type name', async () => {
-  const source = await readSource('src/components/chat/view/subcomponents/ProcessingStatus.tsx');
-  assert.match(source, /ProcessingStatusProps/);
-  assert.doesNotMatch(source, /ClaudeStatusProps/);
+test('ProcessingStatus.tsx has been removed (bottom status bar deleted)', async () => {
+  assert.equal(
+    await fileExists('src/components/chat/view/subcomponents/ProcessingStatus.tsx'),
+    false,
+    'ProcessingStatus.tsx must have been removed per oz change 33',
+  );
 });
 
 test('no claudeStatus state variable remains in frontend chat code', async () => {
@@ -102,20 +99,17 @@ test('no claudeStatus state variable remains in frontend chat code', async () =>
   }
 });
 
-test('processingStatus is used in frontend chat hooks and components', async () => {
+test('processingStatus state has been removed from chat hooks', async () => {
   const source = await readSource('src/components/chat/hooks/useChatSessionState.ts');
-  assert.match(source, /processingStatus/);
-  assert.match(source, /setProcessingStatus/);
+  assert.doesNotMatch(source, /processingStatus/);
+  assert.doesNotMatch(source, /setProcessingStatus/);
 });
 
-test('ProcessingStatus component is rendered in ChatComposer JSX', async () => {
+test('ProcessingStatus component is no longer rendered in ChatComposer', async () => {
   const source = await readSource('src/components/chat/view/subcomponents/ChatComposer.tsx');
-  assert.match(source, /import ProcessingStatus from/);
-  assert.match(source, /<ProcessingStatus\s/);
-  assert.match(source, /status=\{processingStatus\}/);
-  assert.match(source, /isLoading=\{isLoading\}/);
-  assert.match(source, /onAbort=\{onAbortSession\}/);
-  assert.match(source, /provider=\{provider\}/);
+  assert.doesNotMatch(source, /import ProcessingStatus from/);
+  assert.doesNotMatch(source, /<ProcessingStatus\s/);
+  assert.doesNotMatch(source, /status=\{processingStatus\}/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
