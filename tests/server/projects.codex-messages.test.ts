@@ -317,7 +317,7 @@ test('getCodexSessionMessages maps native Codex tool item records', async () => 
   });
 });
 
-test('Codex project session summary ignores bootstrap ping and uses the first real prompt', async () => {
+test('Codex project overview uses lightweight title without deep transcript summary', async () => {
   await withTemporaryHome(async (tempHome) => {
     clearProjectDirectoryCache();
     const projectPath = path.join(tempHome, 'workspace', 'codex-demo');
@@ -330,7 +330,13 @@ test('Codex project session summary ignores bootstrap ping and uses the first re
 
     assert.ok(project);
     assert.equal(project.codexSessions.length, 1);
-    assert.equal(project.codexSessions[0].summary, '修复首页空白问题');
+    assert.equal(project.codexSessions[0].summary, 'Codex Session');
+
+    const detail = await getCodexSessionMessages('codex-summary-session', null, 0, null);
+    assert.equal(
+      detail.messages.some((message) => message.message?.content === '修复首页空白问题'),
+      true,
+    );
   });
 });
 
@@ -374,7 +380,7 @@ test('getProjects keeps every visible Codex session in project overview snapshot
 
     assert.ok(project);
     assert.equal(project.codexSessions.length, 6);
-    assert.equal(project.codexSessions[0].summary, '修复项目主页会话卡片限制 06');
-    assert.equal(project.codexSessions[5].summary, '修复项目主页会话卡片限制 01');
+    assert.equal(project.codexSessions[0].summary, 'Codex Session');
+    assert.equal(project.codexSessions[5].summary, 'Codex Session');
   });
 });
