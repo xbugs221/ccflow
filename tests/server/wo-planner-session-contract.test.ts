@@ -89,6 +89,64 @@ test('pi:planner 非 codex planner 可正确识别 provider', async () => {
   });
 });
 
+test('planning.tool=pi 且 codex/pi planner 并存时 pi:planner 胜出并占用 planning 地址', async () => {
+  await withTempProject(async ({ projectPath }) => {
+    const runRoot = path.join(resolveWoRunsRoot(projectPath), 'run-tool-pi-planner-conflict');
+    await fs.mkdir(runRoot, { recursive: true });
+    await fs.writeFile(path.join(runRoot, 'state.json'), JSON.stringify({
+      run_id: 'run-tool-pi-planner-conflict',
+      change_name: '测试变更',
+      status: 'running',
+      stage: 'planning',
+      stages: { planning: 'active' },
+      workflow_config: {
+        stages: { planning: { tool: 'pi' } },
+      },
+      sessions: {
+        'codex:planner': 'codex-thread',
+        'pi:planner': 'pi-thread',
+      },
+    }));
+
+    const [workflow] = await listWoWorkflowReadModels(projectPath);
+    const planningRow = workflow.workflowRoleSummary.rows.find((r) => r.key === 'planning');
+
+    // sessionRef 应指向 pi-thread
+    assert.ok(planningRow.sessionRef, '应有 sessionRef');
+    assert.equal(planningRow.sessionRef.sessionId, 'pi-thread',
+      'tool=pi 时 pi:planner 应胜出');
+    assert.equal(planningRow.sessionRef.provider, 'pi');
+    assert.equal(planningRow.sessionRef.role, 'planner');
+    assert.equal(planningRow.sessionRef.stageKey, 'planning');
+    assert.equal(planningRow.sessionRef.address, 'planning',
+      'sessionRef.address 应为 planning');
+    assert.ok(
+      planningRow.sessionRef.routePath.endsWith('/sessions/planning'),
+      'routePath 应使用 /sessions/planning',
+    );
+
+    // childSessions 的 planning 地址必须指向 pi-thread
+    const planningChild = workflow.childSessions
+      .find((s) => s.address === 'planning');
+    assert.ok(planningChild, 'childSessions 应有 planning 地址条目');
+    assert.equal(planningChild.id, 'pi-thread',
+      'planning 地址 childSession 必须是 pi-thread');
+    assert.equal(planningChild.provider, 'pi');
+    assert.equal(planningChild.role, 'planner');
+    assert.equal(planningChild.stageKey, 'planning');
+
+    // codex-thread 不得占用 planning 地址
+    const codexAtPlanning = workflow.childSessions
+      .find((s) => s.id === 'codex-thread' && s.address === 'planning');
+    assert.equal(codexAtPlanning, undefined,
+      'codex-thread 不得占用 planning 地址');
+
+    // sessionRef 的 routePath 应与 childSession 一致
+    assert.equal(planningRow.sessionRef.routePath, planningChild.routePath,
+      'sessionRef.routePath 应与 childSession 一致');
+  });
+});
+
 test('legacy codex:planning 仍可兼容读取', async () => {
   await withTempProject(async ({ projectPath }) => {
     const runRoot = path.join(resolveWoRunsRoot(projectPath), 'run-legacy');

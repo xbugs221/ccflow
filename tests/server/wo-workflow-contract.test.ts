@@ -364,9 +364,12 @@ test('wo read model links role jsonl checklist rows to frontend sessions', async
       'archive',
     ]);
     assert.equal(workflow.workflowDisplay.lines[0].sessionRef.label, 'executor-session.jsonl');
-    assert.equal(workflow.workflowDisplay.lines[1].sessionRef.label, 'reviewer-session.jsonl');
-    // 1 fix review 行在没有 explicit process 时没有 sessionRef
-    assert.equal(workflow.workflowDisplay.lines[2].sessionRef, undefined);
+    // reviewer now maps to review_2 (latest completed review stage), not review_1
+    assert.equal(workflow.workflowDisplay.lines[1].sessionRef, undefined,
+      'review line now has no session ref because reviewer maps to review_2');
+    // review_2 shows as '1 fix review', now carries the reviewer session
+    assert.equal(workflow.workflowDisplay.lines[2].sessionRef?.label, 'reviewer-session.jsonl',
+      '1 fix review line now has reviewer session because reviewer → review_2');
     assert.equal(workflow.workflowDisplay.lines[3].sessionRef.sessionId, 'archiver-session');
   });
 });

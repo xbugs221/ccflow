@@ -528,7 +528,7 @@ function buildRunnerProcesses(state, stageStatuses, logsByKey, warnings) {
  * and the sessions role map, so session navigation works even when no explicit
  * wo process rows exist.
  */
-function buildChildSessions(runId, processes, warnings, sessions = {}, workflowConfig) {
+function buildChildSessions(runId, processes, warnings, stageStatuses, sessions = {}, workflowConfig) {
   /**
    * Resolve the provider for a session id by scanning state.sessions provider
    * prefixes. Returns the matching prefix provider, or falls back to 'codex'.
@@ -548,17 +548,51 @@ function buildChildSessions(runId, processes, warnings, sessions = {}, workflowC
   }
 
   /**
-   * Map a role name to the default stage key for child session routing.
+   * Map a role name to the best matching stage key using the current
+   * workflow stage status list.  Reviewer/fixer roles are bound to the
+   * first active (running) round, or the latest completed round if none
+   * is active, so multi-round workflows show sessions under the correct
+   * stage label (review_6, fix_5) rather than always review_1/fix_1.
+   * Stage-key roles (review_2, fix_3, repair_1) pass through directly.
    */
   function roleDefaultStage(role) {
     if (role === 'planner' || role === 'planning') return 'planning';
     if (role === 'executor') return 'execution';
-    if (role === 'reviewer') return 'review_1';
     if (role === 'archiver') return 'archive';
+    // Stage-key roles pass through as-is
+    if (/^(?:review_\d+|fix_\d+|repair_\d+)$/.test(role)) return role;
+
+    if (role === 'reviewer') {
+      return findBestRoundStage(stageStatuses, ['review']) || 'review_1';
+    }
+    if (role === 'fixer') {
+      return findBestRoundStage(stageStatuses, ['fix', 'repair']) || 'fix_1';
+    }
     return undefined;
   }
 
+  /**
+   * From the list of known stage statuses, pick the best round for a role.
+   * Prefer the first active (running/active) round; otherwise the latest
+   * completed round; otherwise the last known round of that type.
+   */
+  function findBestRoundStage(stageStatuses, prefixes) {
+    if (!stageStatuses || !stageStatuses.length) return null;
+    const pattern = new RegExp(`^(${prefixes.join('|')})_\\d+$`);
+    const matching = stageStatuses.filter((s) => pattern.test(s.key));
+    if (!matching.length) return null;
+
+    const active = matching.find((s) => s.status === 'active');
+    if (active) return active.key;
+
+    const completed = [...matching].reverse().find((s) => s.status === 'completed');
+    if (completed) return completed.key;
+
+    return matching[matching.length - 1]?.key || null;
+  }
+
   const result = [];
+  const sessionAddressTaken = new Set();
 
   // Phase 1: explicit process rows (preserve existing behavior)
   const withSession = processes.filter((process) => process.sessionId);
@@ -580,11 +614,38 @@ function buildChildSessions(runId, processes, warnings, sessions = {}, workflowC
       warnings.push(`Duplicate child session address for ${baseKey}; using by-id fallback.`);
     }
     const title = REVIEW_TITLES[process.stage] || stageLabel(process.stage) || '工作流子会话';
+    const provider = resolveSessionProvider(process.sessionId);
+
+    // Use the same address-only dedup key as the sessions-only phase so
+    // explicit processes claim the route address globally.  A sessions-only
+    // entry for the same stage (even with a different provider) will see
+    // the address as taken and fall back to by-id.
+    if (sessionAddressTaken.has(address)) {
+      const byIdAddress = `by-id/${process.sessionId}`;
+      if (sessionAddressTaken.has(byIdAddress)) {
+        continue;
+      }
+      result.push({
+        id: process.sessionId,
+        title,
+        summary: title,
+        provider,
+        role,
+        workflowId: runId,
+        stageKey: process.stage,
+        address: byIdAddress,
+        routePath: `/runs/${encodeURIComponent(runId)}/sessions/${byIdAddress.split('/').map(encodeURIComponent).join('/')}`,
+      });
+      existingIds.add(process.sessionId);
+      sessionAddressTaken.add(byIdAddress);
+      continue;
+    }
+
     result.push({
       id: process.sessionId,
       title,
       summary: title,
-      provider: resolveSessionProvider(process.sessionId),
+      provider,
       role,
       workflowId: runId,
       stageKey: process.stage,
@@ -592,6 +653,7 @@ function buildChildSessions(runId, processes, warnings, sessions = {}, workflowC
       routePath: `/runs/${encodeURIComponent(runId)}/sessions/${address.split('/').map(encodeURIComponent).join('/')}`,
     });
     existingIds.add(process.sessionId);
+    sessionAddressTaken.add(address);
   }
 
   // Phase 2: sessions-only role map entries not already covered by explicit processes.
@@ -625,7 +687,6 @@ function buildChildSessions(runId, processes, warnings, sessions = {}, workflowC
   }
 
   const sessionEntries = Object.entries(sessions && typeof sessions === 'object' ? sessions : {});
-  const sessionAddressTaken = new Set();
 
   for (const [key, value] of sessionEntries) {
     const sessionId = String(value).trim();
@@ -649,8 +710,32 @@ function buildChildSessions(runId, processes, warnings, sessions = {}, workflowC
       }
     }
 
-    // Dedup: when an entry already covers the address, skip subsequent ones
-    if (sessionAddressTaken.has(address)) {
+    // Dedup by route address: the browser resolves child sessions by
+    // address alone (without provider), so two sessions with different
+    // providers but the same stage must have distinct routePaths.  The
+    // first session claims the stage address; later ones use by-id.
+    const provider = parsed.provider || 'codex';
+    const addressKey = address;
+    if (sessionAddressTaken.has(addressKey)) {
+      // Conflict: use by-id address to avoid route collision
+      const byIdAddress = `by-id/${sessionId}`;
+      if (sessionAddressTaken.has(byIdAddress)) {
+        continue;
+      }
+      const title = stageLabel(stage) || role;
+      result.push({
+        id: sessionId,
+        title,
+        summary: title,
+        provider,
+        role,
+        workflowId: runId,
+        stageKey: stage,
+        address: byIdAddress,
+        routePath: `/runs/${encodeURIComponent(runId)}/sessions/${byIdAddress.split('/').map(encodeURIComponent).join('/')}`,
+      });
+      existingIds.add(sessionId);
+      sessionAddressTaken.add(byIdAddress);
       continue;
     }
 
@@ -659,7 +744,7 @@ function buildChildSessions(runId, processes, warnings, sessions = {}, workflowC
       id: sessionId,
       title,
       summary: title,
-      provider: parsed.provider || 'codex',
+      provider,
       role,
       workflowId: runId,
       stageKey: stage,
@@ -667,7 +752,7 @@ function buildChildSessions(runId, processes, warnings, sessions = {}, workflowC
       routePath: `/runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(address)}`,
     });
     existingIds.add(sessionId);
-    sessionAddressTaken.add(address);
+    sessionAddressTaken.add(addressKey);
   }
 
   return result;
@@ -1273,7 +1358,7 @@ export async function buildWoWorkflowReadModel({ projectPath, runDirName, state,
 
   const stageStatuses = buildStageStatuses(state, rawStage, rawStatus, warnings);
   const runnerProcesses = buildRunnerProcesses(state, stageStatuses, logsByKey, warnings);
-  const childSessions = buildChildSessions(runId, runnerProcesses, warnings, pick(state, 'sessions') || {}, pick(state, 'workflow_config'));
+  const childSessions = buildChildSessions(runId, runnerProcesses, warnings, stageStatuses, pick(state, 'sessions') || {}, pick(state, 'workflow_config'));
   const workflowDisplay = {
     lines: buildWorkflowDisplayLines(state, stageStatuses, childSessions, runnerProcesses, warnings),
   };

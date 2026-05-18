@@ -146,6 +146,9 @@ export const api = {
     afterLine: number | null = null,
   ): Promise<Response> => {
     const params = new URLSearchParams();
+    // Always pass provider so the server doesn't fall into provider-guessing
+    // by scanning codexSessions/piSessions indexes (which exclude wo child sessions).
+    params.append('provider', String(provider || 'codex'));
     if (typeof afterLine === 'number') {
       params.append('afterLine', String(afterLine));
     } else if (limit !== null) {

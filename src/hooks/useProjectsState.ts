@@ -21,6 +21,7 @@ import {
   parseIndexedRouteSegment,
 } from '../utils/projectRoute';
 import { isWorkflowOwnedSession } from '../utils/workflowSessions';
+import { resolveSessionProvider } from '../utils/session-provider';
 import type { NewSessionOptions } from '../utils/workflowAutoStart';
 import type {
   AppSocketMessage,
@@ -344,25 +345,7 @@ const resolveRouteSelection = (
     )) || null;
     const session = (childSession || projectSession)
       ? (() => {
-          const sessionProvider: SessionProvider = (
-            childSession?.provider === 'codex'
-            || projectSession?.__provider === 'codex'
-            || (matchedProject.codexSessions || []).some((entry) => entry.id === (childSession?.id || projectSession?.id))
-          )
-            ? 'codex'
-            : (
-              childSession?.provider === 'opencode'
-              || projectSession?.__provider === 'opencode'
-              || (matchedProject.opencodeSessions || []).some((entry) => entry.id === (childSession?.id || projectSession?.id))
-            )
-              ? 'opencode'
-              : (
-                childSession?.provider === 'pi'
-                || projectSession?.__provider === 'pi'
-                || (matchedProject.piSessions || []).some((entry) => entry.id === (childSession?.id || projectSession?.id))
-              )
-                ? 'pi'
-                : 'codex';
+          const sessionProvider = resolveSessionProvider(childSession, projectSession, matchedProject);
           const baseSession = projectSession || {
             id: childSession?.id || runnerProcess?.sessionId || `${workflow.id}-${childAddress}`,
             title: childSession?.title,

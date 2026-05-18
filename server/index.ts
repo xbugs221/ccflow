@@ -80,6 +80,8 @@ import {
     tailCoEvents,
     writeCoRequest,
 } from './co-client.js';
+import { readCoConversationMessages, findCoConversationForSession } from './co-read-model.js';
+import { handleGetSessionMessages } from './session-messages-handler.js';
 import { resolveChatProjectOptions } from './chat-project-path.js';
 import { getUsageRemaining } from './usage-remaining.js';
 import {
@@ -676,228 +678,6 @@ async function replayCoConversationEvents(ws, conversation) {
 /**
  * Read durable co history into the same raw message shape used by chat history loaders.
  */
-async function readCoConversationMessages(conversation, provider, limit = null, offset = 0) {
-    const conversationId = conversation?.conversation_id || '';
-    const turns = Array.isArray(conversation?.turns) ? conversation.turns : [];
-    if (!conversationId) {
-        return { messages: [], total: 0, hasMore: false };
-    }
-
-    const requests = await readCoConversationRequests(conversationId);
-    const messages = [];
-
-    // Build a map of request_id → request for pairing with turn directories.
-    const requestByRequestId = new Map();
-    for (const request of requests) {
-        const id = request?.request_id || request?.id;
-        if (id) {
-            requestByRequestId.set(id, request);
-        }
-    }
-
-    // Scan the turns directory for ALL turn subdirectories belonging to this
-    // conversation. The conversation state's turns array may be truncated or
-    // overwritten by the co daemon (it writes turns: [latestTurnId]), so we
-    // discover turns from the filesystem by reading each turn's request.json.
-    const turnIds = new Set<string>();
-    const turnsDir = path.join(resolveCoHome(), 'turns');
-    try {
-        const entries = await fsPromises.readdir(turnsDir, { withFileTypes: true });
-        for (const entry of entries) {
-            if (!entry.isDirectory()) {
-                continue;
-            }
-            // Read the turn's request.json to get the request_id, then check
-            // whether that request belongs to this conversation.
-            const requestJsonPath = path.join(turnsDir, entry.name, 'request.json');
-            try {
-                const turnRequest = JSON.parse(await fsPromises.readFile(requestJsonPath, 'utf8'));
-                const requestId = turnRequest?.request_id || turnRequest?.id;
-                if (requestId && (requestByRequestId.has(requestId) || turnRequest?.conversation_id === conversationId)) {
-                    turnIds.add(entry.name);
-                    continue;
-                }
-            } catch {
-                // request.json may not exist; fall through to suffix matching.
-            }
-            // Fallback: turn directories named turn_<request_id>
-            const possibleRequestId = entry.name.startsWith('turn_')
-                ? entry.name.slice(5)
-                : entry.name;
-            if (requestByRequestId.has(possibleRequestId)) {
-                turnIds.add(entry.name);
-            }
-        }
-    } catch (error) {
-        if (error?.code !== 'ENOENT') {
-            console.warn('[co] Failed to scan turns directory:', error.message);
-        }
-    }
-    // Also include turns from the conversation state (covers non-standard turn names).
-    for (const turnId of turns) {
-        turnIds.add(turnId);
-    }
-
-    // Sort turns by their request creation time for deterministic ordering.
-    const sortedTurnIds = [...turnIds].sort((a, b) => {
-        const requestA = requestByRequestId.get(a.startsWith('turn_') ? a.slice(5) : a);
-        const requestB = requestByRequestId.get(b.startsWith('turn_') ? b.slice(5) : b);
-        const timeA = requestA?.created_at || '0';
-        const timeB = requestB?.created_at || '0';
-        return new Date(timeA).getTime() - new Date(timeB).getTime();
-    });
-
-    for (const turnId of sortedTurnIds) {
-        const possibleRequestId = turnId.startsWith('turn_') ? turnId.slice(5) : turnId;
-        const request = requestByRequestId.get(possibleRequestId) || null;
-        if (request?.text) {
-            messages.push({
-                type: 'user',
-                timestamp: request.created_at || new Date().toISOString(),
-                requestId: request.request_id || request.id || '',
-                messageKey: `co:${conversationId}:${turnId}:user`,
-                message: {
-                    role: 'user',
-                    content: request.text,
-                },
-            });
-        }
-
-        const eventsPath = path.join(resolveCoHome(), 'turns', turnId, 'events.jsonl');
-        let content = '';
-        try {
-            content = await fsPromises.readFile(eventsPath, 'utf8');
-        } catch (error) {
-            if (error?.code !== 'ENOENT') {
-                console.warn('[co] Failed to read conversation history event file:', error.message);
-            }
-            continue;
-        }
-
-        for (const line of content.split('\n')) {
-            if (!line.trim()) {
-                continue;
-            }
-            try {
-                const event = normalizeCoEventPayload(JSON.parse(line));
-                const contentText = typeof event?.data?.message?.content === 'string'
-                    ? event.data.message.content
-                    : typeof event?.data?.raw?.part?.text === 'string'
-                        ? event.data.raw.part.text
-                        : '';
-                if (!contentText.trim()) {
-                    continue;
-                }
-                messages.push({
-                    type: 'assistant',
-                    provider: event.provider || provider,
-                    timestamp: event.created_at || new Date().toISOString(),
-                    messageKey: `co:${conversationId}:${turnId}:event:${event.seq ?? messages.length}`,
-                    message: {
-                        role: 'assistant',
-                        content: contentText,
-                        phase: 'final_answer',
-                    },
-                });
-            } catch (error) {
-                console.warn('[co] Failed to parse conversation history event:', error.message);
-            }
-        }
-    }
-
-    const normalizedOffset = Number.isInteger(Number(offset)) && Number(offset) > 0 ? Number(offset) : 0;
-    const normalizedLimit = Number.isInteger(Number(limit)) && Number(limit) > 0 ? Number(limit) : null;
-    const pagedMessages = normalizedLimit
-        ? messages.slice(normalizedOffset, normalizedOffset + normalizedLimit)
-        : messages.slice(normalizedOffset);
-
-    return {
-        messages: pagedMessages,
-        total: messages.length,
-        hasMore: normalizedLimit ? messages.length > normalizedOffset + normalizedLimit : false,
-    };
-}
-
-/**
- * Find a co conversation either by its route id or by the provider session id.
- */
-async function findCoConversationForSession(sessionId) {
-    if (!sessionId) {
-        return null;
-    }
-    if (isCcflowRouteSessionId(sessionId)) {
-        return readCoConversationState(sessionId).catch(() => null);
-    }
-
-    const conversationsDir = path.join(resolveCoHome(), 'conversations');
-    let entries = [];
-    try {
-        entries = await fsPromises.readdir(conversationsDir, { withFileTypes: true });
-    } catch (error) {
-        if (error?.code !== 'ENOENT') {
-            console.warn('[co] Failed to list conversations:', error.message);
-        }
-        return null;
-    }
-
-    for (const entry of entries) {
-        if (!entry.isDirectory()) {
-            continue;
-        }
-        const statePath = path.join(conversationsDir, entry.name, 'state.json');
-        try {
-            const state = JSON.parse(await fsPromises.readFile(statePath, 'utf8'));
-            if (state?.provider_session_id === sessionId || state?.conversation_id === sessionId) {
-                return state;
-            }
-        } catch (error) {
-            if (error?.code !== 'ENOENT') {
-                console.warn('[co] Failed to read conversation state:', error.message);
-            }
-        }
-    }
-
-    return null;
-}
-
-/**
- * Read chat requests for one co conversation in creation order.
- */
-async function readCoConversationRequests(conversationId) {
-    const records = [];
-    for (const bucket of ['done', 'running', 'pending']) {
-        const bucketDir = path.join(resolveCoHome(), 'requests', bucket);
-        let entries = [];
-        try {
-            entries = await fsPromises.readdir(bucketDir, { withFileTypes: true });
-        } catch (error) {
-            if (error?.code !== 'ENOENT') {
-                console.warn('[co] Failed to list request bucket:', error.message);
-            }
-            continue;
-        }
-
-        for (const entry of entries) {
-            if (!entry.isFile() || !entry.name.endsWith('.json')) {
-                continue;
-            }
-            const requestPath = path.join(bucketDir, entry.name);
-            try {
-                const request = JSON.parse(await fsPromises.readFile(requestPath, 'utf8'));
-                if (request?.conversation_id === conversationId) {
-                    records.push(request);
-                }
-            } catch (error) {
-                console.warn('[co] Failed to parse request record:', error.message);
-            }
-        }
-    }
-
-    return records.sort((left, right) => (
-        new Date(left.created_at || 0).getTime() - new Date(right.created_at || 0).getTime()
-    ));
-}
-
 /**
  * Recover a running co conversation and start tailing its active turn.
  */
@@ -1612,13 +1392,21 @@ app.post('/api/projects/:projectName/workflows', authenticateToken, async (req, 
 
 app.get('/api/projects/:projectName/openspec/changes', authenticateToken, async (req, res) => {
     try {
-        const projects = await attachWorkflowMetadata(await getProjects());
-        const project = findProjectByName(projects, req.params.projectName);
-        if (!project) {
+        // Lightweight path resolution: avoid full getProjects() + attachWorkflowMetadata()
+        // which scans all provider sessions across every project (~2.7s overhead).
+        const projectPath = await extractProjectDirectory(req.params.projectName);
+        // Validate the resolved path points to a real project directory.
+        // extractProjectDirectory can map arbitrary strings to paths via the
+        // dash-to-slash fallback; unknown project names must still return 404.
+        try {
+            const stat = await fsPromises.stat(projectPath);
+            if (!stat.isDirectory()) {
+                return res.status(404).json({ error: 'Project not found' });
+            }
+        } catch {
             return res.status(404).json({ error: 'Project not found' });
         }
-
-        const changes = await listProjectAdoptableOpenSpecChanges(project);
+        const changes = await listProjectAdoptableOpenSpecChanges({ fullPath: projectPath, name: req.params.projectName });
         res.json({ changes });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -1688,107 +1476,7 @@ app.get('/api/projects/:projectName/sessions', authenticateToken, async (req, re
 });
 
 // Get messages for a specific session
-app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateToken, async (req, res) => {
-    try {
-        const { projectName, sessionId } = req.params;
-        const { limit, offset, provider, afterLine } = req.query;
-
-        // Parse limit and offset if provided
-        const parsedLimit = limit ? parseInt(limit, 10) : null;
-        const parsedOffset = offset ? parseInt(offset, 10) : 0;
-        const parsedAfterLine = afterLine != null ? parseInt(afterLine, 10) : null;
-
-        let resolvedProvider = provider === 'opencode' ? 'opencode' : provider === 'codex' ? 'codex' : provider === 'pi' ? 'pi' : null;
-        let projectPath = null;
-
-        if (isCcflowRouteSessionId(sessionId)) {
-            projectPath = await extractProjectDirectory(projectName);
-            const runtimeContext = await getManualSessionDraftRuntime(
-                projectName,
-                projectPath,
-                sessionId,
-            );
-            if (runtimeContext) {
-                if (!runtimeContext.pendingProviderSessionId) {
-                    return res.json({ messages: [] });
-                }
-
-                const providerSessionId = runtimeContext.pendingProviderSessionId;
-                const indexedProvider = runtimeContext.provider === 'opencode' ? 'opencode' : runtimeContext.provider === 'pi' ? 'pi' : 'codex';
-                const fetchProvider = resolvedProvider || indexedProvider;
-
-                // co-owned codex cN sessions must read from co conversation read model,
-                // not the native Codex JSONL. Previously this was masked by realtime
-                // direct transcript writes that have since been removed.
-                const coConversation = await findCoConversationForSession(sessionId);
-                if (fetchProvider === 'codex' && coConversation) {
-                    const nativeResult = await readCoConversationMessages(
-                        coConversation,
-                        'codex',
-                        parsedLimit,
-                        parsedAfterLine ?? parsedOffset,
-                    );
-                    return res.json(nativeResult);
-                }
-
-                const nativeResult = fetchProvider === 'codex'
-                    ? await getCodexSessionMessages(providerSessionId, parsedLimit, parsedOffset, parsedAfterLine)
-                    : await readCoConversationMessages(
-                        coConversation,
-                        fetchProvider === 'pi' ? 'pi' : 'opencode',
-                        parsedLimit,
-                        parsedOffset,
-                    );
-                return res.json(nativeResult);
-            }
-        }
-
-        if (!resolvedProvider) {
-            try {
-                projectPath = projectPath || await extractProjectDirectory(projectName);
-                const codexSessions = await getCodexSessions(projectPath, { limit: 0, includeHidden: true });
-                if (codexSessions.some((session) => session.id === sessionId)) {
-                    resolvedProvider = 'codex';
-                } else {
-                    const piSessions = await getPiSessions(projectPath);
-                    resolvedProvider = piSessions.some((session) => session.id === sessionId) ? 'pi' : 'opencode';
-                }
-            } catch (providerDetectionError) {
-                console.warn(
-                    `Unable to detect provider for session ${sessionId} in project ${projectName}:`,
-                    providerDetectionError.message,
-                );
-                resolvedProvider = 'codex';
-            }
-        }
-
-        // Non-cN codex sessions always read from native Codex JSONL.
-        // Co conversations have cN route IDs (isCcflowRouteSessionId), so
-        // any session reaching this branch is NOT co-owned for codex.
-        // Checking findCoConversationForSession here would scan arbitrary
-        // co state.json files by provider_session_id and could falsely
-        // route native Codex JSONL sessions to the co read model.
-        const result = resolvedProvider === 'codex'
-            ? await getCodexSessionMessages(sessionId, parsedLimit, parsedOffset, parsedAfterLine)
-            : await readCoConversationMessages(
-                await findCoConversationForSession(sessionId),
-                resolvedProvider === 'pi' ? 'pi' : 'opencode',
-                parsedLimit,
-                parsedOffset,
-            );
-
-        // Handle both old and new response formats
-        if (Array.isArray(result)) {
-            // Backward compatibility: no pagination parameters were provided
-            res.json({ messages: result });
-        } else {
-            // New format with pagination info
-            res.json(result);
-        }
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
+app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateToken, handleGetSessionMessages);
 
 // Search across visible chat history messages for supported provider sessions.
 app.get('/api/chat/search', authenticateToken, async (req, res) => {

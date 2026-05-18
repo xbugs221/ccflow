@@ -117,7 +117,10 @@ test('creating a workflow with existing OpenSpec change binds correctly', async 
   expect(workflow.runnerProvider).toBe('codex');
   expect(workflow.runId).toMatch(/^playwright-run-/);
   expect(workflow.stageStatuses.some((stage) => stage.key === 'review_1' && stage.status === 'active')).toBe(true);
-  expect(workflow.runnerProcesses.some((process) => process.logPath?.includes('logs/reviewer.log'))).toBe(true);
+  // 34/35 contract: sessions-only state (no explicit processes) produces
+  // childSessions instead of synthesised runnerProcesses from log paths.
+  expect(workflow.childSessions?.some((s) => s.stageKey === 'review_1' && s.provider === 'codex')).toBe(true);
+  expect(workflow.runnerProcesses).toEqual([]);
 });
 
 test('starting two selected active changes shows two workflow entries', async ({ page }) => {
