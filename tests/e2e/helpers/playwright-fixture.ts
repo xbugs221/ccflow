@@ -224,7 +224,7 @@ function writeWorkflowStoreFixture() {
       workflow_output: 'workflow-output',
     },
     sessions: {
-      'codex:planning': 'fixture-project-session',
+      'codex:planner': 'fixture-project-session',
       'codex:executor': 'fixture-project-execution-session',
     },
     processes: [

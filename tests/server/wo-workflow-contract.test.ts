@@ -284,7 +284,8 @@ test('wo read model treats current fix stages as repair rounds', async () => {
     ]);
     assert.ok(!workflow.workflowDisplay.lines.some((line) => line.text === '1 fix'));
     assert.ok(!workflow.workflowDisplay.lines.some((line) => line.text === 'fix_1'));
-    assert.equal(workflow.childSessions.find((session) => session.stageKey === 'fix_1')?.id, 'executor-session');
+    // fix_1 阶段没有 explicit process，按新契约不应有子会话
+    assert.equal(workflow.childSessions.find((session) => session.stageKey === 'fix_1')?.id, undefined);
     assert.ok(!workflow.diagnostics.warnings.some((warning) => warning.includes('Unknown runner stage: fix_1')));
   });
 });
@@ -317,7 +318,8 @@ test('wo read model leaves unknown terminal state rows non-clickable', async () 
       '1 fix',
       'blocked_review_limit',
     ]);
-    assert.equal(workflow.workflowDisplay.lines.find((line) => line.text === '1 fix')?.sessionRef?.sessionId, 'executor-session');
+    // 无 explicit process 时，fix 行不应有 sessionRef
+    assert.equal(workflow.workflowDisplay.lines.find((line) => line.text === '1 fix')?.sessionRef, undefined);
     assert.equal(workflow.workflowDisplay.lines.find((line) => line.text === 'blocked_review_limit')?.sessionRef, undefined);
   });
 });
@@ -361,9 +363,10 @@ test('wo read model links role jsonl checklist rows to frontend sessions', async
       '1 fix review',
       'archive',
     ]);
-    assert.equal(workflow.workflowDisplay.lines[0].sessionRef.label, 'executor.jsonl');
-    assert.equal(workflow.workflowDisplay.lines[1].sessionRef.label, 'reviewer.jsonl');
-    assert.equal(workflow.workflowDisplay.lines[2].sessionRef.sessionId, 'reviewer-session');
+    assert.equal(workflow.workflowDisplay.lines[0].sessionRef.label, 'executor-session.jsonl');
+    assert.equal(workflow.workflowDisplay.lines[1].sessionRef.label, 'reviewer-session.jsonl');
+    // 1 fix review 行在没有 explicit process 时没有 sessionRef
+    assert.equal(workflow.workflowDisplay.lines[2].sessionRef, undefined);
     assert.equal(workflow.workflowDisplay.lines[3].sessionRef.sessionId, 'archiver-session');
   });
 });

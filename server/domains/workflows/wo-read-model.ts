@@ -417,63 +417,118 @@ function buildStageStatuses(state, currentStage, rawStatus, warnings) {
 }
 
 /**
- * Normalize runner process rows from explicit processes or stage fallbacks.
+ * Resolve the planning session ref from wo state.sessions using the current wo
+ * contract (<planning-tool>:planner) with legacy fallback for older runs.
+ * Returns a full sessionRef (sessionId/provider/role='planner'/stageKey='planning')
+ * that serves as the single source of truth for the planning row.
  */
-function buildRunnerProcesses(state, stageStatuses, logsByKey, warnings) {
-  const explicit = pick(state, 'processes');
-  if (Array.isArray(explicit) && explicit.length > 0) {
-    return explicit.map((process) => {
-      const unknownFields = Object.keys(process && typeof process === 'object' ? process : {})
-        .filter((key) => !KNOWN_PROCESS_FIELDS.has(key));
-      unknownFields.forEach((key) => {
-        warnings.push(`Unknown runner process field: ${key}`);
-      });
-      const stage = String(pick(process, 'stage') || '').trim();
-      const role = String(pick(process, 'role') || inferRole(stage)).trim();
-      const logPath = normalizeRelativePath('', pick(process, 'log_path') || process?.logPath || logsByKey.get(`${stage}_${role}_log`) || logsByKey.get(`${role}_log`) || logsByKey.get(`${stage}_log`));
-      return {
-        stage,
-        role,
-        status: String(pick(process, 'status') || '').trim() || undefined,
-        sessionId: String(pick(process, 'session_id') || process?.sessionId || '').trim() || undefined,
-        pid: Number.isInteger(process?.pid) ? process.pid : undefined,
-        exitCode: Number.isInteger(pick(process, 'exit_code') ?? process?.exitCode) ? (pick(process, 'exit_code') ?? process?.exitCode) : undefined,
-        failed: process?.failed === true,
-        logPath: logPath || undefined,
-      };
-    }).map((process) => Object.fromEntries(Object.entries(process).filter(([, value]) => value !== undefined && value !== '')));
+function resolvePlannerSessionRef(sessions, workflowConfig, childSessions, runId) {
+  if (!sessions || typeof sessions !== 'object') {
+    return null;
   }
 
-  const sessions = pick(state, 'sessions') || {};
-  return stageStatuses.map((stageStatus) => {
-    const role = inferRole(stageStatus.key);
-    const allowRoleFallback = stageStatus.status === 'active' || String(pick(state, 'stage') || '') === stageStatus.key;
-    const roleSessionId = sessions[role] || sessions[`codex:${role}`] || sessions[`claude:${role}`];
-    const sessionId = String(
-      sessions[stageStatus.key]
-      || sessions[`${stageStatus.key}_${role}`]
-      || (allowRoleFallback ? sessions[role] : '')
-      || roleSessionId
-      || '',
-    ).trim();
-    const logPath = logsByKey.get(`${stageStatus.key}_${role}_log`)
-      || logsByKey.get(`${stageStatus.key}_log`)
-      || (allowRoleFallback ? logsByKey.get(`${role}_log`) : '')
-      || logsByKey.get(`${role}_log`);
-    return {
-      stage: stageStatus.key,
-      role,
-      status: stageStatus.status === 'active' ? 'running' : stageStatus.status,
-      ...(sessionId ? { sessionId } : {}),
-      ...(logPath ? { logPath } : {}),
-    };
-  });
+  const planningStages = pick(workflowConfig, 'stages');
+  const planningTool = String(pick(pick(planningStages, 'planning'), 'tool') || 'codex').trim();
+
+  // Priority per design:
+  //   1. <planning-tool>:planner    (current contract, tool-aware)
+  //   2. all known provider :planner keys (codex, pi, opencode - no dupes)
+  //   3. planner                    (legacy contract, no prefix)
+  //   4. <planning-tool>:planning   (legacy, tool-aware)
+  //   5. all known provider :planning keys (codex, pi, opencode - no dupes)
+  //   6. planning                   (very old, no prefix)
+  const KNOWN_PROVIDERS = ['codex', 'pi', 'opencode'];
+  const priorityKeys = [];
+
+  // Current contract: tool-aware first, then all known providers
+  priorityKeys.push(`${planningTool}:planner`);
+  for (const provider of KNOWN_PROVIDERS) {
+    const key = `${provider}:planner`;
+    if (!priorityKeys.includes(key)) {
+      priorityKeys.push(key);
+    }
+  }
+  priorityKeys.push('planner');
+
+  // Legacy fallback: tool-aware first, then all known providers
+  priorityKeys.push(`${planningTool}:planning`);
+  for (const provider of KNOWN_PROVIDERS) {
+    const key = `${provider}:planning`;
+    if (!priorityKeys.includes(key)) {
+      priorityKeys.push(key);
+    }
+  }
+  priorityKeys.push('planning');
+
+  for (const key of priorityKeys) {
+    if (sessions[key]) {
+      const sessionId = String(sessions[key]).trim();
+      const parsed = parseProviderSessionKey(key);
+      const provider = parsed.provider || 'codex';
+
+      const session = (childSessions || []).find((s) => s.id === sessionId);
+      if (session) {
+        return {
+          sessionId,
+          provider,
+          role: 'planner',
+          stageKey: 'planning',
+          address: session.address,
+          routePath: session.routePath,
+        };
+      }
+
+      return {
+        sessionId,
+        provider,
+        role: 'planner',
+        stageKey: 'planning',
+        routePath: `/runs/${encodeURIComponent(runId || '')}/sessions/by-id/${encodeURIComponent(sessionId)}`,
+      };
+    }
+  }
+
+  return null;
 }
 
 /**
- * Build non-conflicting child session addresses for runner-owned sessions.
+ * Normalize runner process rows from explicit processes only.
+ * Sessions-only state never generates synthetic process rows.
  */
-function buildChildSessions(runId, processes, warnings, sessions = {}) {
+function buildRunnerProcesses(state, stageStatuses, logsByKey, warnings) {
+  const explicit = pick(state, 'processes');
+  if (!Array.isArray(explicit) || explicit.length === 0) {
+    return [];
+  }
+
+  return explicit.map((process) => {
+    const unknownFields = Object.keys(process && typeof process === 'object' ? process : {})
+      .filter((key) => !KNOWN_PROCESS_FIELDS.has(key));
+    unknownFields.forEach((key) => {
+      warnings.push(`Unknown runner process field: ${key}`);
+    });
+    const stage = String(pick(process, 'stage') || '').trim();
+    const role = String(pick(process, 'role') || inferRole(stage)).trim();
+    const logPath = normalizeRelativePath('', pick(process, 'log_path') || process?.logPath || logsByKey.get(`${stage}_${role}_log`) || logsByKey.get(`${role}_log`) || logsByKey.get(`${stage}_log`));
+    return {
+      stage,
+      role,
+      status: String(pick(process, 'status') || '').trim() || undefined,
+      sessionId: String(pick(process, 'session_id') || process?.sessionId || '').trim() || undefined,
+      pid: Number.isInteger(process?.pid) ? process.pid : undefined,
+      exitCode: Number.isInteger(pick(process, 'exit_code') ?? process?.exitCode) ? (pick(process, 'exit_code') ?? process?.exitCode) : undefined,
+      failed: process?.failed === true,
+      logPath: logPath || undefined,
+    };
+  }).map((process) => Object.fromEntries(Object.entries(process).filter(([, value]) => value !== undefined && value !== '')));
+}
+
+/**
+ * Build non-conflicting child session addresses from both explicit processes
+ * and the sessions role map, so session navigation works even when no explicit
+ * wo process rows exist.
+ */
+function buildChildSessions(runId, processes, warnings, sessions = {}, workflowConfig) {
   /**
    * Resolve the provider for a session id by scanning state.sessions provider
    * prefixes. Returns the matching prefix provider, or falls back to 'codex'.
@@ -492,13 +547,28 @@ function buildChildSessions(runId, processes, warnings, sessions = {}) {
     return 'codex';
   }
 
+  /**
+   * Map a role name to the default stage key for child session routing.
+   */
+  function roleDefaultStage(role) {
+    if (role === 'planner' || role === 'planning') return 'planning';
+    if (role === 'executor') return 'execution';
+    if (role === 'reviewer') return 'review_1';
+    if (role === 'archiver') return 'archive';
+    return undefined;
+  }
+
+  const result = [];
+
+  // Phase 1: explicit process rows (preserve existing behavior)
   const withSession = processes.filter((process) => process.sessionId);
+  const existingIds = new Set();
   const baseCounts = new Map();
   for (const process of withSession) {
     const key = `${process.stage}/${process.role || ''}`;
     baseCounts.set(key, (baseCounts.get(key) || 0) + 1);
   }
-  return withSession.map((process) => {
+  for (const process of withSession) {
     const role = process.role || inferRole(process.stage);
     const baseKey = `${process.stage}/${role}`;
     let address = process.stage;
@@ -510,7 +580,7 @@ function buildChildSessions(runId, processes, warnings, sessions = {}) {
       warnings.push(`Duplicate child session address for ${baseKey}; using by-id fallback.`);
     }
     const title = REVIEW_TITLES[process.stage] || stageLabel(process.stage) || '工作流子会话';
-    return {
+    result.push({
       id: process.sessionId,
       title,
       summary: title,
@@ -520,8 +590,87 @@ function buildChildSessions(runId, processes, warnings, sessions = {}) {
       stageKey: process.stage,
       address,
       routePath: `/runs/${encodeURIComponent(runId)}/sessions/${address.split('/').map(encodeURIComponent).join('/')}`,
-    };
-  });
+    });
+    existingIds.add(process.sessionId);
+  }
+
+  // Phase 2: sessions-only role map entries not already covered by explicit processes.
+  // Resolve the winning planner session per the full wo contract priority so
+  // the planning address maps to the correct session even when multiple
+  // planner keys (e.g. codex:planner + pi:planner) coexist.
+  const planningTool = String(
+    pick(pick(pick(workflowConfig, 'stages'), 'planning'), 'tool') || 'codex',
+  ).trim();
+  const KNOWN_PROVIDERS = ['codex', 'pi', 'opencode'];
+  const plannerPriorityKeys = [];
+  plannerPriorityKeys.push(`${planningTool}:planner`);
+  for (const provider of KNOWN_PROVIDERS) {
+    const key = `${provider}:planner`;
+    if (!plannerPriorityKeys.includes(key)) plannerPriorityKeys.push(key);
+  }
+  plannerPriorityKeys.push('planner');
+  plannerPriorityKeys.push(`${planningTool}:planning`);
+  for (const provider of KNOWN_PROVIDERS) {
+    const key = `${provider}:planning`;
+    if (!plannerPriorityKeys.includes(key)) plannerPriorityKeys.push(key);
+  }
+  plannerPriorityKeys.push('planning');
+
+  let winningPlannerSessionId = null;
+  for (const key of plannerPriorityKeys) {
+    if (sessions[key]) {
+      winningPlannerSessionId = String(sessions[key]).trim();
+      break;
+    }
+  }
+
+  const sessionEntries = Object.entries(sessions && typeof sessions === 'object' ? sessions : {});
+  const sessionAddressTaken = new Set();
+
+  for (const [key, value] of sessionEntries) {
+    const sessionId = String(value).trim();
+    if (!sessionId || existingIds.has(sessionId)) {
+      continue;
+    }
+    const parsed = parseProviderSessionKey(key);
+    const role = parsed.role;
+    if (!role) {
+      continue;
+    }
+    const stage = roleDefaultStage(role) || 'execution';
+    const address = stage;
+
+    // For the planning address, only the winning planner session per the
+    // full contract priority may own the address.  Other planner/planning
+    // keys are silently dropped to avoid routing to a stale session.
+    if (address === 'planning') {
+      if (sessionId !== winningPlannerSessionId) {
+        continue;
+      }
+    }
+
+    // Dedup: when an entry already covers the address, skip subsequent ones
+    if (sessionAddressTaken.has(address)) {
+      continue;
+    }
+
+    const title = stageLabel(stage) || role;
+    result.push({
+      id: sessionId,
+      title,
+      summary: title,
+      provider: parsed.provider || 'codex',
+      role,
+      workflowId: runId,
+      stageKey: stage,
+      address,
+      routePath: `/runs/${encodeURIComponent(runId)}/sessions/${encodeURIComponent(address)}`,
+    });
+    existingIds.add(sessionId);
+    sessionAddressTaken.add(address);
+  }
+
+  return result;
 }
 
 function sessionMatchesJsonlName(sessionId, jsonlName, logPath = '') {
@@ -759,7 +908,12 @@ function buildWorkflowRoleSummary(state, childSessions) {
     };
   }
 
-  const planningSessionId = sessions.planning || sessions['codex:planning'];
+  const plannerSessionRef = resolvePlannerSessionRef(
+    sessions,
+    pick(state, 'workflow_config'),
+    childSessions,
+    pick(state, 'run_id'),
+  );
 
   return {
     rows: [
@@ -767,8 +921,8 @@ function buildWorkflowRoleSummary(state, childSessions) {
         key: 'planning',
         label: '规',
         role: 'planning',
-        sessionRef: planningSessionId ? resolveSessionRef('planning', 'planning') : null,
-        placeholder: planningSessionId ? undefined : '未知',
+        sessionRef: plannerSessionRef,
+        placeholder: plannerSessionRef ? undefined : '未知',
         checkCount: 0,
       },
       {
@@ -1119,7 +1273,7 @@ export async function buildWoWorkflowReadModel({ projectPath, runDirName, state,
 
   const stageStatuses = buildStageStatuses(state, rawStage, rawStatus, warnings);
   const runnerProcesses = buildRunnerProcesses(state, stageStatuses, logsByKey, warnings);
-  const childSessions = buildChildSessions(runId, runnerProcesses, warnings, pick(state, 'sessions') || {});
+  const childSessions = buildChildSessions(runId, runnerProcesses, warnings, pick(state, 'sessions') || {}, pick(state, 'workflow_config'));
   const workflowDisplay = {
     lines: buildWorkflowDisplayLines(state, stageStatuses, childSessions, runnerProcesses, warnings),
   };

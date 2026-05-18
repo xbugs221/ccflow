@@ -151,36 +151,8 @@ test('Go-backed workflow persists run id and maps state.json into the read model
     assert.equal(workflow.stage, 'execution');
     assert.equal(workflow.runState, 'running');
     assert.equal(workflow.stageStatuses.find((stage) => stage.key === 'execution')?.status, 'active');
-    assert.ok(workflow.runnerProcesses.some((process) => process.logPath === '.wo/runs/run-abc/logs/executor.log'));
-    assert.deepEqual(
-      workflow.runnerProcesses.find((process) => process.stage === 'execution'),
-      {
-        stage: 'execution',
-        role: 'executor',
-        status: 'running',
-        sessionId: 'codex-exec-thread',
-        logPath: '.wo/runs/run-abc/logs/executor.log',
-      },
-    );
-    assert.deepEqual(
-      workflow.runnerProcesses.find((process) => process.stage === 'repair_1'),
-      {
-        stage: 'repair_1',
-        role: 'executor',
-        status: 'pending',
-        sessionId: 'codex-exec-thread',
-        logPath: '.wo/runs/run-abc/logs/executor.log',
-      },
-    );
-    assert.deepEqual(
-      workflow.runnerProcesses.find((process) => process.stage === 'archive'),
-      {
-        stage: 'archive',
-        role: 'archiver',
-        status: 'pending',
-        logPath: '.wo/runs/run-abc/logs/archiver.log',
-      },
-    );
+    // 新契约：sessions-only 状态不产生 runnerProcesses
+    assert.deepEqual(workflow.runnerProcesses, []);
     assert.deepEqual(
       workflow.childSessions.find((session) => session.id === 'codex-exec-thread'),
       {
@@ -474,7 +446,8 @@ test('Go-backed workflow maps snake_case external state into the read model', as
     assert.equal(workflow.openspecChangeName, 'go-change');
     assert.equal(workflow.stage, 'archive');
     assert.equal(workflow.runState, 'completed');
-    assert.ok(workflow.runnerProcesses.some((process) => process.logPath === '.wo/runs/snake-dir-run/logs/archiver.log'));
+    // 新契约：无 explicit processes 时 runnerProcesses 为空
+    assert.deepEqual(workflow.runnerProcesses, []);
   });
 });
 
@@ -586,7 +559,8 @@ test('Go-backed workflow list and detail expose external completed wo runs', asy
     assert.equal(detailWorkflow.openspecChangeName, 'go-change');
     assert.equal(detailWorkflow.stage, 'archive');
     assert.equal(detailWorkflow.runState, 'completed');
-    assert.ok(detailWorkflow.runnerProcesses.some((process) => process.logPath === '.wo/runs/external-done/logs/archiver.log'));
+    // 新契约：无 explicit processes 时 runnerProcesses 为空
+    assert.deepEqual(detailWorkflow.runnerProcesses, []);
     assert.equal(detailWorkflow.runnerDiagnostics.rawStatus, 'completed');
   });
 });

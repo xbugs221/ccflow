@@ -61,11 +61,11 @@ function writeWorkflowFixture({ withSession }) {
     stages: { planning: 'active', execution: 'pending' },
   };
   if (withSession) {
-    baseState.sessions = { ...baseState.sessions, 'codex:planning': 'planning-session-id' };
+    baseState.sessions = { ...baseState.sessions, 'codex:planner': 'planning-session-id' };
   } else {
     // Remove planning session key explicitly so there is no jump-able session link
     if (baseState.sessions) {
-      delete baseState.sessions['codex:planning'];
+      delete baseState.sessions['codex:planner'];
     }
   }
   fs.writeFileSync(statePath, `${JSON.stringify(baseState, null, 2)}\n`, 'utf8');

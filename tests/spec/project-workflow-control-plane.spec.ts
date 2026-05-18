@@ -129,7 +129,7 @@ function rewriteFixtureWorkflowChildSessions(workflowId, childSessions) {
       : stageKey === 'archive' ? 'archiver'
         : stageKey === 'planning' ? 'planning'
           : 'executor';
-    const sessionKey = role === 'planning' ? 'codex:planning' : `codex:${role}`;
+    const sessionKey = role === 'planning' ? 'codex:planner' : `codex:${role}`;
     sessions[sessionKey] = session.id;
     stages[stageKey] = 'completed';
     processes.push({
@@ -549,7 +549,7 @@ test.describe('项目内需求工作流控制面', () => {
         archive: 'active',
       },
       sessions: {
-        'codex:planning': 'fixture-project-session',
+        'codex:planner': 'fixture-project-session',
         'codex:executor': 'fixture-project-execution-session',
         'codex:archiver': 'fixture-project-archive-session',
       },
