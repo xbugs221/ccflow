@@ -1,6 +1,6 @@
 {
   "name": "cbw",
-  "version": "2026.05.16",
+  "version": "2026.05.19",
   "description": "A web-based UI for agentic Chat and Batch Workflow",
   "type": "module",
   "packageManager": "pnpm@10.33.0",

@@ -195,6 +195,12 @@ const markUserMessagesPersisted = (
       : msg,
   );
 
+/**
+ * Keep accepted user bubbles visible while durable transcript writes lag behind.
+ */
+const isUnconfirmedUserMessage = (message: ChatMessage): boolean =>
+  message.type === 'user' && (message.deliveryStatus === 'pending' || message.deliveryStatus === 'sent');
+
 const appendStreamingChunk = (
   setChatMessages: Dispatch<SetStateAction<ChatMessage[]>>,
   chunk: string,
@@ -301,9 +307,7 @@ const reloadCodexSessionMessages = async ({
     if (rawMessages.length === 0 && previous.some((m) => m.type === 'assistant' || m.messageKey)) {
       return previous;
     }
-    const optimisticUsers = previous.filter((m) =>
-      m.type === 'user' && m.deliveryStatus === 'pending',
-    );
+    const optimisticUsers = previous.filter(isUnconfirmedUserMessage);
     return [...persisted, ...optimisticUsers];
   });
 };
@@ -448,12 +452,10 @@ export function useChatRealtimeHandlers({
       const lifecycleMessageTypes = new Set([
         'claude-complete',
         'codex-complete',
-        'opencode-complete',
         'pi-complete',
         'session-aborted',
         'claude-error',
         'codex-error',
-        'opencode-error',
         'pi-error',
       ]);
 
@@ -493,7 +495,6 @@ export function useChatRealtimeHandlers({
         !pendingViewSessionRef.current.sessionId &&
         (latestMessage.type === 'claude-error' ||
           latestMessage.type === 'codex-error' ||
-          latestMessage.type === 'opencode-error' ||
           latestMessage.type === 'pi-error');
 
       const handleBackgroundLifecycle = (sessionId?: string) => {
@@ -1060,102 +1061,6 @@ export function useChatRealtimeHandlers({
         ]);
         break;
 
-      case 'opencode-response': {
-        const opencodeData = latestMessage.data;
-        if (!opencodeData) {
-          break;
-        }
-
-        if (opencodeData.type === 'item' && !['agent_message', 'command_execution', 'error'].includes(opencodeData.itemType)) {
-          console.log('[OpenCode] Unhandled item type:', opencodeData.itemType, opencodeData);
-        }
-
-        // Realtime item content is NOT directly appended to the transcript.
-        // Content events trigger debounced read-model invalidation.
-        if (opencodeData.type === 'item' && opencodeData.itemType === 'agent_message') {
-          const reloadSessionId = latestMessage.sessionId || currentSessionId || selectedSession?.id || null;
-          if (reloadSessionId) {
-            if (contentReloadTimerRef.current !== null) {
-              window.clearTimeout(contentReloadTimerRef.current);
-            }
-            contentReloadTimerRef.current = window.setTimeout(() => {
-              contentReloadTimerRef.current = null;
-              void reloadCodexSessionMessages({
-                selectedProject,
-                selectedSession,
-                sessionId: reloadSessionId,
-                loadSessionMessages,
-                setChatMessages,
-                setSessionMessages,
-              provider,
-              });
-            }, 1000);
-          }
-        }
-
-        if (opencodeData.type === 'turn_complete') {
-          clearLoadingIndicators();
-          setChatMessages((previous) => markUserMessagesPersisted(previous));
-          markSessionsAsCompleted(latestMessage.sessionId, currentSessionId, selectedSession?.id);
-          onTurnOutcome?.({
-            sessionId: latestMessage.sessionId || currentSessionId || selectedSession?.id || null,
-            status: 'completed',
-          });
-        }
-
-        if (opencodeData.type === 'turn_failed') {
-          clearLoadingIndicators();
-          markSessionsAsCompleted(latestMessage.sessionId, currentSessionId, selectedSession?.id);
-          onTurnOutcome?.({
-            sessionId: latestMessage.sessionId || currentSessionId || selectedSession?.id || null,
-            status: 'failed',
-          });
-        }
-        break;
-      }
-
-      case 'opencode-complete': {
-        const opencodePendingSessionId = sessionStorage.getItem('pendingSessionId');
-        const opencodeActualSessionId = latestMessage.actualSessionId || opencodePendingSessionId;
-        const opencodeCompletedSessionId =
-          latestMessage.sessionId || currentSessionId || opencodePendingSessionId;
-
-        clearLoadingIndicators();
-        setChatMessages((previous) => markUserMessagesPersisted(previous));
-        markSessionsAsCompleted(
-          opencodeCompletedSessionId,
-          opencodeActualSessionId,
-          currentSessionId,
-          selectedSession?.id,
-          opencodePendingSessionId,
-        );
-
-        if (opencodePendingSessionId && !currentSessionId) {
-          setCurrentSessionId(opencodeActualSessionId);
-          setIsSystemSessionChange(true);
-          if (opencodeActualSessionId) {
-            onNavigateToSession?.(opencodeActualSessionId);
-          }
-          sessionStorage.removeItem('pendingSessionId');
-        }
-
-        if (selectedProject) {
-          safeLocalStorage.removeItem(`chat_messages_${selectedProject.name}`);
-        }
-
-        // Reload persisted session messages to replace any transient realtime state.
-        void reloadCodexSessionMessages({
-          selectedProject,
-          selectedSession,
-          sessionId: opencodeCompletedSessionId,
-          loadSessionMessages,
-          setChatMessages,
-          setSessionMessages,
-          provider,
-        });
-        break;
-      }
-
       case 'pi-response': {
         const piData = latestMessage.data;
         if (!piData) {
@@ -1260,19 +1165,6 @@ export function useChatRealtimeHandlers({
           {
             type: 'error',
             content: latestMessage.error || 'An error occurred with Pi',
-            timestamp: new Date(),
-          },
-        ]);
-        break;
-
-      case 'opencode-error':
-        setIsLoading(false);
-        setCanAbortSession(false);
-        setChatMessages((previous) => [
-          ...previous,
-          {
-            type: 'error',
-            content: latestMessage.error || 'An error occurred with OpenCode',
             timestamp: new Date(),
           },
         ]);
