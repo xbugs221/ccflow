@@ -21,7 +21,6 @@ function getChildSessionProvider(provider: unknown): string {
   /**
    * PURPOSE: Treat missing or retired provider values as Codex ownership.
    */
-  if (provider === 'opencode') return 'opencode';
   if (provider === 'pi') return 'pi';
   return 'codex';
 }

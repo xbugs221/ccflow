@@ -62,34 +62,6 @@ test('Claude SDK compatibility module file does not exist and no production impo
   }
 });
 
-test('OpenCode settings do not use Claude quota fallback', async () => {
-  const accountContent = await readSource('src/components/settings/view/tabs/agents-settings/sections/content/AccountContent.tsx');
-  const usageRemaining = await readSource('server/usage-remaining.ts');
-
-  assert.match(accountContent, /agent\s*!==\s*'opencode'[\s\S]*<UsageProviderQuota/);
-  assert.doesNotMatch(usageRemaining, /provider\s*===\s*'codex'\s*\?\s*'codex'\s*:\s*'claude'/);
-  assert.match(usageRemaining, /provider-unsupported/);
-});
-
-test('OpenCode chat composer does not reuse Claude model or thinking controls', async () => {
-  const modelControls = await readSource('src/components/chat/view/subcomponents/SessionModelControls.tsx');
-  const chatComposer = await readSource('src/components/chat/view/subcomponents/ChatComposer.tsx');
-  // Note: ChatInputControls.tsx was removed in change 30 (0 imports) -
-  // its provider guard is now inlined in the composer.
-
-  assert.doesNotMatch(modelControls, /ClaudeLogo|claudeModel|thinkingModes|sessionControls\.claudeDescription/);
-  assert.match(chatComposer, /provider\s*===\s*'codex'\s*&&\s*\(/);
-});
-
-test('assistant message labels do not fall back to Claude for OpenCode', async () => {
-  const messageComponent = await readSource('src/components/chat/view/subcomponents/MessageComponent.tsx');
-  const englishChat = await readSource('src/i18n/locales/en/chat.json');
-
-  assert.match(messageComponent, /provider\s*===\s*'opencode'[\s\S]*messageTypes\.opencode/);
-  assert.doesNotMatch(messageComponent, /messageTypes\.claude/);
-  assert.doesNotMatch(englishChat, /"claude"\s*:\s*"Claude"/);
-});
-
 test('chat state no longer keeps Claude model or thinking-mode persistence', async () => {
   const providerState = await readSource('src/components/chat/hooks/useChatProviderState.ts');
   const chatInterface = await readSource('src/components/chat/view/ChatInterface.tsx');
@@ -102,20 +74,6 @@ test('chat state no longer keeps Claude model or thinking-mode persistence', asy
   assert.doesNotMatch(composerState, /cbw-thinking-mode|thinkingMode|setThinkingMode/);
   assert.doesNotMatch(chatLocale, /"thinkingMode"|claudeDescription/);
   assert.doesNotMatch(settingsLocale, /claudeDescription/);
-});
-
-test('slash command context does not map OpenCode to Claude model', async () => {
-  const composerState = await readSource('src/components/chat/hooks/useChatComposerState.ts');
-
-  assert.doesNotMatch(composerState, /provider\s*===\s*'codex'\s*\?\s*codexModel\s*:\s*claudeModel/);
-  assert.match(composerState, /model:\s*provider\s*===\s*'codex'\s*\?\s*codexModel\s*:\s*undefined/);
-});
-
-test('OpenCode search results display OpenCode instead of Claude fallback', async () => {
-  const searchDialog = await readSource('src/components/chat/view/ChatHistorySearchDialog.tsx');
-
-  assert.match(searchDialog, /provider\s*===\s*'opencode'[\s\S]*return\s*'OpenCode'/);
-  assert.doesNotMatch(searchDialog, /\?\s*'Codex'\s*:\s*'Claude'/);
 });
 
 test('cbw CLI status and help do not advertise Claude runtime configuration', async () => {

@@ -82,7 +82,6 @@ const projectsHaveChanges = (
 
     return (
       serialize(nextProject.codexSessions) !== serialize(prevProject.codexSessions) ||
-      serialize(nextProject.opencodeSessions) !== serialize(prevProject.opencodeSessions) ||
       serialize(nextProject.piSessions) !== serialize(prevProject.piSessions)
     );
   });
@@ -92,7 +91,6 @@ const getProjectSessions = (project: Project): ProjectSession[] => {
   const visibleSessions = [
     ...(project.sessions ?? []),
     ...(project.codexSessions ?? []),
-    ...(project.opencodeSessions ?? []),
     ...(project.piSessions ?? []),
   ];
 
@@ -159,9 +157,7 @@ const findRefreshedSelectedSession = (
 
   const providerSessions = selectedSession.__provider === 'codex'
     ? (project.codexSessions || [])
-    : selectedSession.__provider === 'opencode'
-      ? (project.opencodeSessions || [])
-      : selectedSession.__provider === 'pi'
+    : selectedSession.__provider === 'pi'
         ? (project.piSessions || [])
         : (project.sessions || []);
 
@@ -434,7 +430,6 @@ const withSessionProjectMetadata = (
  */
 const providerToSessionsKey = (provider: SessionProvider): keyof Project => {
   if (provider === 'codex') return 'codexSessions';
-  if (provider === 'opencode') return 'opencodeSessions';
   if (provider === 'pi') return 'piSessions';
   throw new Error(`Unsupported session provider: ${String(provider)}`);
 };
@@ -700,7 +695,7 @@ export function useProjectsState({
       const searchParams = new URLSearchParams(locationSearch);
       const hintedProjectPath = searchParams.get('projectPath') || '';
       const rawProvider = searchParams.get('provider');
-      const hintedProvider: SessionProvider = rawProvider === 'opencode' ? 'opencode' : rawProvider === 'pi' ? 'pi' : 'codex';
+      const hintedProvider: SessionProvider = rawProvider === 'pi' ? 'pi' : 'codex';
       const decodedSessionId = decodeURIComponent(legacySessionMatch[1]);
       const requestedSessionSummary = String(searchParams.get('sessionSummary') || '').trim();
       const matchedProject = projects.find((project) => (
@@ -780,9 +775,9 @@ export function useProjectsState({
     if (resolvedSession) {
       const provider = resolvedSession.__provider || ((resolvedProject.codexSessions || []).some(
         (session) => session.id === resolvedSession.id,
-      ) ? 'codex' : (resolvedProject.opencodeSessions || []).some(
+      ) ? 'codex' : (resolvedProject.piSessions || []).some(
         (session) => session.id === resolvedSession.id,
-      ) ? 'opencode' : 'codex');
+      ) ? 'pi' : 'codex');
       const nextSession = withSessionProjectMetadata(resolvedSession, resolvedProject, provider);
       if (
         selectedSession?.id !== nextSession.id
@@ -1031,7 +1026,6 @@ export function useProjectsState({
           ...project,
           sessions: project.sessions?.filter((session) => session.id !== sessionIdToDelete) ?? [],
           codexSessions: project.codexSessions?.filter((session) => session.id !== sessionIdToDelete) ?? [],
-          opencodeSessions: project.opencodeSessions?.filter((session) => session.id !== sessionIdToDelete) ?? [],
           piSessions: project.piSessions?.filter((session) => session.id !== sessionIdToDelete) ?? [],
           sessionMeta: {
             ...project.sessionMeta,

@@ -10,14 +10,6 @@
 
 - `test_project_workflow_control_plane_index_recovery.js`: 派生自 `openspec/changes/27-workflow-session-index-recovery/specs/project-workflow-control-plane/spec.md`，覆盖工作流详情 read model 对索引异常和恢复状态的展示。
 
-## 28-add-opencode-provider-support
-
-- `opencode-provider-integration.spec.js`: 派生自 `openspec/changes/28-add-opencode-provider-support/specs/opencode-provider-integration/spec.md`。本变更范围已收窄至 OpenCode UI/类型脚手架，因此该测试只静态校验 `SessionProvider`、`AgentProvider`、`AGENT_PROVIDERS`、`AUTH_STATUS_ENDPOINTS`、agent 选项卡视觉配置以及聊天空状态文案占位是否就位；OpenCode 后端 SDK、REST 路由、会话发现、WebSocket、工作流执行属于后续独立变更，不在本测试范围内。
-
-## integrate-opencode-provider
-
-- `integrate-opencode-provider.spec.js`: 派生自 `docs/changes/2026-05-08-integrate-opencode-provider/specs/integrate-opencode-provider/spec.md`，覆盖 OpenCode 后端 SDK（事件转换、steer 队列、CLI 参数构建）、REST 路由（models/sessions/messages/delete）、WebSocket 集成（opencode-command/abort/status/active-sessions/error）、会话发现（opencodeSessions）以及前端 provider picker 和消息处理。
-
 ## 29-merge-upstream-critical-fixes
 
 - `upstream-critical-fixes.spec.js`: 派生自 `openspec/changes/29-merge-upstream-critical-fixes/specs/upstream-critical-fixes/spec.md`，覆盖安全 frontmatter 解析、Claude CLI 路径传递、SDK permission 语义、二进制下载和 Service Worker 缓存修复。
@@ -31,15 +23,11 @@ pnpm run test:spec
 # 或运行单个变更的验收测试
 node --test tests/spec/test_session_management_refactor.js
 
-# 运行 28-add-opencode-provider-support 验收测试
-openspec/changes/28-add-opencode-provider-support/test_cmd.sh
-
 # 运行 29-merge-upstream-critical-fixes 验收测试
 openspec/changes/29-merge-upstream-critical-fixes/test_cmd.sh
 
 # 或分别运行各测试文件
 node --test tests/spec/test_project_workflow_control_plane_index_recovery.js
-node --test tests/spec/opencode-provider-integration.spec.js
 node --test tests/spec/upstream-critical-fixes.spec.js
 ```
 

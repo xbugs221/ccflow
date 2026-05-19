@@ -42,7 +42,7 @@ const ITEM_ACTION_LONG_PRESS_MS = 450;
 type WorkflowCardSortMode = 'created' | 'updated' | 'title' | 'provider';
 
 const normalizeActionSessionProvider = (provider: unknown): SessionProvider => (
-  provider === 'opencode' ? 'opencode' : provider === 'pi' ? 'pi' : 'codex'
+  provider === 'pi' ? 'pi' : 'codex'
 );
 
 const CARD_SORT_OPTIONS: Array<{ value: SessionCardSortMode; label: string }> = [
@@ -993,15 +993,6 @@ export default function ProjectOverviewPanel({
                     onClick={() => handleCreateSession('codex')}
                   >
                     Codex
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    data-testid="project-new-session-provider-opencode"
-                    onClick={() => handleCreateSession('opencode')}
-                  >
-                    OpenCode
                   </Button>
                   <Button
                     type="button"

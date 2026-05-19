@@ -49,7 +49,7 @@ type ChatHistorySearchDialogProps = {
  */
 function getProviderDisplayLabel(provider: SessionProvider): string {
   if (provider === 'codex') return 'Codex';
-  if (provider === 'opencode') return 'OpenCode';
+  if (provider === 'pi') return 'Pi';
   return '';
 }
 

@@ -102,15 +102,6 @@ async function readCoRequests() {
   return requests;
 }
 
-async function setFakeCoOpenCodeAvailable(value) {
-  /**
-   * Switch the fake co doctor provider result without restarting the server.
-   */
-  const coHome = path.join(process.cwd(), '.tmp', 'playwright-co-home');
-  await fs.mkdir(coHome, { recursive: true });
-  await fs.writeFile(path.join(coHome, 'opencode-available'), value ? 'true' : 'false', 'utf8');
-}
-
 async function waitForCoRequest(marker, conversationId) {
   /**
    * Wait for one browser submit to materialize as exactly one co request.
@@ -264,53 +255,15 @@ async function waitForDraftStart(page) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await setFakeCoOpenCodeAvailable(true);
   await authenticatePage(page);
 });
 
-test('Codex and OpenCode co events render after websocket reconnect', async ({ page }) => {
+test('Codex co events render after websocket reconnect', async ({ page }) => {
   test.setTimeout(45_000);
   await openFixtureProject(page);
 
   await openNewProviderSession(page, 'codex');
   await sendPromptThenReconnect(page, 'codex reconnect real co event');
-
-  await openFixtureProject(page, { reset: false });
-  await openNewProviderSession(page, 'opencode');
-  await sendPromptThenReconnect(page, 'opencode reconnect real co event');
-});
-
-test('OpenCode unavailable provider shows failure without pending request', async ({ page }) => {
-  test.skip(process.env.CCFLOW_FAKE_CO_OPENCODE_AVAILABLE !== 'false', 'requires fake co OpenCode provider disabled at server startup');
-  await setFakeCoOpenCodeAvailable(false);
-  await openFixtureProject(page);
-
-  const marker = 'opencode unavailable provider browser gate';
-  page.once('dialog', async (dialog) => {
-    await dialog.accept('opencode co reconnect acceptance');
-  });
-  await page.getByTestId('project-overview-manual-sessions').getByRole('button', { name: /新建会话|New Session/i }).click();
-  await page.getByTestId('project-new-session-provider-opencode').click();
-
-  const error = page.getByTestId('project-new-session-error');
-  await expect(error).toContainText('co provider "opencode" is unavailable', { timeout: 10_000 });
-  await expect(error).toContainText('PATH=');
-  await expect(page.locator('textarea').first()).toHaveCount(0);
-  await expectNoCoRequest(marker);
-  await expectNoManualSessionForText('opencode co reconnect acceptance');
-});
-
-test('OpenCode send rechecks co doctor before writing request', async ({ page }) => {
-  await openFixtureProject(page);
-  await setFakeCoOpenCodeAvailable(true);
-  await openNewProviderSession(page, 'opencode');
-
-  await setFakeCoOpenCodeAvailable(false);
-  const marker = 'opencode provider flips unavailable before send';
-  const chatContainer = await sendPrompt(page, marker);
-
-  await expect(chatContainer).toContainText('co provider "opencode" is unavailable', { timeout: 10_000 });
-  await expectNoCoRequest(marker);
 });
 
 test('running co conversation continues after page reload', async ({ page }) => {

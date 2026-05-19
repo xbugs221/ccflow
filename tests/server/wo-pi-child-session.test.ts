@@ -8,7 +8,7 @@
  * - Spec 场景：Pi executor sessions-only 状态可进入子会话
  * - Spec 场景：sessions-only 状态不伪造进程
  * - Spec 场景：explicit process 与 role session 去重
- * - Spec 场景：非 Pi provider role map 同样可路由
+ * - Spec 场景：只接受 Codex/Pi provider role map
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -241,7 +241,7 @@ test('stage-key sessions (review_1, fix_1) generate child sessions', async () =>
   }
 });
 
-test('opencode:executor generates child session with correct provider', async () => {
+test('legacy opencode session refs are ignored by workflow child session routing', async () => {
   const projectPath = path.join(os.tmpdir(), `cbw-opencode-${Date.now()}`);
   const runDir = path.join(projectPath, '.wo', 'runs', 'run-oc');
   const statePath = path.join(runDir, 'state.json');
@@ -269,10 +269,21 @@ test('opencode:executor generates child session with correct provider', async ()
       stateStat: stat,
     });
 
-    const ocChild = model.childSessions.find((s) => s.id === 'oc-thread-1');
-    assert.ok(ocChild, 'opencode:executor should be in childSessions');
-    assert.equal(ocChild.provider, 'opencode');
-    assert.equal(ocChild.stageKey, 'execution');
+    assert.equal(
+      model.childSessions.some((s) => s.id === 'oc-thread-1'),
+      false,
+      'opencode:executor must not be exposed as a clickable child session',
+    );
+    assert.equal(
+      model.diagnostics.workflowOwnedSessions.some((s) => s.sessionId === 'oc-thread-1'),
+      false,
+      'opencode:executor must not be treated as an owned workflow session',
+    );
+    assert.equal(
+      model.workflowRoleSummary.rows.some((row) => row.sessionRef?.sessionId === 'oc-thread-1'),
+      false,
+      'opencode:executor must not be linked from workflow role summary',
+    );
 
     // runnerProcesses must be empty for sessions-only
     assert.deepEqual(model.runnerProcesses, []);

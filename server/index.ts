@@ -98,7 +98,6 @@ import projectsRoutes, { WORKSPACES_ROOT, validateWorkspacePath } from './routes
 import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
 import codexRoutes from './routes/codex.js';
-import opencodeRoutes from './routes/opencode.js';
 import { initializeDatabase } from './database/db.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
@@ -163,10 +162,10 @@ function isCcflowRouteSessionId(sessionId) {
  * Accept only providers supported by manual chat turns.
  */
 function normalizeManualProvider(provider) {
-    if (provider === 'codex' || provider === 'opencode' || provider === 'pi') {
+    if (provider === 'codex' || provider === 'pi') {
         return provider;
     }
-    throw new Error('provider must be "codex", "opencode", or "pi"');
+    throw new Error('provider must be "codex" or "pi"');
 }
 
 /**
@@ -1247,9 +1246,6 @@ app.use('/api/user', authenticateToken, userRoutes);
 
 // Codex API Routes (protected)
 app.use('/api/codex', authenticateToken, codexRoutes);
-
-// OpenCode API Routes (protected)
-app.use('/api/cli/opencode', authenticateToken, opencodeRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
@@ -2532,121 +2528,6 @@ function handleChatConnection(ws, request) {
                     excludeTurnId: previousActiveTurnId,
                     excludeTurnIds: previousTurnIds,
                 });
-            } else if (data.type === 'opencode-command') {
-                if (!acceptChatRequestId(data.clientRequestId || data.options?.clientRequestId)) {
-                    console.warn('[DEBUG] Ignoring duplicate OpenCode request:', data.clientRequestId || data.options?.clientRequestId);
-                    return;
-                }
-                const resolvedOptions = await resolveChatProjectOptions(data.options, extractProjectDirectory);
-                const {
-                    cbwSessionId,
-                    startRequestId,
-                    clientRef,
-                } = resolveCcflowSessionStartContext(data, resolvedOptions);
-                const shouldStartCcflowDraft = cbwSessionId && (
-                    (!resolvedOptions?.sessionId || isCcflowRouteSessionId(resolvedOptions.sessionId))
-                    && (!data.sessionId || isCcflowRouteSessionId(data.sessionId))
-                );
-                const opencodeProviderOptions = shouldStartCcflowDraft
-                    ? { ...resolvedOptions, sessionId: undefined, resume: false }
-                    : resolvedOptions;
-                await ensureCoAvailable('opencode');
-                writer.setSessionIndexContext(cbwSessionId ? {
-                    projectName: opencodeProviderOptions?.projectName || data.options?.projectName || '',
-                    projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
-                    provider: 'opencode',
-                    cbwSessionId,
-                    startRequestId,
-                } : null);
-                if (shouldStartCcflowDraft) {
-                    const startResult = await startManualSessionDraft(
-                        opencodeProviderOptions?.projectName || data.options?.projectName || '',
-                        opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
-                        cbwSessionId,
-                        'opencode',
-                        startRequestId,
-                    );
-                    const existingConversation = !startResult.started && startResult.reason === 'missing-draft'
-                        ? await readCoConversationState(cbwSessionId).catch(() => null)
-                        : null;
-                    const canContinueExistingConversation = startResult.reason === 'already-started' || Boolean(existingConversation?.conversation_id);
-                    if (!startResult.started && !canContinueExistingConversation) {
-                        writer.send({
-                            type: 'session-start-rejected',
-                            sessionId: cbwSessionId,
-                            cbwSessionId,
-                            provider: 'opencode',
-                            reason: startResult.reason,
-                            startRequestId: startResult.startRequestId,
-                        });
-                        return;
-                    }
-                }
-                console.log('[DEBUG] OpenCode request:', data.command || '[Continue/Resume]');
-                console.log('📁 Project:', opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || 'Unknown');
-                const sessionIdForRoute = opencodeProviderOptions?.sessionId || data.sessionId;
-                const resolvedRoute = await resolveCoConversationId({
-                    cbwSessionId,
-                    sessionId: sessionIdForRoute,
-                    projectName: opencodeProviderOptions?.projectName || data.options?.projectName || '',
-                    projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
-                    provider: 'opencode',
-                });
-                if (!resolvedRoute.conversationId) {
-                    writer.send({
-                        type: 'opencode-error',
-                        error: resolvedRoute.error || 'Cannot determine co conversation route',
-                        provider: 'opencode',
-                        sessionId: sessionIdForRoute,
-                    });
-                    return;
-                }
-                const coRequest = buildCoRequest({
-                    provider: 'opencode',
-                    requestId: startRequestId || data.clientRequestId || data.options?.clientRequestId || '',
-                    conversationId: resolvedRoute.conversationId,
-                    projectPath: opencodeProviderOptions?.projectPath || opencodeProviderOptions?.cwd || '',
-                    text: data.command || '',
-                    activePolicy: data.activePolicy || data.active_policy || data.options?.activePolicy || 'queue',
-                    targetTurnId: data.targetTurnId || data.target_turn_id || data.options?.targetTurnId || '',
-                    providerSessionIdHint: opencodeProviderOptions?.sessionId || '',
-                    options: {
-                        model: opencodeProviderOptions?.model || '',
-                        reasoningEffort: opencodeProviderOptions?.reasoningEffort || '',
-                        permissionMode: opencodeProviderOptions?.permissionMode || '',
-                    },
-                    attachments: opencodeProviderOptions?.attachments || [],
-                    actor: {
-                        userId: request?.user?.id || 'local',
-                        deviceId: data.deviceId || data.options?.deviceId || '',
-                        windowId: data.windowId || data.options?.windowId || '',
-                    },
-                });
-                const previousConversationState = await readCoConversationState(coRequest.conversation_id).catch(() => null);
-                const previousActiveTurnId = previousConversationState?.active_turn_id || '';
-                const previousTurnIds = getCoConversationTurnIds(previousConversationState);
-                await writeCoRequest(coRequest);
-                sendMessageAccepted(writer, {
-                    sessionId: resolvedRoute.conversationId || opencodeProviderOptions?.sessionId || data.sessionId,
-                    cbwSessionId: resolvedRoute.conversationId,
-                    provider: 'opencode',
-                    clientRequestId: startRequestId,
-                    startRequestId,
-                });
-                const recovered = await recoverCoConversation(coRequest.conversation_id, request?.user?.id || null);
-                if (recovered?.active_turn_id) {
-                    writer.send({
-                        type: 'session-status',
-                        sessionId: coRequest.conversation_id,
-                        provider: 'opencode',
-                        isProcessing: true,
-                        turnId: recovered.active_turn_id,
-                    });
-                }
-                observeCoConversationTurns(coRequest.conversation_id, writer, 'opencode', request?.user?.id || null, {
-                    excludeTurnId: previousActiveTurnId,
-                    excludeTurnIds: previousTurnIds,
-                });
             } else if (data.type === 'pi-command') {
                 if (!acceptChatRequestId(data.clientRequestId || data.options?.clientRequestId)) {
                     console.warn('[DEBUG] Ignoring duplicate Pi request:', data.clientRequestId || data.options?.clientRequestId);
@@ -2870,7 +2751,6 @@ function handleChatConnection(ws, request) {
                     }));
                 const activeSessions = {
                     codex: activeTurns.filter((turn) => turn.provider === 'codex'),
-                    opencode: activeTurns.filter((turn) => turn.provider === 'opencode'),
                     pi: activeTurns.filter((turn) => turn.provider === 'pi'),
                 };
                 writer.send({
@@ -2890,8 +2770,6 @@ function handleChatConnection(ws, request) {
                 errorType = 'claude-error';
             } else if (data?.type === 'codex-command') {
                 errorType = 'codex-error';
-            } else if (data?.type === 'opencode-command') {
-                errorType = 'opencode-error';
             } else if (data?.type === 'pi-command') {
                 errorType = 'pi-error';
             }
@@ -2928,7 +2806,7 @@ function handleShellConnection(ws) {
                 const projectPath = data.projectPath || process.cwd();
                 const sessionId = data.sessionId;
                 const hasSession = data.hasSession;
-                const provider = data.provider === 'opencode' ? 'opencode' : data.provider === 'plain-shell' ? 'plain-shell' : 'codex';
+                const provider = data.provider === 'plain-shell' ? 'plain-shell' : 'codex';
                 const initialCommand = data.initialCommand;
                 const isPlainShell = data.isPlainShell || (!!initialCommand && !hasSession) || provider === 'plain-shell';
                 keepSessionAliveOnDisconnect = !isPlainShell;
@@ -2998,7 +2876,7 @@ function handleShellConnection(ws) {
                 if (isPlainShell) {
                     welcomeMsg = `\x1b[36mStarting terminal in: ${projectPath}\x1b[0m\r\n`;
                 } else {
-                    const providerName = provider === 'opencode' ? 'OpenCode' : 'Codex';
+                    const providerName = 'Codex';
                     welcomeMsg = hasSession ?
                         `\x1b[36mResuming ${providerName} session ${sessionId} in: ${projectPath}\x1b[0m\r\n` :
                         `\x1b[36mStarting new ${providerName} session in: ${projectPath}\x1b[0m\r\n`;
@@ -3038,21 +2916,6 @@ function handleShellConnection(ws) {
                                 shellCommand = `cd "${projectPath}" && codex resume "${sessionId}" || codex`;
                             } else {
                                 shellCommand = `cd "${projectPath}" && codex`;
-                            }
-                        }
-                    } else if (provider === 'opencode') {
-                        const command = initialCommand || 'opencode';
-                        if (os.platform() === 'win32') {
-                            if (hasSession && sessionId) {
-                                shellCommand = `Set-Location -Path "${projectPath}"; opencode --session ${sessionId}; if ($LASTEXITCODE -ne 0) { opencode }`;
-                            } else {
-                                shellCommand = `Set-Location -Path "${projectPath}"; ${command}`;
-                            }
-                        } else {
-                            if (hasSession && sessionId) {
-                                shellCommand = `cd "${projectPath}" && opencode --session "${sessionId}" || opencode`;
-                            } else {
-                                shellCommand = `cd "${projectPath}" && ${command}`;
                             }
                         }
                     } else {
@@ -3772,7 +3635,7 @@ async function startServer() {
 
         coDoctorStatus = await runCoDoctor();
         if (coDoctorStatus.ok) {
-            console.log(`${c.info('[INFO]')} Using co for Codex/OpenCode turns at ${c.dim(coDoctorStatus.home || resolveCoHome())}`);
+            console.log(`${c.info('[INFO]')} Using co for Codex/Pi turns at ${c.dim(coDoctorStatus.home || resolveCoHome())}`);
         } else {
             console.log(`${c.warn('[WARN]')} co unavailable; chat sending is disabled: ${coDoctorStatus.error || 'doctor failed'}`);
         }

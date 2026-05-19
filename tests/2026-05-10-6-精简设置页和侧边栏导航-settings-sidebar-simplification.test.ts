@@ -25,16 +25,6 @@ function createLocalAuthToken() {
 const AUTH_TOKEN = createLocalAuthToken();
 
 test.beforeEach(async ({ page }) => {
-  await page.route('/api/cli/opencode/status', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        authenticated: true,
-        provider: 'anthropic',
-        providers: [{ name: 'anthropic', connected: true, source: 'fake' }],
-      }),
-    });
-  });
   await page.route('/api/diagnostics/runtime-dependencies', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
@@ -44,7 +34,7 @@ test.beforeEach(async ({ page }) => {
         commands: {
           oz: { name: 'oz', path: '/usr/bin/oz', command_path: '/usr/bin/oz', version: { ok: true, output: 'oz-test' }, contract: { ok: true, capabilities: ['proposal'] } },
           wo: { name: 'wo', path: '/usr/bin/wo', command_path: '/usr/bin/wo', home: '/tmp/wo', version: { ok: true, output: 'wo-test' }, contract: { ok: true, capabilities: ['run'] } },
-          co: { name: 'co', path: '/usr/bin/co', command_path: '/usr/bin/co', home: '/tmp/co', version: { ok: true, output: 'co-test' }, contract: { ok: true, capabilities: ['opencode'] } },
+          co: { name: 'co', path: '/usr/bin/co', command_path: '/usr/bin/co', home: '/tmp/co', version: { ok: true, output: 'co-test' }, contract: { ok: true, capabilities: ['codex', 'pi'] } },
         },
       }),
     });
@@ -55,7 +45,13 @@ test.beforeEach(async ({ page }) => {
   }, AUTH_TOKEN);
 });
 
-test('settings only exposes appearance agents diagnostics and shows OpenCode provider state', async ({ page }) => {
+test('settings only exposes appearance agents diagnostics and supported providers', async ({ page }) => {
+  let removedProviderStatusRequests = 0;
+  await page.route('/api/cli/opencode/status', async (route) => {
+    removedProviderStatusRequests += 1;
+    await route.abort();
+  });
+
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /设置|Settings/ }).first().click();
 
@@ -70,52 +66,10 @@ test('settings only exposes appearance agents diagnostics and shows OpenCode pro
 
   await page.getByRole('tab', { name: '智能体' }).click();
   await expect(page.getByText('MCP 服务器')).toHaveCount(0);
-  await page.getByRole('button', { name: /OpenCode/ }).click();
-  await expect(page.getByText('anthropic', { exact: true })).toBeVisible();
-});
-
-test('OpenCode status failure shows backend error instead of available no-provider copy', async ({ page }) => {
-  await page.unroute('/api/cli/opencode/status');
-  await page.route('/api/cli/opencode/status', async (route) => {
-    await route.fulfill({
-      status: 503,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        authenticated: false,
-        providers: [],
-        error: 'opencode missing from service PATH',
-      }),
-    });
-  });
-
-  await page.goto('/', { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: /设置|Settings/ }).first().click();
-  await page.getByRole('tab', { name: '智能体' }).click();
-  await page.getByRole('button', { name: /OpenCode/ }).click();
-
-  await expect(page.getByText('错误：opencode missing from service PATH').first()).toBeVisible();
-  await expect(page.getByText('OpenCode 可用，尚未绑定 provider')).toHaveCount(0);
-});
-
-test('OpenCode available without connected providers keeps the no-provider copy', async ({ page }) => {
-  await page.unroute('/api/cli/opencode/status');
-  await page.route('/api/cli/opencode/status', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        available: true,
-        authenticated: false,
-        providers: [{ name: 'anthropic', connected: false, source: 'fake' }],
-      }),
-    });
-  });
-
-  await page.goto('/', { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: /设置|Settings/ }).first().click();
-  await page.getByRole('tab', { name: '智能体' }).click();
-  await page.getByRole('button', { name: /OpenCode/ }).click();
-
-  await expect(page.getByText('OpenCode 可用，尚未绑定 provider').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /Codex/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Pi/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /OpenCode/ })).toHaveCount(0);
+  expect(removedProviderStatusRequests).toBe(0);
 });
 
 test('diagnostics uses Chinese labels and sidebar actions live in the footer', async ({ page }) => {

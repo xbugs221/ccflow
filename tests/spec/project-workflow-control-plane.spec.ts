@@ -232,7 +232,8 @@ test.describe('项目内需求工作流控制面', () => {
     await expect(page.getByTestId('project-new-session-provider-picker')).toBeVisible();
     await expect(page.getByTestId('project-new-session-provider-claude')).toHaveCount(0);
     await expect(page.getByTestId('project-new-session-provider-codex')).toBeVisible();
-    await expect(page.getByTestId('project-new-session-provider-opencode')).toBeVisible();
+    await expect(page.getByTestId('project-new-session-provider-pi')).toBeVisible();
+    await expect(page.getByTestId('project-new-session-provider-opencode')).toHaveCount(0);
     page.once('dialog', async (dialog) => {
       await dialog.accept('新建 Codex 验收会话');
     });

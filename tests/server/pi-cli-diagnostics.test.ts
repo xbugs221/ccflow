@@ -232,7 +232,7 @@ test('Pi CLI on PATH does not bypass co provider gate for chat sends', async () 
   await fs.writeFile(coPath, [
     '#!/bin/sh',
     'if [ "$1" = "doctor" ] && [ "$2" = "--json" ]; then',
-    `  printf '%s\\n' '{"ok":true,"contract":"co-request-v1","version":"test","home":"${coHome}","providers":{"codex":true,"opencode":true,"pi":false}}'`,
+    `  printf '%s\\n' '{"ok":true,"contract":"co-request-v1","version":"test","home":"${coHome}","providers":{"codex":true,"pi":false}}'`,
     '  exit 0',
     'fi',
     'exit 1',

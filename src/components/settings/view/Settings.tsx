@@ -33,7 +33,6 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
     isSaving,
     saveStatus,
     codexAuthStatus,
-    opencodeAuthStatus,
     piAuthStatus,
     openLoginForProvider,
     showLoginModal,
@@ -89,10 +88,8 @@ function Settings({ isOpen, onClose, projects = [], initialTab = 'appearance' }:
               <AgentsSettingsTab
                 usageEnabled={activeTab === 'agents'}
                 codexAuthStatus={codexAuthStatus}
-                opencodeAuthStatus={opencodeAuthStatus}
                 piAuthStatus={piAuthStatus}
                 onCodexLogin={() => openLoginForProvider('codex')}
-                onOpencodeLogin={() => openLoginForProvider('opencode')}
               />
             )}
           </div>

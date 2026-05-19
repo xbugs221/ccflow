@@ -13,7 +13,6 @@
     "error": "Error",
     "tool": "Tool",
     "codex": "Codex",
-    "opencode": "OpenCode",
     "pi": "Pi",
     "assistant": "Assistant"
   },
@@ -132,13 +131,11 @@
     "providerInfo": {
       "anthropic": "by Anthropic",
       "openai": "by OpenAI",
-      "opencode": "OpenCode CLI",
       "pi": "Pi Coding Agent"
     },
     "readyPrompt": {
       "codex": "Ready to use Codex with {{model}} and {{effort}} thinking depth. Start typing your message below.",
       "default": "Select a provider above to begin",
-      "opencode": "Ready to use OpenCode. Start typing your message below.",
       "pi": "Ready to use Pi. Start typing your message below."
     }
   },

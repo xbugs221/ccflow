@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 
 export type SettingsMainTab = 'agents' | 'appearance' | 'diagnostics';
-export type AgentProvider = 'codex' | 'opencode' | 'pi';
+export type AgentProvider = 'codex' | 'pi';
 export type SaveStatus = 'success' | 'error' | null;
 export type CodexPermissionMode = 'bypassPermissions';
 

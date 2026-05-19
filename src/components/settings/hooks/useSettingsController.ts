@@ -122,18 +122,6 @@ const readStatusError = async (response: Response): Promise<string> => {
   }
 };
 
-const normalizeOpenCodeProviders = (providers: StatusApiResponse['providers'] = []) => (
-  providers
-    .map((provider) => ({
-      name: provider.name || '',
-      connected: Boolean(provider.connected ?? provider.available),
-      source: provider.source || null,
-      authType: provider.authType || provider.api?.type || null,
-      api: provider.api || null,
-    }))
-    .filter((provider) => provider.name)
-);
-
 export function useSettingsController({ isOpen, initialTab, projects, onClose }: UseSettingsControllerArgs) {
   const { isDarkMode, toggleDarkMode } = useTheme() as ThemeContextValue;
   const closeTimerRef = useRef<number | null>(null);
@@ -149,10 +137,6 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
   const [selectedProject, setSelectedProject] = useState<SettingsProject | null>(null);
 
   const [codexAuthStatus, setCodexAuthStatus] = useState<AuthStatus>(DEFAULT_AUTH_STATUS);
-  const [opencodeAuthStatus, setOpencodeAuthStatus] = useState<AuthStatus>({
-    ...DEFAULT_AUTH_STATUS,
-    loading: true,
-  });
   const [piAuthStatus, setPiAuthStatus] = useState<AuthStatus>({
     ...DEFAULT_AUTH_STATUS,
     loading: true,
@@ -165,11 +149,6 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
   const setAuthStatusByProvider = useCallback((provider: AgentProvider, status: AuthStatus) => {
     if (provider === 'codex') {
       setCodexAuthStatus(status);
-      return;
-    }
-
-    if (provider === 'opencode') {
-      setOpencodeAuthStatus(status);
       return;
     }
 
@@ -196,20 +175,6 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
       }
 
       const data = await toResponseJson<StatusApiResponse>(response);
-      if (provider === 'opencode') {
-        setAuthStatusByProvider(provider, {
-          available: data.available,
-          authenticated: true,
-          email: data.email || null,
-          loading: false,
-          error: data.error || null,
-          provider: data.provider || null,
-          baseUrl: data.baseUrl || null,
-          providers: normalizeOpenCodeProviders(data.providers),
-        });
-        return;
-      }
-
       if (provider === 'pi') {
         setAuthStatusByProvider(provider, {
           available: data.available,
@@ -260,12 +225,6 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
   }, []);
 
   const openLoginForProvider = useCallback((provider: AgentProvider) => {
-    /**
-     * PURPOSE: OpenCode uses local CLI authentication, so skip the login modal.
-     */
-    if (provider === 'opencode') {
-      return;
-    }
     setLoginProvider(provider);
     setSelectedProject(getDefaultProject(projects));
     setShowLoginModal(true);
@@ -315,7 +274,6 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
     setActiveTab(normalizeMainTab(initialTab));
     void loadSettings();
     void checkAuthStatus('codex');
-    void checkAuthStatus('opencode');
     void checkAuthStatus('pi');
   }, [checkAuthStatus, initialTab, isOpen, loadSettings]);
 
@@ -336,7 +294,6 @@ export function useSettingsController({ isOpen, initialTab, projects, onClose }:
     codexPermissionMode,
     setCodexPermissionMode,
     codexAuthStatus,
-    opencodeAuthStatus,
     piAuthStatus,
     openLoginForProvider,
     showLoginModal,

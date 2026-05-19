@@ -119,7 +119,7 @@ test('isKnownProvider recognizes pi', async () => {
     const executorRow = rows.find((r) => r.role === 'executor');
     assert.ok(executorRow, 'executor row should exist');
 
-    // known providers (codex, opencode, pi) should NOT set unlinked: true
+    // known providers (codex, pi) should NOT set unlinked: true
     // when there's no matching project session
     const sessions = model.runnerDiagnostics?.workflowOwnedSessions || [];
     const piSession = sessions.find((s) => s.provider === 'pi');

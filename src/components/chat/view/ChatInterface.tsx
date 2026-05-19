@@ -61,8 +61,8 @@ const resolveProjectSessionProvider = (
     return 'codex';
   }
 
-  if ((selectedProject.opencodeSessions || []).some((session) => session.id === sessionId)) {
-    return 'opencode';
+  if ((selectedProject.piSessions || []).some((session) => session.id === sessionId)) {
+    return 'pi';
   }
 
   return null;
@@ -574,7 +574,7 @@ function ChatInterface({
         const model = typeof state.model === 'string' ? state.model.trim() : '';
         const reasoningEffort = typeof state.reasoningEffort === 'string' ? state.reasoningEffort.trim() : '';
         const messageProvider = projectSessionProvider
-          || (message.provider === 'codex' || message.provider === 'opencode' ? message.provider : effectiveProvider);
+          || (message.provider === 'codex' || message.provider === 'pi' ? message.provider : effectiveProvider);
         if (messageProvider === 'codex' && model && model !== codexModel) {
           setCodexModel(model);
         }
@@ -628,7 +628,7 @@ function ChatInterface({
       return;
     }
 
-    const statusProvider = effectiveProvider === 'opencode' ? 'opencode' : effectiveProvider === 'pi' ? 'pi' : 'codex';
+    const statusProvider = effectiveProvider === 'pi' ? 'pi' : 'codex';
     const reconcileSessionStatus = () => {
       sendMessage({
         type: 'check-session-status',
@@ -856,7 +856,7 @@ function ChatInterface({
         ? t('messageTypes.codex')
         : effectiveProvider === 'pi'
           ? t('messageTypes.pi')
-          : t('messageTypes.opencode');
+          : t('messageTypes.codex');
 
     return (
       <div className="flex-1 min-h-0 flex flex-col">
@@ -990,7 +990,7 @@ function ChatInterface({
                 ? t('messageTypes.codex')
                 : effectiveProvider === 'pi'
                   ? t('messageTypes.pi')
-                  : t('messageTypes.opencode'),
+                  : t('messageTypes.codex'),
           })}
           isTextareaExpanded={isTextareaExpanded}
           sendByCtrlEnter={sendByCtrlEnter}

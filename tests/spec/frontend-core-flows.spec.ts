@@ -129,20 +129,12 @@ test('Git 面板展示仓库变更文件', async ({ page }) => {
 
 // ── Settings + provider switching ──────────────────────────────────────────
 
-test('设置页可在智能体之间切换并展示不同 provider 信息', async ({ page }) => {
+test('设置页只展示当前支持的智能体', async ({ page }) => {
+  let removedProviderStatusRequests = 0;
   await page.route('/api/cli/opencode/status', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        available: true,
-        authenticated: true,
-        providers: [
-          { name: 'anthropic', connected: true, source: 'opencode', authType: 'api' },
-        ],
-      }),
-    });
+    removedProviderStatusRequests += 1;
+    await route.abort();
   });
-
   await authenticatePage(page);
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /设置|Settings/ }).first().click();
@@ -151,11 +143,9 @@ test('设置页可在智能体之间切换并展示不同 provider 信息', asyn
   await page.getByRole('tab', { name: /智能体|Agents/ }).click();
 
   await expect(page.getByRole('button', { name: /Codex/ })).toBeVisible();
-  await page.getByRole('button', { name: /OpenCode/ }).click();
-  await expect(page.getByText('anthropic', { exact: true })).toBeVisible({ timeout: 5_000 });
-
-  await page.getByRole('button', { name: /Codex/ }).click();
-  await expect(page.getByText('anthropic', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Pi/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /OpenCode/ })).toHaveCount(0);
+  expect(removedProviderStatusRequests).toBe(0);
 });
 
 // ── Diagnostics ────────────────────────────────────────────────────────────

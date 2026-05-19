@@ -29,9 +29,7 @@ function getSupportedSessionProvider(session: Session): string {
   /**
    * Convert missing or retired provider values to the default supported backend.
    */
-  return session.__provider === 'opencode' || session.provider === 'opencode'
-    ? 'opencode'
-    : session.__provider === 'pi' || session.provider === 'pi'
+  return session.__provider === 'pi' || session.provider === 'pi'
       ? 'pi'
       : 'codex';
 }

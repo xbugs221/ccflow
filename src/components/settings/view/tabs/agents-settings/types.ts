@@ -13,10 +13,8 @@ export type AgentContextByProvider = Record<AgentProvider, AgentContext>;
 export type AgentsSettingsTabProps = {
   usageEnabled?: boolean;
   codexAuthStatus: AuthStatus;
-  opencodeAuthStatus: AuthStatus;
   piAuthStatus: AuthStatus;
   onCodexLogin: () => void;
-  onOpencodeLogin: () => void;
 };
 
 export type AgentSelectorSectionProps = {

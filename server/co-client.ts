@@ -15,14 +15,11 @@ export const CO_TURN_CONTRACT = 'co-turn-v1';
 export const CO_EVENT_TYPES = new Set([
     'session-created',
     'codex-response',
-    'opencode-response',
     'pi-response',
     'token-budget',
     'codex-complete',
-    'opencode-complete',
     'pi-complete',
     'codex-error',
-    'opencode-error',
     'pi-error',
     'session-aborted',
     'steer-rejected',
@@ -30,7 +27,7 @@ export const CO_EVENT_TYPES = new Set([
 ]);
 const MESSAGE_POLICIES = new Set(['queue', 'reject', 'abort_and_send', 'steer']);
 const REQUEST_OPS = new Set(['message', 'abort']);
-const PROVIDERS = new Set(['codex', 'opencode', 'pi']);
+const PROVIDERS = new Set(['codex', 'pi']);
 
 /**
  * Build one actionable co doctor failure summary for diagnostics and send gates.

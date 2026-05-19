@@ -9,11 +9,11 @@ cbw 是基于 [ccui](https://github.com/siteboon/claudecodeui) 和 [OpenSpec](ht
 
 ## 当前能力
 
-- 项目级聊天：支持 Codex / OpenCode 会话、历史读取、附件、文件链接、工具调用展示和会话路由。
+- 项目级聊天：支持 Codex / Pi 会话、历史读取、附件、文件链接、工具调用展示和会话路由。
 - OpenSpec 工作流：支持规划、执行、多轮审核/修复、归档等阶段，自动阶段由 Go runner 通过 Codex 推进。
 - Go 工作流运行器：Web 后端依赖用户已安装的 `oz` 与 `wo`，自动 workflow 由 wo runner 推进。
 - 工作区工具：文件树、代码编辑器、Git 面板、Shell 面板、设置页和 PWA 静态资源。
-- 模型与用量：维护 Codex/OpenCode 模型列表，并显示 provider 的剩余额度信息。
+- 模型与用量：维护 Codex/Pi 模型列表，并显示 provider 的剩余额度信息。
 
 ## 组件结构
 

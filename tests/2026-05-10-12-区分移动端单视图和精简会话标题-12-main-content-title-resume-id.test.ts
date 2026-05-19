@@ -9,7 +9,7 @@ import { authenticatePage } from './spec/helpers/spec-test-helpers.ts';
 const PROJECT_NAME = 'resume-id-fixture';
 const PROJECT_PATH = '/tmp/cbw-resume-id-fixture';
 const CODEX_RESUME_ID = 'codex-provider-session-123';
-const OPENCODE_RESUME_ID = 'opencode-provider-session-456';
+const PI_RESUME_ID = 'pi-provider-session-456';
 
 function buildProjectPayload() {
   /**
@@ -35,13 +35,13 @@ function buildProjectPayload() {
       createdAt: '2026-05-10T10:00:00.000Z',
       lastActivity: '2026-05-10T10:01:00.000Z',
     }],
-    opencodeSessions: [{
-      id: 'opencode-session-route',
+    piSessions: [{
+      id: 'pi-session-route',
       routeIndex: 2,
-      summary: 'OpenCode Resume Session',
-      provider: 'opencode',
-      __provider: 'opencode',
-      providerSessionId: OPENCODE_RESUME_ID,
+      summary: 'Pi Resume Session',
+      provider: 'pi',
+      __provider: 'pi',
+      providerSessionId: PI_RESUME_ID,
       projectPath: PROJECT_PATH,
       createdAt: '2026-05-10T10:02:00.000Z',
       lastActivity: '2026-05-10T10:03:00.000Z',
@@ -98,13 +98,13 @@ test('Codex session title renders only the provider resume id', async ({ page })
   await expect(page.getByText('--dangerously-bypass-approvals-and-sandbox')).toHaveCount(0);
 });
 
-test('OpenCode session title renders only the provider resume id', async ({ page }) => {
-  /** Scenario: OpenCode providerSessionId is visible without --session command text. */
+test('Pi session title renders only the provider resume id', async ({ page }) => {
+  /** Scenario: Pi providerSessionId is visible without provider command text. */
   await openSessionRoute(page, 2);
 
-  await expect(page.getByRole('heading', { name: 'OpenCode Resume Session' })).toBeVisible();
-  await expect(page.locator('code').filter({ hasText: OPENCODE_RESUME_ID })).toBeVisible();
-  await expect(page.getByText('opencode', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Pi Resume Session' })).toBeVisible();
+  await expect(page.locator('code').filter({ hasText: PI_RESUME_ID })).toBeVisible();
+  await expect(page.getByText('pi', { exact: true })).toHaveCount(0);
   await expect(page.getByText('--session')).toHaveCount(0);
 });
 

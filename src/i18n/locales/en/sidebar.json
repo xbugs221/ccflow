@@ -17,7 +17,7 @@
     "projects": "projects",
     "noMatchingProjects": "No matching projects",
     "tryDifferentSearch": "Try adjusting your search term",
-    "runAgentCli": "Create or open a Codex/OpenCode session to get started"
+    "runAgentCli": "Create or open a Codex/Pi session to get started"
   },
   "app": {
     "title": "cbw",

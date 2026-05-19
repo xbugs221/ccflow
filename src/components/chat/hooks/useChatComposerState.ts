@@ -684,7 +684,7 @@ export function useChatComposerState({
           const settingsKey =
             provider === 'codex'
                 ? 'codex-settings'
-                : 'opencode-settings';
+                : 'pi-settings';
           const savedSettings = safeLocalStorage.getItem(settingsKey);
           if (savedSettings) {
             const parsed = JSON.parse(savedSettings);
@@ -732,35 +732,6 @@ export function useChatComposerState({
             resume: Boolean(effectiveSessionId),
             model: codexModel,
             reasoningEffort: codexReasoningEffort,
-            permissionMode,
-            attachments: uploadedAttachments,
-          },
-        });
-      } else if (provider === 'opencode') {
-        sendMessage({
-          type: 'opencode-command',
-          clientRequestId,
-          command: messageContent,
-          sessionId: effectiveSessionId,
-          cbwSessionId,
-          cbw_session_id: cbwSessionId,
-          startRequestId: clientRequestId,
-          start_request_id: clientRequestId,
-          clientRef: messageContent,
-          client_ref: messageContent,
-          options: {
-            cwd: resolvedProjectPath,
-            projectPath: resolvedProjectPath,
-            projectName: resolvedProjectName,
-            sessionId: effectiveSessionId,
-            cbwSessionId,
-            cbw_session_id: cbwSessionId,
-            clientRequestId,
-            startRequestId: clientRequestId,
-            start_request_id: clientRequestId,
-            clientRef: messageContent,
-            client_ref: messageContent,
-            resume: Boolean(effectiveSessionId),
             permissionMode,
             attachments: uploadedAttachments,
           },

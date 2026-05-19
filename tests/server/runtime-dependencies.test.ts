@@ -42,7 +42,7 @@ test('runtime diagnostics report fake oz, wo and co from PATH', async () => {
   await writeFakeCommand(binDir, 'co', [
     '#!/bin/sh',
     'if [ "$1" = "doctor" ] && [ "$2" = "--json" ]; then',
-    '  printf \'{"ok":true,"contract":"co-request-v1","version":"co-test","home":"%s","providers":{"codex":true,"opencode":true}}\\n\' "$CCFLOW_CO_HOME"',
+    '  printf \'{"ok":true,"contract":"co-request-v1","version":"co-test","home":"%s","providers":{"codex":true,"pi":true}}\\n\' "$CCFLOW_CO_HOME"',
     '  exit 0',
     'fi',
     'exit 1',
@@ -59,7 +59,7 @@ test('runtime diagnostics report fake oz, wo and co from PATH', async () => {
     assert.equal(coStatus.home, coHome);
     assert.match(diagnostics.commands.oz.version.output, /oz-test/);
     assert.equal(diagnostics.commands.wo.contract.ok, true);
-    assert.equal(isCoProviderAvailable(coStatus, 'opencode'), true);
+    assert.equal(isCoProviderAvailable(coStatus, 'pi'), true);
   } finally {
     process.env.PATH = previousPath;
     if (previousCoHome === undefined) {
@@ -106,7 +106,7 @@ test('runtime diagnostics fail clearly when required CLIs are missing', () => {
   }
 });
 
-test('OpenCode provider false fails before pending request write is allowed', () => {
+test('removed OpenCode provider false fails before pending request write is allowed', () => {
   const previousPath = process.env.PATH;
   process.env.PATH = '/tmp/cbw-test-path';
   try {

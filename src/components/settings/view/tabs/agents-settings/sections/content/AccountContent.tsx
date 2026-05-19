@@ -1,6 +1,5 @@
 // PURPOSE: Render account connection details and provider-scoped quota for one agent.
 const LogIn = ({ className: cls, strokeWidth: sw }: { className?: string; strokeWidth?: number }) => <svg className={cls || "w-4 h-4"} stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10,17 15,12 10,7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>;
-import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '../../../../../../ui/badge';
 import { Button } from '../../../../../../ui/button';
@@ -34,14 +33,6 @@ const agentConfig: Record<AgentProvider, AgentVisualConfig> = {
     subtextClass: 'text-gray-700 dark:text-gray-300',
     buttonClass: 'bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600',
   },
-  opencode: {
-    name: 'OpenCode',
-    bgClass: 'bg-orange-50 dark:bg-orange-900/20',
-    borderClass: 'border-orange-200 dark:border-orange-800',
-    textClass: 'text-orange-900 dark:text-orange-100',
-    subtextClass: 'text-orange-700 dark:text-orange-300',
-    buttonClass: 'bg-orange-600 hover:bg-orange-700',
-  },
   pi: {
     name: 'Pi',
     bgClass: 'bg-violet-50 dark:bg-violet-900/20',
@@ -59,70 +50,6 @@ function getConnectionLabel(agent: AgentProvider, authStatus: AuthStatus, fallba
   return authStatus.email || fallbackLabel;
 }
 
-function getConnectedProviderNames(authStatus: AuthStatus) {
-  /**
-   * Derive the provider names OpenCode reported as connected.
-   */
-  return (authStatus.providers || [])
-    .filter((provider) => provider.connected)
-    .map((provider) => provider.name)
-    .filter(Boolean);
-}
-
-function getOpenCodeProviderSummary(authStatus: AuthStatus, connectedProviders: string[], t: TFunction) {
-  /**
-   * Prioritize failure diagnostics over the "available without provider" state.
-   */
-  if (connectedProviders.length > 0) {
-    return t('agents.account.opencode.connectedProviders', { providers: connectedProviders.join(', ') });
-  }
-  if (authStatus.error) {
-    return t('agents.error', { error: authStatus.error });
-  }
-  return t('agents.account.opencode.noProviders');
-}
-
-function getOpenCodeProviderHeadline(authStatus: AuthStatus, connectedProviders: string[], t: TFunction) {
-  /**
-   * Separate OpenCode CLI failure from the valid no-provider connection state.
-   */
-  if (authStatus.error && !authStatus.available) {
-    return t('agents.authStatus.disconnected');
-  }
-  if (connectedProviders.length > 0) {
-    return t('agents.authStatus.connected');
-  }
-  return t('agents.account.opencode.available');
-}
-
-function getOpenCodeConnectionText(authStatus: AuthStatus, t: TFunction) {
-  /**
-   * Report CLI availability separately from provider authentication.
-   */
-  if (authStatus.available) {
-    if (authStatus.error) {
-      return t('agents.account.opencode.providerStatusFailed');
-    }
-    return authStatus.providers?.some((provider) => provider.connected)
-      ? t('agents.account.opencode.available')
-      : t('agents.account.opencode.noProviders');
-  }
-  return t('agents.authStatus.notConnected');
-}
-
-function getOpenCodeProviderApiLabel(provider: NonNullable<AuthStatus['providers']>[number]) {
-  /**
-   * Build the compact API metadata label shown beside one OpenCode provider.
-   */
-  const authType = provider.authType || provider.api?.type;
-  const pieces = [
-    authType ? authType.toUpperCase() : null,
-    provider.api?.baseUrl || null,
-    provider.api?.keyPreview || null,
-  ].filter(Boolean);
-  return pieces.join(' · ');
-}
-
 /**
  * Render the selected provider's account status and usage quota together.
  */
@@ -134,9 +61,6 @@ export default function AccountContent({
 }: AccountContentProps) {
   const { t } = useTranslation('settings');
   const config = agentConfig[agent];
-  const connectedProviders = getConnectedProviderNames(authStatus);
-  const opencodeProviderSummary = getOpenCodeProviderSummary(authStatus, connectedProviders, t);
-  const opencodeProviderHeadline = getOpenCodeProviderHeadline(authStatus, connectedProviders, t);
 
   return (
     <div className="space-y-6">
@@ -156,9 +80,7 @@ export default function AccountContent({
                 {t('agents.connectionStatus')}
               </div>
               <div className={`text-sm ${config.subtextClass}`}>
-                {agent === 'opencode' && !authStatus.loading ? (
-                  getOpenCodeConnectionText(authStatus, t)
-                ) : agent === 'pi' && !authStatus.loading ? (
+                {agent === 'pi' && !authStatus.loading ? (
                   authStatus.available
                     ? t('agents.account.pi.cliAvailable', {
                         path: authStatus.commandPath || '',
@@ -191,9 +113,9 @@ export default function AccountContent({
                     {t('agents.account.pi.unavailable')}
                   </Badge>
                 )
-              ) : authStatus.authenticated || (agent === 'opencode' && authStatus.available) ? (
+              ) : authStatus.authenticated ? (
                 <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-                  {agent === 'opencode' ? t('agents.account.opencode.available') : t('agents.authStatus.connected')}
+                  {t('agents.authStatus.connected')}
                 </Badge>
               ) : (
                 <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
@@ -204,29 +126,7 @@ export default function AccountContent({
           </div>
 
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            {agent === 'opencode' ? (
-              <div>
-                <div className={`font-medium ${config.textClass}`}>
-                  {opencodeProviderHeadline}
-                </div>
-                <div className={`text-sm ${config.subtextClass}`}>
-                  {opencodeProviderSummary}
-                </div>
-                {(authStatus.providers || []).length > 0 && (
-                  <div className="mt-3 space-y-2">
-                    {(authStatus.providers || []).map((provider) => (
-                      <div
-                        key={`${provider.name}-${provider.source || ''}`}
-                        className="flex items-center justify-between gap-3 rounded border border-orange-200/70 bg-white/60 px-3 py-2 text-sm dark:border-orange-800/70 dark:bg-black/10"
-                      >
-                        <span className={config.textClass}>{provider.name}</span>
-                        <span className={config.subtextClass}>{getOpenCodeProviderApiLabel(provider)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : agent === 'pi' ? (
+            {agent === 'pi' ? (
               <div>
                 <div className={`font-medium ${config.textClass}`}>
                   {t('agents.account.pi.authenticatedUnknown')}
@@ -267,7 +167,7 @@ export default function AccountContent({
             </div>
           )}
 
-          {agent !== 'opencode' && agent !== 'pi' && (
+          {agent !== 'pi' && (
             <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
               <UsageProviderQuota provider={agent} enabled={usageEnabled} />
             </div>

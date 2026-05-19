@@ -45,9 +45,7 @@ function hasProviderResumeIdentity(session: ProjectSession): boolean {
    * Only provider-backed sessions should render a resume identifier in the title.
    */
   return session.__provider === 'codex'
-    || session.__provider === 'opencode'
-    || session.provider === 'codex'
-    || session.provider === 'opencode';
+    || session.provider === 'codex';
 }
 
 function getSessionResumeId(session: ProjectSession | null): string {

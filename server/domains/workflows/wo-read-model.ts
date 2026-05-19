@@ -194,7 +194,6 @@ function stageDisplayText(stage) {
 /**
  * Parse a provider-prefixed session key into provider and role.
  * Examples: "codex:executor" -> { provider: "codex", role: "executor" }
- *           "opencode:archiver" -> { provider: "opencode", role: "archiver" }
  *           "pi:executor" -> { provider: "pi", role: "executor" }
  */
 function parseProviderSessionKey(key) {
@@ -210,7 +209,19 @@ function parseProviderSessionKey(key) {
  * Check if a provider is known and can be rendered by cbw.
  */
 function isKnownProvider(provider) {
-  return provider === 'codex' || provider === 'opencode' || provider === 'pi';
+  return provider === 'codex' || provider === 'pi';
+}
+
+/**
+ * Return the renderable provider from a wo session key.
+ * Unsupported legacy provider prefixes are ignored at the read-model boundary.
+ */
+function acceptedProviderFromSessionKey(key) {
+  const parsed = parseProviderSessionKey(key);
+  if (parsed.provider && !isKnownProvider(parsed.provider)) {
+    return { ...parsed, accepted: false };
+  }
+  return { ...parsed, provider: parsed.provider || 'codex', accepted: true };
 }
 
 /**
@@ -253,11 +264,14 @@ function buildWorkflowOwnedSessionRefs(state) {
       if (!sessionId) {
         return null;
       }
-      const parsed = parseProviderSessionKey(key);
+      const parsed = acceptedProviderFromSessionKey(key);
+      if (!parsed.accepted) {
+        return null;
+      }
       return {
         key,
         role: parsed.role,
-        provider: parsed.provider || 'codex',
+        provider: parsed.provider,
         sessionId,
       };
     })
@@ -432,12 +446,12 @@ function resolvePlannerSessionRef(sessions, workflowConfig, childSessions, runId
 
   // Priority per design:
   //   1. <planning-tool>:planner    (current contract, tool-aware)
-  //   2. all known provider :planner keys (codex, pi, opencode - no dupes)
+  //   2. all known provider :planner keys (codex, pi - no dupes)
   //   3. planner                    (legacy contract, no prefix)
   //   4. <planning-tool>:planning   (legacy, tool-aware)
-  //   5. all known provider :planning keys (codex, pi, opencode - no dupes)
+  //   5. all known provider :planning keys (codex, pi - no dupes)
   //   6. planning                   (very old, no prefix)
-  const KNOWN_PROVIDERS = ['codex', 'pi', 'opencode'];
+  const KNOWN_PROVIDERS = ['codex', 'pi'];
   const priorityKeys = [];
 
   // Current contract: tool-aware first, then all known providers
@@ -463,8 +477,11 @@ function resolvePlannerSessionRef(sessions, workflowConfig, childSessions, runId
   for (const key of priorityKeys) {
     if (sessions[key]) {
       const sessionId = String(sessions[key]).trim();
-      const parsed = parseProviderSessionKey(key);
-      const provider = parsed.provider || 'codex';
+      const parsed = acceptedProviderFromSessionKey(key);
+      if (!parsed.accepted) {
+        continue;
+      }
+      const provider = parsed.provider;
 
       const session = (childSessions || []).find((s) => s.id === sessionId);
       if (session) {
@@ -538,7 +555,10 @@ function buildChildSessions(runId, processes, warnings, stageStatuses, sessions 
     const targetId = String(sessionId).trim();
     for (const [key, value] of Object.entries(sessions && typeof sessions === 'object' ? sessions : {})) {
       if (String(value).trim() === targetId) {
-        const parsed = parseProviderSessionKey(key);
+        const parsed = acceptedProviderFromSessionKey(key);
+        if (!parsed.accepted) {
+          return null;
+        }
         if (parsed.provider) {
           return parsed.provider;
         }
@@ -615,6 +635,10 @@ function buildChildSessions(runId, processes, warnings, stageStatuses, sessions 
     }
     const title = REVIEW_TITLES[process.stage] || stageLabel(process.stage) || '工作流子会话';
     const provider = resolveSessionProvider(process.sessionId);
+    if (!provider) {
+      warnings.push(`Unsupported workflow session provider for ${process.sessionId}; child session link omitted.`);
+      continue;
+    }
 
     // Use the same address-only dedup key as the sessions-only phase so
     // explicit processes claim the route address globally.  A sessions-only
@@ -663,7 +687,7 @@ function buildChildSessions(runId, processes, warnings, stageStatuses, sessions 
   const planningTool = String(
     pick(pick(pick(workflowConfig, 'stages'), 'planning'), 'tool') || 'codex',
   ).trim();
-  const KNOWN_PROVIDERS = ['codex', 'pi', 'opencode'];
+  const KNOWN_PROVIDERS = ['codex', 'pi'];
   const plannerPriorityKeys = [];
   plannerPriorityKeys.push(`${planningTool}:planner`);
   for (const provider of KNOWN_PROVIDERS) {
@@ -693,7 +717,11 @@ function buildChildSessions(runId, processes, warnings, stageStatuses, sessions 
     if (!sessionId || existingIds.has(sessionId)) {
       continue;
     }
-    const parsed = parseProviderSessionKey(key);
+    const parsed = acceptedProviderFromSessionKey(key);
+    if (!parsed.accepted) {
+      warnings.push(`Unsupported workflow session provider in ${key}; child session link omitted.`);
+      continue;
+    }
     const role = parsed.role;
     if (!role) {
       continue;
@@ -714,7 +742,7 @@ function buildChildSessions(runId, processes, warnings, stageStatuses, sessions 
     // address alone (without provider), so two sessions with different
     // providers but the same stage must have distinct routePaths.  The
     // first session claims the stage address; later ones use by-id.
-    const provider = parsed.provider || 'codex';
+    const provider = parsed.provider;
     const addressKey = address;
     if (sessionAddressTaken.has(addressKey)) {
       // Conflict: use by-id address to avoid route collision
@@ -925,9 +953,12 @@ function buildWorkflowRoleSummary(state, childSessions) {
    */
   function findSessionByRole(role) {
     for (const [key, value] of Object.entries(sessions && typeof sessions === 'object' ? sessions : {})) {
-      const parsed = parseProviderSessionKey(key);
+      const parsed = acceptedProviderFromSessionKey(key);
+      if (!parsed.accepted) {
+        continue;
+      }
       if (parsed.role === role && value) {
-        return { sessionId: String(value).trim(), provider: parsed.provider || 'codex' };
+        return { sessionId: String(value).trim(), provider: parsed.provider };
       }
     }
     return null;

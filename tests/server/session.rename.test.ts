@@ -20,7 +20,6 @@ import {
   finalizeManualSessionDraft,
   getManualSessionDraftRuntime,
   getCodexSessions,
-  getOpencodeSessions,
   getSessions,
   loadProjectConfig,
   renameCodexSession,
@@ -359,7 +358,7 @@ test('manual Claude draft sessions are rejected by the provider contract', { con
     const project = await addProjectManually(projectPath, 'Claude Draft Rejected Demo');
     await assert.rejects(
       () => createManualSessionDraft(project.name, projectPath, 'claude', '会话1'),
-      /provider must be "codex", "opencode", or "pi"/,
+      /provider must be "codex" or "pi"/,
     );
   });
 });
@@ -377,28 +376,6 @@ test('manual Codex draft sessions are visible before the first provider message'
     assert.equal(sessions[0].id, draftSession.id);
     assert.equal(sessions[0].summary, '会话2');
     assert.equal(sessions[0].status, 'draft');
-  });
-});
-
-test('manual OpenCode draft sessions are visible before the first provider message', { concurrency: false }, async () => {
-  await withTemporaryHome(async (tempHome) => {
-    const projectPath = path.join(tempHome, 'workspace', 'opencode-manual-draft');
-    await fs.mkdir(projectPath, { recursive: true });
-
-    const project = await addProjectManually(projectPath, 'OpenCode Draft Demo');
-    const draftSession = await createManualSessionDraft(project.name, projectPath, 'opencode', '会话2');
-
-    assert.equal(draftSession.projectPath, projectPath);
-    assert.equal(draftSession.provider, 'opencode');
-
-    const sessions = await getOpencodeSessions(projectPath, { limit: 0, includeHidden: true });
-    assert.equal(sessions.length, 1);
-    assert.equal(sessions[0].id, draftSession.id);
-    assert.equal(sessions[0].summary, '会话2');
-    assert.equal(sessions[0].status, 'draft');
-    assert.equal(sessions[0].provider, 'opencode');
-    assert.equal(sessions[0].__provider, 'opencode');
-    assert.equal(sessions[0].projectPath, projectPath);
   });
 });
 
@@ -481,27 +458,6 @@ test('manual draft start request cannot be overwritten by another tab', { concur
     assert.equal(secondStart.started, false);
     assert.equal(secondStart.reason, 'already-started');
     assert.equal(secondStart.startRequestId, 'req-1');
-  });
-});
-
-test('manual draft route indices stay unique across OpenCode and Codex providers in one project', { concurrency: false }, async () => {
-  await withTemporaryHome(async (tempHome) => {
-    const projectPath = path.join(tempHome, 'workspace', 'mixed-provider-drafts');
-    await fs.mkdir(projectPath, { recursive: true });
-
-    const project = await addProjectManually(projectPath, 'Mixed Provider Draft Demo');
-    const opencodeDraft = await createManualSessionDraft(project.name, projectPath, 'opencode', '会话1');
-    const codexDraft = await createManualSessionDraft(project.name, projectPath, 'codex', '会话2');
-
-    assert.equal(opencodeDraft.id, 'c1');
-    assert.equal(opencodeDraft.routeIndex, 1);
-    assert.equal(codexDraft.id, 'c2');
-    assert.equal(codexDraft.routeIndex, 2);
-
-    const config = await loadProjectConfig(projectPath);
-    assert.equal(config.chat['1'].sessionId, opencodeDraft.id);
-    assert.equal(config.chat['1'].provider, 'opencode');
-    assert.equal(config.chat['2'].sessionId, codexDraft.id);
   });
 });
 
@@ -655,31 +611,6 @@ test('deleting a stale Codex chat record removes the local route entry', { concu
 
     const config = await loadProjectConfig(projectPath);
     assert.equal(config.chat, undefined);
-  });
-});
-
-test('finalizing a manual OpenCode draft binds the label to the real backend session', { concurrency: false }, async () => {
-  await withTemporaryHome(async (tempHome) => {
-    const projectPath = path.join(tempHome, 'workspace', 'opencode-manual-finalize');
-    await fs.mkdir(projectPath, { recursive: true });
-
-    const project = await addProjectManually(projectPath, 'OpenCode Finalize Demo');
-    const draftSession = await createManualSessionDraft(project.name, projectPath, 'opencode', '会话3');
-
-    const finalized = await finalizeManualSessionDraft(
-      project.name,
-      draftSession.id,
-      'opencode-session-real',
-      'opencode',
-      projectPath,
-    );
-
-    assert.equal(finalized, true);
-
-    const config = await loadProjectConfig(projectPath);
-    const finalizedChat = Object.values(config.chat || {}).find((record) => record.sessionId === 'opencode-session-real');
-    assert.equal(finalizedChat?.title, '会话3');
-    assert.equal(finalizedChat?.provider, 'opencode');
   });
 });
 

@@ -131,16 +131,16 @@ test('Scenario: v2 会话 UI 状态按 provider 和项目路径写入并回读',
   await withIsolatedProject(async ({ projectPath }) => {
     const project = await addProjectManually(projectPath, 'Conf V2 Session UI Provider Demo');
     const codexDraft = await createManualSessionDraft(project.name, projectPath, 'codex', 'Codex 会话');
-    const opencodeDraft = await createManualSessionDraft(project.name, projectPath, 'opencode', 'OpenCode 会话');
+    const piDraft = await createManualSessionDraft(project.name, projectPath, 'pi', 'Pi 会话');
 
     await updateSessionUiState(project.name, codexDraft.id, 'codex', { favorite: true, hidden: true });
-    await updateSessionUiState(project.name, opencodeDraft.id, 'opencode', { pending: true });
+    await updateSessionUiState(project.name, piDraft.id, 'pi', { pending: true });
 
     const persisted = await readProjectConf(projectPath);
     assert.deepEqual(persisted.chat['1'].ui, { favorite: true, hidden: true });
     assert.equal(persisted.chat['1'].provider, 'codex');
     assert.deepEqual(persisted.chat['2'].ui, { pending: true });
-    assert.equal(persisted.chat['2'].provider, 'opencode');
+    assert.equal(persisted.chat['2'].provider, 'pi');
     assert.equal('sessionUiStateByPath' in persisted, false);
   });
 });

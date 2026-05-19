@@ -24,8 +24,8 @@ const PROCESS_EXIT_REGEX = /Process exited with code (\d+)/;
 /**
  * Resolve shell session providers to supported agent backends only.
  */
-function normalizeShellSessionProvider(provider: unknown): 'codex' | 'opencode' {
-  return provider === 'opencode' ? 'opencode' : 'codex';
+function normalizeShellSessionProvider(provider: unknown): 'codex' {
+  return 'codex';
 }
 
 /**

@@ -11,10 +11,8 @@ import type { AgentContext, AgentsSettingsTabProps } from './types';
 export default function AgentsSettingsTab({
   usageEnabled = true,
   codexAuthStatus,
-  opencodeAuthStatus,
   piAuthStatus,
   onCodexLogin,
-  onOpencodeLogin,
 }: AgentsSettingsTabProps) {
   const [selectedAgent, setSelectedAgent] = useState<AgentProvider>('codex');
 
@@ -23,20 +21,14 @@ export default function AgentsSettingsTab({
       authStatus: codexAuthStatus,
       onLogin: onCodexLogin,
     },
-    opencode: {
-      authStatus: opencodeAuthStatus,
-      onLogin: onOpencodeLogin,
-    },
     pi: {
       authStatus: piAuthStatus,
       onLogin: () => {},
     },
   }), [
     codexAuthStatus,
-    opencodeAuthStatus,
     piAuthStatus,
     onCodexLogin,
-    onOpencodeLogin,
   ]);
 
   return (

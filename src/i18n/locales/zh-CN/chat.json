@@ -13,7 +13,6 @@
     "error": "错误",
     "tool": "工具",
     "codex": "Codex",
-    "opencode": "OpenCode",
     "pi": "Pi",
     "assistant": "助手"
   },
@@ -132,13 +131,11 @@
     "providerInfo": {
       "anthropic": "由 Anthropic 提供",
       "openai": "由 OpenAI 提供",
-      "opencode": "OpenCode CLI",
       "pi": "Pi Coding Agent"
     },
     "readyPrompt": {
       "codex": "准备好使用带有 {{model}} 和 {{effort}} 思考深度的 Codex。请在下方开始输入您的消息。",
       "default": "请在上方选择一个提供者以开始",
-      "opencode": "准备好使用 OpenCode。请在下方开始输入您的消息。",
       "pi": "准备好使用 Pi。请在下方开始输入您的消息。"
     }
   },

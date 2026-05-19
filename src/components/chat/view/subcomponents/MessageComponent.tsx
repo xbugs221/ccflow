@@ -72,8 +72,8 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
   const codexLiveOutput = isCodexRunningTool ? getCodexLiveOutput(message) : '';
   const assistantLabel = provider === 'codex'
     ? t('messageTypes.codex')
-    : provider === 'opencode'
-      ? t('messageTypes.opencode')
+    : provider === 'pi'
+      ? t('messageTypes.pi')
       : t('messageTypes.assistant');
 
   if (shouldHideThinkingMessage) {

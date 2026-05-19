@@ -14,16 +14,15 @@ import type { SessionProvider } from '../types/session.ts';
  * Priority:
  *   1. childSession.provider (set by buildWoWorkflowReadModel)
  *   2. projectSession.__provider (from project sidebar read model)
- *   3. Project provider session list membership (codexSessions / piSessions / opencodeSessions)
+ *   3. Project provider session list membership (codexSessions / piSessions)
  *
- * Returns 'codex', 'opencode', 'pi', or 'codex' as default.
+ * Returns 'codex', 'pi', or 'codex' as default.
  */
 export function resolveSessionProvider(
   childSession: { id?: string; provider?: string } | null | undefined,
   projectSession: { id?: string; __provider?: string } | null | undefined,
   project?: {
     codexSessions?: Array<{ id: string }>;
-    opencodeSessions?: Array<{ id: string }>;
     piSessions?: Array<{ id: string }>;
   } | null,
 ): SessionProvider {
@@ -33,17 +32,14 @@ export function resolveSessionProvider(
   // This is the authoritative signal for workflow child sessions and must
   // not be overridden by project provider session list membership.
   if (childSession?.provider === 'codex') return 'codex';
-  if (childSession?.provider === 'opencode') return 'opencode';
   if (childSession?.provider === 'pi') return 'pi';
 
   // Priority 2: projectSession.__provider (from project sidebar read model).
   if (projectSession?.__provider === 'codex') return 'codex';
-  if (projectSession?.__provider === 'opencode') return 'opencode';
   if (projectSession?.__provider === 'pi') return 'pi';
 
   // Priority 3 (fallback): project provider session list membership.
   if ((project?.codexSessions || []).some((entry) => entry.id === sessionId)) return 'codex';
-  if ((project?.opencodeSessions || []).some((entry) => entry.id === sessionId)) return 'opencode';
   if ((project?.piSessions || []).some((entry) => entry.id === sessionId)) return 'pi';
 
   return 'codex';

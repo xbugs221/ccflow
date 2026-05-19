@@ -1,7 +1,6 @@
 import type { SessionProvider } from '../../types/app';
 import ChatGptLogo from './ChatGptLogo';
 import KimiLogo from './KimiLogo';
-import OpenCodeLogo from './OpenCodeLogo';
 
 type SessionProviderLogoProps = {
   provider?: SessionProvider | string | null;
@@ -16,10 +15,6 @@ export default function SessionProviderLogo({
 }: SessionProviderLogoProps) {
   if (provider === 'codex') {
     return <ChatGptLogo className={className} />;
-  }
-
-  if (provider === 'opencode') {
-    return <OpenCodeLogo className={className} />;
   }
 
   if (provider === 'pi') {

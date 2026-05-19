@@ -3,19 +3,19 @@
  * PROJECT DISCOVERY AND MANAGEMENT SYSTEM
  * ========================================
  * 
- * This module manages project discovery for manually added Codex/OpenCode projects.
+ * This module manages project discovery for manually added Codex/Pi projects.
  * 
  * ## Architecture Overview
  * 
  * 1. **Manual Projects**
  *    - Project metadata stored in ~/.cbw/conf.json
- *    - Provider sessions are discovered through Codex/OpenCode-specific readers
+ *    - Provider sessions are discovered through Codex/Pi-specific readers
  * 
  * ## Project Discovery Strategy
  * 
  * 1. **Configured Project Discovery**:
  *    - Read user-managed projects from ~/.cbw/conf.json
- *    - Attach Codex/OpenCode session collections for each project path
+ *    - Attach Codex/Pi session collections for each project path
  * 
  * 2. **Manual Project Addition**:
  *    - Users can manually add project paths via UI
@@ -77,9 +77,6 @@ const codexSessionFileCache = new Map();
 let codexSessionsIndexCache = null;
 let codexSessionsIndexPromise = null;
 let codexSessionsIndexPromiseKey = '';
-let opencodeSessionsIndexCache = null;
-let opencodeSessionsIndexPromise = null;
-let opencodeSessionsIndexPromiseKey = '';
 let piSessionsIndexCache = null;
 let piSessionsIndexPromise = null;
 let piSessionsIndexPromiseKey = '';
@@ -91,10 +88,6 @@ const SESSION_PATH_CACHE_TTL_MS = (() => {
 })();
 const CODEX_INDEX_CACHE_TTL_MS = (() => {
   const parsed = Number.parseInt(process.env.CODEX_INDEX_CACHE_TTL_MS || '', 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 30 * 1000;
-})();
-const OPENCODE_INDEX_CACHE_TTL_MS = (() => {
-  const parsed = Number.parseInt(process.env.OPENCODE_INDEX_CACHE_TTL_MS || '', 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 30 * 1000;
 })();
 const PI_INDEX_CACHE_TTL_MS = (() => {
@@ -121,9 +114,6 @@ function clearProjectDirectoryCache() {
   codexSessionsIndexCache = null;
   codexSessionsIndexPromise = null;
   codexSessionsIndexPromiseKey = '';
-  opencodeSessionsIndexCache = null;
-  opencodeSessionsIndexPromise = null;
-  opencodeSessionsIndexPromiseKey = '';
   piSessionsIndexCache = null;
   piSessionsIndexPromise = null;
   piSessionsIndexPromiseKey = '';
@@ -601,16 +591,11 @@ async function resolveProviderIndexWithinHomeBudget(label, indexPromise, cache) 
  * @returns {Promise<void>} Resolves when each provider has a fresh, stale, or empty index.
  */
 async function hydrateProviderIndexesForHomeOverview(refs) {
-  const [codexSessionsByProject, opencodeSessionsByProject, piSessionsByProject] = await Promise.all([
+  const [codexSessionsByProject, piSessionsByProject] = await Promise.all([
     resolveProviderIndexWithinHomeBudget(
       'Codex',
       getCachedCodexSessionsIndex(),
       codexSessionsIndexCache,
-    ),
-    resolveProviderIndexWithinHomeBudget(
-      'OpenCode',
-      getCachedOpencodeSessionsIndex(),
-      opencodeSessionsIndexCache,
     ),
     resolveProviderIndexWithinHomeBudget(
       'Pi',
@@ -620,19 +605,18 @@ async function hydrateProviderIndexesForHomeOverview(refs) {
   ]);
 
   refs.codex.sessionsByProject = codexSessionsByProject;
-  refs.opencode.sessionsByProject = opencodeSessionsByProject;
   refs.pi.sessionsByProject = piSessionsByProject;
 }
 
 /**
  * Build a synthetic sidebar session from an active provider process.
  * @param {Object} session - Active session descriptor.
- * @param {'codex'|'opencode'} provider - Session provider.
+ * @param {'codex'|'pi'} provider - Session provider.
  * @returns {Object} Sidebar-compatible session object.
  */
 function createSyntheticActiveSession(session, provider) {
   const startedAt = session.startedAt || new Date().toISOString();
-  const summary = provider === 'opencode' ? 'Active OpenCode session' : 'Active Codex session';
+  const summary = provider === 'pi' ? 'Active Pi session' : 'Active Codex session';
 
   return {
     id: session.id,
@@ -701,7 +685,6 @@ async function mergeActiveProviderSessionsIntoProjects({
         isCustomName: resolvedDisplayName.isCustomName,
         sessions: [],
         codexSessions: [],
-        opencodeSessions: [],
         piSessions: [],
         sessionMeta: {
           hasMore: false,
@@ -970,7 +953,6 @@ function normalizeSessionUiState(rawState = {}) {
  */
 function normalizeProjectChatProvider(provider) {
   if (provider === 'claude') return 'claude';
-  if (provider === 'opencode') return 'opencode';
   if (provider === 'pi') return 'pi';
   return 'codex';
 }
@@ -1521,7 +1503,7 @@ function buildManualDraftSession(draft) {
     : '新会话';
   const createdAt = draft?.createdAt || new Date().toISOString();
   const updatedAt = draft?.updatedAt || createdAt;
-  const provider = draft?.provider === 'opencode' ? 'opencode' : draft?.provider === 'pi' ? 'pi' : 'codex';
+  const provider = draft?.provider === 'pi' ? 'pi' : 'codex';
 
   return {
     id: draft.id,
@@ -2533,8 +2515,8 @@ function mergeWorktreeProjects(projects) {
       };
     }
 
-    // Merge Codex, OpenCode, and Pi sessions if present
-    for (const key of ['codexSessions', 'opencodeSessions', 'piSessions']) {
+    // Merge Codex and Pi sessions if present.
+    for (const key of ['codexSessions', 'piSessions']) {
       if (wtProject[key]?.length > 0) {
         parent[key] = [
           ...(parent[key] || []),
@@ -2581,7 +2563,6 @@ async function projectHasBusinessData(project) {
   }
   if ((Array.isArray(project?.sessions) && project.sessions.length > 0)
     || (Array.isArray(project?.codexSessions) && project.codexSessions.length > 0)
-    || (Array.isArray(project?.opencodeSessions) && project.opencodeSessions.length > 0)
     || (Array.isArray(project?.piSessions) && project.piSessions.length > 0)) {
     return true;
   }
@@ -2640,7 +2621,6 @@ async function getProjects(progressCallback = null) {
   const knownProjectPaths = new Set();
   const usedProjectNames = new Set();
   const codexSessionsIndexRef = { sessionsByProject: null };
-  const opencodeSessionsIndexRef = { sessionsByProject: null };
   const piSessionsIndexRef = { sessionsByProject: null };
   let archiveIndexChanged = false;
   let providerOnlyProjectCount = 0;
@@ -2649,7 +2629,6 @@ async function getProjects(progressCallback = null) {
 
   await hydrateProviderIndexesForHomeOverview({
     codex: codexSessionsIndexRef,
-    opencode: opencodeSessionsIndexRef,
     pi: piSessionsIndexRef,
   });
 
@@ -2726,7 +2705,6 @@ async function getProjects(progressCallback = null) {
           total: 0
         },
         codexSessions: [],
-        opencodeSessions: [],
         piSessions: []
       };
 
@@ -2740,15 +2718,6 @@ async function getProjects(progressCallback = null) {
         });
       } catch (e) {
         console.warn(`Could not load Codex sessions for manual project ${projectName}:`, e.message);
-      }
-      try {
-        project.opencodeSessions = await getOpencodeSessions(actualProjectDir, {
-          indexRef: opencodeSessionsIndexRef,
-          includeHidden: true,
-          excludeWorkflowChildSessions: true,
-        });
-      } catch (e) {
-        console.warn(`Could not load OpenCode sessions for manual project ${projectName}:`, e.message);
       }
       try {
         project.piSessions = await getPiSessions(actualProjectDir, {
@@ -2785,7 +2754,6 @@ async function getProjects(progressCallback = null) {
 
   const providerOnlyCandidates = [
     ...collectProviderOnlyCandidates('codex', codexSessionsIndexRef),
-    ...collectProviderOnlyCandidates('opencode', opencodeSessionsIndexRef),
     ...collectProviderOnlyCandidates('pi', piSessionsIndexRef),
   ].sort((left, right) => right.lastActivity - left.lastActivity);
 
@@ -2813,7 +2781,6 @@ async function getProjects(progressCallback = null) {
       isCustomName: resolvedDisplayName.isCustomName,
       sessions: [],
       codexSessions: [],
-      opencodeSessions: [],
       piSessions: [],
       sessionMeta: {
         hasMore: false,
@@ -2821,15 +2788,10 @@ async function getProjects(progressCallback = null) {
       },
     };
 
-    [project.codexSessions, project.opencodeSessions, project.piSessions] = await Promise.all([
+    [project.codexSessions, project.piSessions] = await Promise.all([
       getCodexSessions(inferredProjectPath, {
         limit: PROJECT_OVERVIEW_SESSION_LIMIT,
         indexRef: codexSessionsIndexRef,
-        includeHidden: true,
-        excludeWorkflowChildSessions: true,
-      }).catch(() => []),
-      getOpencodeSessions(inferredProjectPath, {
-        indexRef: opencodeSessionsIndexRef,
         includeHidden: true,
         excludeWorkflowChildSessions: true,
       }).catch(() => []),
@@ -3195,10 +3157,10 @@ async function renameProject(projectName, newDisplayName, projectPath = null) {
 }
 
 /**
- * PURPOSE: Persist cross-device UI flags for one Claude or Codex session.
+ * PURPOSE: Persist cross-device UI flags for one Codex or Pi session.
  */
 async function updateSessionUiState(projectName, sessionId, provider = 'codex', uiState = {}) {
-  const normalizedProvider = provider === 'opencode' ? 'opencode' : provider === 'pi' ? 'pi' : 'codex';
+  const normalizedProvider = provider === 'pi' ? 'pi' : 'codex';
   const projectPath = await extractProjectDirectory(projectName);
   const stateKey = buildSessionUiStateKey(projectPath, normalizedProvider, sessionId);
 
@@ -3304,12 +3266,10 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'co
     let providerSessions = [];
     if (provider === 'codex') {
       providerSessions = await getCodexSessions(resolvedProjectPath, { limit: 0, includeHidden: true, excludeWorkflowChildSessions: true });
-    } else if (provider === 'opencode') {
-      providerSessions = await getOpencodeSessions(resolvedProjectPath, { limit: 0, includeHidden: true, excludeWorkflowChildSessions: true });
     } else if (provider === 'pi') {
       providerSessions = await getPiSessions(resolvedProjectPath);
     } else {
-      throw new Error('provider must be "codex", "opencode", or "pi"');
+      throw new Error('provider must be "codex" or "pi"');
     }
     config = await loadProjectConfig(resolvedProjectPath);
     const otherProviderDraftCount = Object.values(getManualSessionDraftMap(config)).filter((draft) => (
@@ -3357,8 +3317,8 @@ async function createManualSessionDraft(projectName, projectPath, provider = 'co
  * PURPOSE: Claim a manual cN chat route for one first-message request.
  */
 async function startManualSessionDraft(projectName, projectPath, draftSessionId, provider = 'codex', startRequestId = '') {
-  if (provider !== 'codex' && provider !== 'opencode' && provider !== 'pi') {
-    throw new Error('provider must be "codex", "opencode", or "pi"');
+  if (provider !== 'codex' && provider !== 'pi') {
+    throw new Error('provider must be "codex" or "pi"');
   }
   if (typeof draftSessionId !== 'string' || !draftSessionId.trim()) {
     throw new Error('Draft session ID is required');
@@ -3491,8 +3451,8 @@ async function getManualSessionDraftRuntime(projectName, projectPath, draftSessi
  * PURPOSE: Bind a stored manual draft label to the first real provider session id.
  */
 async function finalizeManualSessionDraft(projectName, draftSessionId, actualSessionId, provider = 'codex', projectPath = '') {
-  if (provider !== 'codex' && provider !== 'opencode' && provider !== 'pi') {
-    throw new Error('provider must be "codex", "opencode", or "pi"');
+  if (provider !== 'codex' && provider !== 'pi') {
+    throw new Error('provider must be "codex" or "pi"');
   }
   /**
    * Bind a cbw route id to the provider session once the first message starts.
@@ -3640,7 +3600,7 @@ function hasManualDraftsForProject(config, { projectName, projectPath, localProj
       return false;
     }
 
-    if (draft.provider !== 'codex' && draft.provider !== 'opencode' && draft.provider !== 'pi') {
+    if (draft.provider !== 'codex' && draft.provider !== 'pi') {
       return false;
     }
 
@@ -3680,11 +3640,6 @@ async function isProjectEmpty(projectName) {
 
     const codexSessions = await getCodexSessions(projectPath, { limit: 1, includeHidden: true });
     if (codexSessions.length > 0) {
-      return false;
-    }
-
-    const opencodeSessions = await getOpencodeSessions(projectPath);
-    if (opencodeSessions.length > 0) {
       return false;
     }
 
@@ -3814,7 +3769,6 @@ async function addProjectManually(projectPath, displayName = null) {
     isManuallyAdded: true,
     sessions: [],
     codexSessions: [],
-    opencodeSessions: [],
     piSessions: []
   };
 }
@@ -4167,295 +4121,6 @@ async function getCodexSessions(projectPath, options = {}) {
 }
 
 /**
- * Build an OpenCode session index with one CLI call per refresh.
- */
-async function buildOpencodeSessionsIndex() {
-  const sessionsByProject = new Map();
-  const sqliteIndexed = await buildOpencodeSessionsIndexFromSqlite();
-  if (sqliteIndexed) {
-    return sqliteIndexed;
-  }
-
-  try {
-    const { spawn } = await import('child_process');
-    const { resolveOpencodeCliPath } = await import('./opencode-sdk.js');
-    const cliPath = resolveOpencodeCliPath();
-
-    const allSessions = await new Promise((resolve, reject) => {
-      const proc = spawn(cliPath, ['session', 'list', '--format', 'json'], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      proc.stdout?.on('data', (data) => {
-        stdout += data.toString();
-      });
-
-      proc.stderr?.on('data', (data) => {
-        stderr += data.toString();
-      });
-
-      proc.on('close', (code) => {
-        if (code !== 0) {
-          reject(new Error(stderr || `opencode exited with code ${code}`));
-          return;
-        }
-
-        try {
-          const trimmedStdout = stdout.trim();
-          resolve(trimmedStdout ? JSON.parse(trimmedStdout) : []);
-        } catch (error) {
-          reject(new Error(`Failed to parse opencode session list: ${error.message}`));
-        }
-      });
-
-      proc.on('error', (error) => {
-        if (error.code === 'ENOENT') {
-          resolve([]);
-        } else {
-          reject(error);
-        }
-      });
-    });
-
-    if (!Array.isArray(allSessions)) {
-      return sessionsByProject;
-    }
-
-    for (const session of allSessions) {
-      if (!session?.directory) {
-        continue;
-      }
-
-      const normalizedProjectPath = normalizeComparablePath(session.directory);
-      if (!normalizedProjectPath) {
-        continue;
-      }
-
-      if (!sessionsByProject.has(normalizedProjectPath)) {
-        sessionsByProject.set(normalizedProjectPath, []);
-      }
-
-      sessionsByProject.get(normalizedProjectPath).push({
-        id: session.id,
-        name: session.title || session.id,
-        lastActivity: session.updated || session.created || new Date().toISOString(),
-        createdAt: session.created || new Date().toISOString(),
-        messageCount: null,
-        messageCountKnown: false,
-        provider: 'opencode',
-        __provider: 'opencode',
-        projectPath: session.directory,
-        cwd: session.directory,
-      });
-    }
-  } catch (error) {
-    console.warn('[OpenCode] Could not list sessions:', error.message);
-  }
-
-  for (const sessions of sessionsByProject.values()) {
-    sessions.sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
-  }
-
-  return sessionsByProject;
-}
-
-/**
- * PURPOSE: Query OpenCode's authoritative SQLite session table in read-only
- * mode so project discovery does not spawn the CLI or scan auxiliary folders.
- */
-async function buildOpencodeSessionsIndexFromSqlite(dbPath = process.env.OPENCODE_DB_PATH || path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db')) {
-  try {
-    await fs.access(dbPath);
-  } catch {
-    return null;
-  }
-
-  let Database = null;
-  let db = null;
-  try {
-    Database = (await import('better-sqlite3')).default;
-    db = new Database(dbPath, {
-      readonly: true,
-      fileMustExist: true,
-    });
-    const rows = db.prepare(`
-      select id, title, directory, time_created, time_updated, project_id, agent, model
-      from session
-      where directory is not null and directory <> ''
-      order by time_updated desc
-    `).all();
-    const sessionsByProject = new Map();
-
-    for (const row of rows) {
-      const normalizedProjectPath = normalizeComparablePath(row.directory);
-      if (!normalizedProjectPath || !row.id) {
-        continue;
-      }
-      if (!sessionsByProject.has(normalizedProjectPath)) {
-        sessionsByProject.set(normalizedProjectPath, []);
-      }
-      sessionsByProject.get(normalizedProjectPath).push({
-        id: row.id,
-        name: row.title || row.id,
-        title: row.title || row.id,
-        summary: row.title || 'OpenCode Session',
-        lastActivity: row.time_updated || row.time_created || new Date().toISOString(),
-        createdAt: row.time_created || row.time_updated || new Date().toISOString(),
-        messageCount: null,
-        messageCountKnown: false,
-        provider: 'opencode',
-        __provider: 'opencode',
-        projectPath: row.directory,
-        cwd: row.directory,
-        projectId: row.project_id,
-        agent: row.agent,
-        model: row.model,
-      });
-    }
-
-    for (const sessions of sessionsByProject.values()) {
-      sessions.sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
-    }
-    return sessionsByProject;
-  } catch (error) {
-    console.warn('[OpenCode] Could not read SQLite session index:', error.message);
-    return null;
-  } finally {
-    if (db) {
-      db.close();
-    }
-  }
-}
-
-/**
- * Return the cached OpenCode session index so project refresh does not spawn
- * `opencode session list` once per visible project.
- */
-async function getCachedOpencodeSessionsIndex() {
-  const now = Date.now();
-  const cacheKey = process.env.OPENCODE_DB_PATH || path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
-  if (
-    opencodeSessionsIndexCache
-    && opencodeSessionsIndexCache.key === cacheKey
-    && opencodeSessionsIndexCache.expiresAt > now
-  ) {
-    return opencodeSessionsIndexCache.value;
-  }
-
-  if (opencodeSessionsIndexPromise && opencodeSessionsIndexPromiseKey === cacheKey) {
-    return opencodeSessionsIndexPromise;
-  }
-
-  opencodeSessionsIndexPromiseKey = cacheKey;
-  opencodeSessionsIndexPromise = (async () => {
-    const value = await buildOpencodeSessionsIndex();
-    opencodeSessionsIndexCache = {
-      key: cacheKey,
-      value,
-      expiresAt: Date.now() + OPENCODE_INDEX_CACHE_TTL_MS,
-    };
-    opencodeSessionsIndexPromise = null;
-    opencodeSessionsIndexPromiseKey = '';
-    return value;
-  })().catch((error) => {
-    opencodeSessionsIndexPromise = null;
-    opencodeSessionsIndexPromiseKey = '';
-    throw error;
-  });
-
-  return opencodeSessionsIndexPromise;
-}
-
-/**
- * Get OpenCode sessions for a project from the shared CLI-backed index.
- */
-async function getOpencodeSessions(projectPath, options = {}) {
-  const {
-    indexRef = null,
-    limit = PROJECT_OVERVIEW_SESSION_LIMIT,
-    includeHidden = false,
-    excludeWorkflowChildSessions = false,
-  } = options;
-  const config = await loadProjectConfig(projectPath);
-  const summaryOverrideById = getSessionSummaryOverrideMap(config);
-  const workflowMetadataById = getSessionWorkflowMetadataMap(config);
-  const modelStateById = getSessionModelStateMap(config);
-  const normalizedProjectPath = normalizeComparablePath(projectPath);
-  if (!normalizedProjectPath) {
-    return [];
-  }
-
-  if (indexRef && !indexRef.sessionsByProject) {
-    indexRef.sessionsByProject = await getCachedOpencodeSessionsIndex();
-  }
-
-  const sessionsByProject = indexRef?.sessionsByProject || await getCachedOpencodeSessionsIndex();
-  const sessions = [...(sessionsByProject.get(normalizedProjectPath) || [])]
-    .map((session) => applySessionMetadataOverrides(session, summaryOverrideById, workflowMetadataById, 'opencode'))
-    .map((session) => applySessionModelState(session, modelStateById));
-  const manualDraftRecords = getManualDraftSessionsForProject(config, {
-    projectName: null,
-    projectPath,
-    provider: 'opencode',
-  });
-  const persistedRouteRecords = getPersistedChatRouteSessionsForProject(config, {
-    projectPath,
-    provider: 'opencode',
-  });
-  const boundProviderSessionIds = new Set();
-  manualDraftRecords
-    .map((session) => session.providerSessionId)
-    .filter((sessionId) => typeof sessionId === 'string' && sessionId)
-    .forEach((sessionId) => boundProviderSessionIds.add(sessionId));
-
-  let standaloneSessions = sessions;
-  if (excludeWorkflowChildSessions) {
-    const workflows = await listProjectWorkflows(projectPath);
-    const workflowOpencodeSessionIds = getWorkflowOwnedProviderSessionIds(workflows, 'opencode');
-    standaloneSessions = sessions.filter((session) => (
-      !workflowOpencodeSessionIds.has(session.id)
-      && !isWorkflowOwnedSession(session, workflowMetadataById)
-      && !isLikelyWorkflowAutoSession(session, workflows, 'opencode')
-    ));
-  }
-
-  const routeVisibleStandaloneSessions = standaloneSessions
-    .filter((session) => !boundProviderSessionIds.has(session.id));
-  const sessionsWithDrafts = Array.from(
-    new Map([
-      ...routeVisibleStandaloneSessions,
-      ...persistedRouteRecords,
-      ...manualDraftRecords,
-    ].map((session) => [session?.id, session])).values(),
-  )
-    .sort((sessionA, sessionB) => new Date(sessionB.lastActivity || 0) - new Date(sessionA.lastActivity || 0));
-  const annotatedSessions = await annotateSessionCollectionVisibility(sessionsWithDrafts, projectPath);
-  const sessionsWithUiState = annotatedSessions.map((session) => applySessionUiState(
-    session,
-    projectPath,
-    'opencode',
-    config,
-  ));
-  const visibleSessions = includeHidden
-    ? sessionsWithUiState
-    : filterHiddenArchivedSessions(sessionsWithUiState);
-  const indexedVisibleSessions = attachSessionRouteIndices(
-    config,
-    projectPath,
-    'opencode',
-    visibleSessions,
-  );
-  if (indexedVisibleSessions.changed) {
-    await saveProjectConfig(config, projectPath);
-  }
-
-  return limit > 0 ? indexedVisibleSessions.sessions.slice(0, limit) : [...indexedVisibleSessions.sessions];
-}
-
-/**
  * PURPOSE: Recursively list Pi Coding Agent JSONL sessions.
  */
 async function listPiSessionFiles(rootDir = path.join(os.homedir(), '.pi', 'agent', 'sessions')) {
@@ -4671,7 +4336,6 @@ async function attachManualSessionNextRouteIndex(project, projectPath) {
   const currentStandaloneCount = (
     (Array.isArray(project.sessions) ? project.sessions.length : 0)
     + (Array.isArray(project.codexSessions) ? project.codexSessions.length : 0)
-    + (Array.isArray(project.opencodeSessions) ? project.opencodeSessions.length : 0)
     + (Array.isArray(project.piSessions) ? project.piSessions.length : 0)
   );
   project.manualSessionNextRouteIndex = getNextManualSessionRouteIndex(
@@ -4690,7 +4354,7 @@ async function attachManualSessionNextRouteIndex(project, projectPath) {
  * @param {boolean} includeClaudeSessions - Legacy flag; Claude sessions are no longer loaded.
  * @returns {Promise<void>}
  */
-async function populateProjectCollections(project, projectName, actualProjectDir, codexSessionsIndexRef, includeClaudeSessions = false, opencodeSessionsIndexRef = null) {
+async function populateProjectCollections(project, projectName, actualProjectDir, codexSessionsIndexRef, includeClaudeSessions = false) {
   const results = await Promise.allSettled([
     includeClaudeSessions
       ? getSessions(projectName, PROJECT_OVERVIEW_SESSION_LIMIT, 0, {
@@ -4704,15 +4368,10 @@ async function populateProjectCollections(project, projectName, actualProjectDir
       includeHidden: true,
       excludeWorkflowChildSessions: true,
     }),
-    getOpencodeSessions(actualProjectDir, {
-      indexRef: opencodeSessionsIndexRef,
-      includeHidden: true,
-      excludeWorkflowChildSessions: true,
-    }),
     getPiSessions(actualProjectDir),
   ]);
 
-  const [claudeResult, codexResult, opencodeResult, piResult] = results;
+  const [claudeResult, codexResult, piResult] = results;
 
   if (includeClaudeSessions) {
     if (claudeResult.status === 'fulfilled' && claudeResult.value) {
@@ -4735,13 +4394,6 @@ async function populateProjectCollections(project, projectName, actualProjectDir
   } else {
     console.warn(`Could not load Codex sessions for project ${projectName}:`, codexResult.reason?.message || codexResult.reason);
     project.codexSessions = [];
-  }
-
-  if (opencodeResult.status === 'fulfilled') {
-    project.opencodeSessions = opencodeResult.value;
-  } else {
-    console.warn(`Could not load OpenCode sessions for project ${projectName}:`, opencodeResult.reason?.message || opencodeResult.reason);
-    project.opencodeSessions = [];
   }
 
   if (piResult.status === 'fulfilled') {
@@ -5382,7 +5034,7 @@ function findWorkflowSessionRoute(project, sessionId) {
 }
 
 /**
- * Search across visible Codex/OpenCode transcripts or Codex JSONL identities.
+ * Search across visible Codex/Pi transcripts or Codex JSONL identities.
  * @param {string} query
  * @param {'content' | 'jsonl'} [mode='content']
  * @returns {Promise<Array<Record<string, unknown>>>}

@@ -1,6 +1,6 @@
 // @ts-nocheck -- Test isolation: strict types deferred. Tracked for incremental tightening.
 /**
- * PURPOSE: Verify across Codex/OpenCode/Pi that:
+ * PURPOSE: Verify across Codex/Pi that:
  *   1. Realtime agent_message payloads do NOT enter the DOM transcript directly.
  *   2. A content event triggers read-model invalidation, and after a provider-
  *      complete event the freshly persisted read-model content appears (Codex).
@@ -45,7 +45,6 @@ interface ProviderConfig {
 /** All three providers share the same convergent realtime handler structure. */
 const ALL_PROVIDERS: ProviderConfig[] = [
   { provider: 'codex', label: 'Codex', wsResponseType: 'codex-response', wsCompleteType: 'codex-complete', conversationId: 'c60' },
-  { provider: 'opencode', label: 'OpenCode', wsResponseType: 'opencode-response', wsCompleteType: 'opencode-complete', conversationId: 'c61' },
   { provider: 'pi', label: 'Pi', wsResponseType: 'pi-response', wsCompleteType: 'pi-complete', conversationId: 'c62' },
 ];
 
@@ -264,50 +263,15 @@ test.describe('Codex provider – content-event triggers read-model reload', () 
   });
 });
 
-// ── OpenCode/Pi: content-event → complete → reload → DOM update ─────────
+// ── Pi: content-event → complete → reload → DOM update ──────────────────
 //
-// The opencode-complete / pi-complete handlers call reloadCodexSessionMessages
-// unconditionally just like codex-complete.  The onNavigateToSession guard only
-// fires when pendingSessionId is in sessionStorage AND currentSessionId is null
-// — conditions that do not hold when a session is already loaded on-screen.
-//
-// NOTE: page.addInitScript registers per browser context, so using it inside a
-// for loop causes later iterations' scripts to overwrite earlier ones' globals.
-// Each provider therefore gets its own top-level describe with a dedicated
-// installFakeWebSocket + addInitScript pair.
-
-test.describe('OpenCode provider – content-event triggers read-model reload', () => {
-  const cfg = ALL_PROVIDERS[1]; // OpenCode
-  test.beforeEach(async ({ page }) => {
-    await resetWorkspaceProject();
-    await authenticatePage(page);
-    await writeInitialPersistedHistory(cfg);
-    await installFakeWebSocket(page, cfg);
-    await page.addInitScript(() => {
-      window.localStorage.setItem('selected-provider', 'opencode');
-    });
-  });
-
-  test('after content event + read-model update + complete, authoritative content appears via reload', async ({ page }) => {
-    const params = new URLSearchParams({
-      provider: cfg.provider,
-      projectPath: PRIMARY_FIXTURE_PROJECT_PATH,
-    });
-    await page.goto(`/session/${cfg.conversationId}?${params.toString()}`, { waitUntil: 'networkidle' });
-    await expect(page.getByText(PERSISTED_CONTENT)).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(REALTIME_NOISE)).not.toBeAttached({ timeout: 5_000 });
-
-    await appendContentToPersistedHistory(cfg);
-    await page.evaluate(() => { (window as any).__cbwTriggerReload?.(); });
-
-    await expect(page.getByText(RELOADED_CONTENT)).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(REALTIME_NOISE)).not.toBeAttached({ timeout: 5_000 });
-    await expect(page.getByText(PERSISTED_CONTENT)).toHaveCount(1);
-  });
-});
+// The pi-complete handler calls reloadCodexSessionMessages unconditionally just
+// like codex-complete.  The onNavigateToSession guard only fires when
+// pendingSessionId is in sessionStorage AND currentSessionId is null, which is
+// not true when a session is already loaded on-screen.
 
 test.describe('Pi provider – content-event triggers read-model reload', () => {
-  const cfg = ALL_PROVIDERS[2]; // Pi
+  const cfg = ALL_PROVIDERS[1]; // Pi
   test.beforeEach(async ({ page }) => {
     await resetWorkspaceProject();
     await authenticatePage(page);

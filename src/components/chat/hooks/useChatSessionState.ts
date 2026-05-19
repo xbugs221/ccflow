@@ -78,7 +78,7 @@ function resolveSessionProvider(
   selectedSession: ProjectSession | null,
 ): SessionProvider | null {
   const explicitProvider = selectedSession?.__provider || selectedSession?.provider;
-  if (explicitProvider === 'codex' || explicitProvider === 'opencode' || explicitProvider === 'pi') {
+  if (explicitProvider === 'codex' || explicitProvider === 'pi') {
     return explicitProvider;
   }
 
@@ -89,10 +89,6 @@ function resolveSessionProvider(
 
   if ((selectedProject.codexSessions || []).some((session) => session.id === sessionId)) {
     return 'codex';
-  }
-
-  if ((selectedProject.opencodeSessions || []).some((session) => session.id === sessionId)) {
-    return 'opencode';
   }
 
   if ((selectedProject.piSessions || []).some((session) => session.id === sessionId)) {

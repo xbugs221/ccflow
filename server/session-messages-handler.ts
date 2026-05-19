@@ -17,7 +17,7 @@ function isCcflowRouteSessionId(sessionId) {
  *
  * Resolves the provider from the query string (or guesses from session indexes),
  * then reads messages from the appropriate source (co conversation read model
- * for pi/opencode, native Codex JSONL for codex).
+ * for Pi, native Codex JSONL for codex).
  */
 export async function handleGetSessionMessages(req, res) {
     try {
@@ -29,7 +29,7 @@ export async function handleGetSessionMessages(req, res) {
         const parsedOffset = offset ? parseInt(offset, 10) : 0;
         const parsedAfterLine = afterLine != null ? parseInt(afterLine, 10) : null;
 
-        let resolvedProvider = provider === 'opencode' ? 'opencode' : provider === 'codex' ? 'codex' : provider === 'pi' ? 'pi' : null;
+        let resolvedProvider = provider === 'codex' ? 'codex' : provider === 'pi' ? 'pi' : null;
         let projectPath = null;
 
         if (isCcflowRouteSessionId(sessionId)) {
@@ -45,8 +45,7 @@ export async function handleGetSessionMessages(req, res) {
             // fall back to the generic path when no co conversation exists and
             // no manual draft runtimeContext provides a provider session id.
             const cNProvider = resolvedProvider
-                || (runtimeContext?.provider === 'opencode' ? 'opencode'
-                    : runtimeContext?.provider === 'pi' ? 'pi'
+                || (runtimeContext?.provider === 'pi' ? 'pi'
                     : 'codex');
 
             const coConversation = await findCoConversationForSession(sessionId, cNProvider);
@@ -70,7 +69,7 @@ export async function handleGetSessionMessages(req, res) {
                     ? await getCodexSessionMessages(providerSessionId, parsedLimit, parsedOffset, parsedAfterLine)
                     : await readCoConversationMessages(
                         coConversation,
-                        cNProvider === 'pi' ? 'pi' : 'opencode',
+                        'pi',
                         parsedLimit,
                         parsedOffset,
                     );
@@ -89,7 +88,7 @@ export async function handleGetSessionMessages(req, res) {
                     resolvedProvider = 'codex';
                 } else {
                     const piSessions = await getPiSessions(projectPath);
-                    resolvedProvider = piSessions.some((session) => session.id === sessionId) ? 'pi' : 'opencode';
+                    resolvedProvider = piSessions.some((session) => session.id === sessionId) ? 'pi' : 'codex';
                 }
             } catch (providerDetectionError) {
                 console.warn(
@@ -103,7 +102,7 @@ export async function handleGetSessionMessages(req, res) {
         // Non-cN codex sessions always read from native Codex JSONL.
         // Co conversations have cN route IDs (isCcflowRouteSessionId), so
         // any session reaching this branch is NOT co-owned for codex.
-        const nonCodexProvider = resolvedProvider === 'pi' ? 'pi' : 'opencode';
+        const nonCodexProvider = 'pi';
         const result = resolvedProvider === 'codex'
             ? await getCodexSessionMessages(sessionId, parsedLimit, parsedOffset, parsedAfterLine)
             : await readCoConversationMessages(

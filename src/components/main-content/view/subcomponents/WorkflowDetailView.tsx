@@ -73,10 +73,7 @@ function buildWorkflowSessionRouteOptions(
   workflowId: string;
   workflowStageKey?: string;
 } {
-  const normalizedProvider: SessionProvider = session.provider === 'opencode'
-    || (project.opencodeSessions || []).some((candidate) => candidate.id === session.id)
-    ? 'opencode'
-    : session.provider === 'pi'
+  const normalizedProvider: SessionProvider = session.provider === 'pi'
       || (project.piSessions || []).some((candidate) => candidate.id === session.id)
       ? 'pi'
       : 'codex';
@@ -153,14 +150,11 @@ function getWorkflowStageProvider(
   if (stageSession?.provider === 'codex') {
     return 'codex';
   }
-  if (stageSession?.provider === 'opencode') {
-    return 'opencode';
-  }
   if (stageSession?.provider === 'pi') {
     return 'pi';
   }
   const stageProvider = workflow.stageStatuses.find((stage) => stage.key === stageKey)?.provider;
-  return stageProvider === 'opencode' ? 'opencode' : stageProvider === 'pi' ? 'pi' : 'codex';
+  return stageProvider === 'pi' ? 'pi' : 'codex';
 }
 
 function renderTodoMarker(status: string) {

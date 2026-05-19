@@ -100,13 +100,6 @@
       "codex": {
         "description": "OpenAI Codex AI assistant"
       },
-      "opencode": {
-        "description": "OpenCode CLI assistant",
-        "available": "OpenCode available",
-        "connectedProviders": "Connected: {{providers}}",
-        "noProviders": "OpenCode available, no provider bound yet",
-        "providerStatusFailed": "OpenCode available, provider status read failed"
-      },
       "pi": {
         "description": "Pi coding agent manual session",
         "available": "CLI available",

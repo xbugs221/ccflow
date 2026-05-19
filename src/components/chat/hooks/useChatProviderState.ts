@@ -24,7 +24,7 @@ type CodexModelOption = {
   reasoningOptions: CodexReasoningOption[];
 };
 
-const SUPPORTED_PROVIDERS: SessionProvider[] = ['codex', 'opencode', 'pi'];
+const SUPPORTED_PROVIDERS: SessionProvider[] = ['codex', 'pi'];
 const FALLBACK_CODEX_MODEL_OPTIONS: CodexModelOption[] = [];
 const DEFAULT_CODEX_REASONING_OPTIONS: CodexReasoningOption[] = CODEX_REASONING_EFFORTS.OPTIONS.map((reasoningOption) => ({
   value: reasoningOption.value,

@@ -6,11 +6,9 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import Database from 'better-sqlite3';
 
 import {
   addProjectManually,
-  buildOpencodeSessionsIndexFromSqlite,
   clearProjectDirectoryCache,
   getProjects,
 } from '../server/projects.ts';
@@ -23,12 +21,10 @@ import { buildFileTree } from '../src/components/chat/utils/fileMentionTree.ts';
 async function withIsolatedHome(testBody: (homeDir: string) => Promise<void>): Promise<void> {
   const originalHome = process.env.HOME;
   const originalXdgStateHome = process.env.XDG_STATE_HOME;
-  const originalOpencodeDbPath = process.env.OPENCODE_DB_PATH;
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cbw-change-39-'));
 
   process.env.HOME = homeDir;
   process.env.XDG_STATE_HOME = path.join(homeDir, '.local', 'state');
-  delete process.env.OPENCODE_DB_PATH;
   clearProjectDirectoryCache();
 
   try {
@@ -44,11 +40,6 @@ async function withIsolatedHome(testBody: (homeDir: string) => Promise<void>): P
       process.env.XDG_STATE_HOME = originalXdgStateHome;
     } else {
       delete process.env.XDG_STATE_HOME;
-    }
-    if (originalOpencodeDbPath) {
-      process.env.OPENCODE_DB_PATH = originalOpencodeDbPath;
-    } else {
-      delete process.env.OPENCODE_DB_PATH;
     }
     await fs.rm(homeDir, { recursive: true, force: true });
   }
@@ -70,14 +61,14 @@ test('home discovery returns manual projects when a Codex index is slower than t
 
     await fs.mkdir(projectPath, { recursive: true });
     await fs.mkdir(codexSessionsRoot, { recursive: true });
-    await addProjectManually(projectPath, 'Manual Project');
+    await addProjectManually(projectPath);
     clearProjectDirectoryCache();
 
-    fs.readdir = async (...args) => {
+    (fs as unknown as { readdir: typeof fs.readdir }).readdir = async (...args: any[]) => {
       if (path.resolve(String(args[0])) === path.resolve(codexSessionsRoot)) {
         await new Promise((resolve) => setTimeout(resolve, 3000));
       }
-      return originalReaddir(...args);
+      return (originalReaddir as any)(...args);
     };
 
     try {
@@ -88,15 +79,14 @@ test('home discovery returns manual projects when a Codex index is slower than t
       assert.equal(projects.some((project) => project.fullPath === projectPath), true);
       assert.ok(durationMs < 3500, `expected budgeted home fallback, got ${durationMs}ms`);
     } finally {
-      fs.readdir = originalReaddir;
+      (fs as unknown as { readdir: typeof fs.readdir }).readdir = originalReaddir;
     }
   });
 });
 
-test('provider-only discovery keeps mixed-provider sessions on one project', async () => {
+test('provider-only discovery keeps Codex and Pi sessions on one project', async () => {
   await withIsolatedHome(async (homeDir) => {
     const sharedProjectPath = path.join(homeDir, 'work', 'shared-project');
-    const dbPath = path.join(homeDir, '.local', 'share', 'opencode', 'opencode.db');
 
     await fs.mkdir(sharedProjectPath, { recursive: true });
     await writeJsonl(
@@ -108,30 +98,12 @@ test('provider-only discovery keeps mixed-provider sessions on one project', asy
       [JSON.stringify({ type: 'session', id: 'pi-shared', timestamp: '2026-05-18T01:01:00.000Z', cwd: sharedProjectPath })],
     );
 
-    await fs.mkdir(path.dirname(dbPath), { recursive: true });
-    const db = new Database(dbPath);
-    db.exec(`
-      create table session (
-        id text primary key,
-        title text,
-        directory text,
-        time_created text,
-        time_updated text,
-        project_id text,
-        agent text,
-        model text
-      );
-      insert into session values ('oc-shared', 'OpenCode shared', '${sharedProjectPath.replace(/'/g, "''")}', '2026-05-18T03:00:00.000Z', '2026-05-18T03:00:00.000Z', 'project-1', 'agent', 'model');
-    `);
-    db.close();
-
     const projects = await getProjects();
     const sharedProject = projects.find((project) => project.fullPath === sharedProjectPath);
 
     assert.ok(sharedProject, 'shared provider-only project should be discovered');
-    assert.equal(sharedProject.codexSessions.some((session) => session.provider === 'codex'), true);
-    assert.equal(sharedProject.piSessions.some((session) => session.provider === 'pi'), true);
-    assert.equal(sharedProject.opencodeSessions.some((session) => session.provider === 'opencode'), true);
+    assert.equal(sharedProject.codexSessions.some((session: { provider?: string }) => session.provider === 'codex'), true);
+    assert.equal(sharedProject.piSessions.some((session: { provider?: string }) => session.provider === 'pi'), true);
   });
 });
 
@@ -147,45 +119,14 @@ test('provider-only discovery caps the project list at 50 entries', async () => 
     }
 
     const projects = await getProjects();
-    const providerOnlyProjects = projects.filter((project) => !project.isManuallyAdded);
+    const providerOnlyProjects = projects.filter((project: { isManuallyAdded?: boolean }) => !project.isManuallyAdded);
 
     assert.ok(providerOnlyProjects.length <= 50, `provider-only projects should be capped at 50, got ${providerOnlyProjects.length}`);
   });
 });
 
-test('OpenCode SQLite headers expose unknown message counts instead of zero', async () => {
-  await withIsolatedHome(async (homeDir) => {
-    const projectPath = path.join(homeDir, 'work', 'opencode-project');
-    const dbPath = path.join(homeDir, '.local', 'share', 'opencode', 'opencode.db');
-
-    await fs.mkdir(projectPath, { recursive: true });
-    await fs.mkdir(path.dirname(dbPath), { recursive: true });
-    const db = new Database(dbPath);
-    db.exec(`
-      create table session (
-        id text primary key,
-        title text,
-        directory text,
-        time_created text,
-        time_updated text,
-        project_id text,
-        agent text,
-        model text
-      );
-      insert into session values ('oc-header', 'Header only', '${projectPath.replace(/'/g, "''")}', '2026-05-18T04:00:00.000Z', '2026-05-18T04:00:00.000Z', 'project-2', 'agent', 'model');
-    `);
-    db.close();
-
-    const sessions = buildOpencodeSessionsIndexFromSqlite(dbPath)
-      .then((index) => index?.get(path.resolve(projectPath)) || []);
-
-    assert.equal((await sessions)[0]?.messageCount, null);
-    assert.equal((await sessions)[0]?.messageCountKnown, false);
-  });
-});
-
 test('file mention search is bounded, fuzzy, and keeps expandable tree paths', () => {
-  const files: MentionableFile[] = Array.from({ length: 100 }, (_, index) => ({
+  const files: MentionableFile[] = Array.from({ length: 100 }, (_, index: number) => ({
     name: index === 42 ? 'SettlementPolicy.ts' : `GeneratedFile${index}.ts`,
     path: index === 42 ? 'src/domain/SettlementPolicy.ts' : `src/generated/GeneratedFile${index}.ts`,
   }));

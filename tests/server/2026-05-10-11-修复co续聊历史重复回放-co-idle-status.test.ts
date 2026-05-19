@@ -28,7 +28,7 @@ async function writeFakeCoBinary(binDir, coHome) {
   await fs.writeFile(coPath, [
     '#!/bin/sh',
     'if [ "$1" = "doctor" ] && [ "$2" = "--json" ]; then',
-    `  printf '%s\\n' '{"ok":true,"contract":"co-request-v1","version":"test","home":"${coHome}","providers":{"codex":true,"opencode":true}}'`,
+    `  printf '%s\\n' '{"ok":true,"contract":"co-request-v1","version":"test","home":"${coHome}","providers":{"codex":true,"pi":true}}'`,
     '  exit 0',
     'fi',
     'exit 1',

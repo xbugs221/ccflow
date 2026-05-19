@@ -25,7 +25,7 @@ async function writeFakeCommand(binDir, name, body) {
   return filePath;
 }
 
-test('co doctor boolean provider schema marks OpenCode available', () => {
+test('co doctor boolean provider schema ignores removed OpenCode provider', () => {
   const normalized = normalizeCoProviders({
     codex: true,
     opencode: true,
@@ -33,13 +33,12 @@ test('co doctor boolean provider schema marks OpenCode available', () => {
 
   assert.deepEqual(normalized, {
     codex: { available: true },
-    opencode: { available: true },
     pi: { available: false },
   });
-  assert.equal(isCoProviderAvailable({ providers: { opencode: true } }, 'opencode'), true);
+  assert.equal(isCoProviderAvailable({ providers: { opencode: true } }, 'opencode'), false);
 });
 
-test('OpenCode provider false fails before callers write pending requests', () => {
+test('removed OpenCode provider false fails before callers write pending requests', () => {
   const previousPath = process.env.PATH;
   process.env.PATH = '/tmp/cbw-provider-false';
   try {

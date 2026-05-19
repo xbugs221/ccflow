@@ -114,7 +114,7 @@ async function writeFakeCoWithPi(binDir, coHome, includePi = true) {
   await fs.writeFile(coPath, [
     '#!/bin/sh',
     'if [ "$1" = "doctor" ] && [ "$2" = "--json" ]; then',
-    `  printf '%s\\n' '{"ok":true,"contract":"co-request-v1","version":"test","home":"${coHome.replace(/'/g, "'\\''")}","providers":{"codex":true,"opencode":true,${piProvider}}}'`,
+    `  printf '%s\\n' '{"ok":true,"contract":"co-request-v1","version":"test","home":"${coHome.replace(/'/g, "'\\''")}","providers":{"codex":true,${piProvider}}}'`,
     '  exit 0',
     'fi',
     'exit 1',
@@ -423,7 +423,6 @@ test('get-active-sessions includes pi when Pi turns are running', async () => {
     assert.ok(activeMsg.sessions, 'must include sessions object');
     assert.ok(Array.isArray(activeMsg.sessions.pi), 'must include pi key as an array');
     assert.ok(Array.isArray(activeMsg.sessions.codex), 'must include codex key as an array');
-    assert.ok(Array.isArray(activeMsg.sessions.opencode), 'must include opencode key as an array');
 
     ws.close();
   } finally {

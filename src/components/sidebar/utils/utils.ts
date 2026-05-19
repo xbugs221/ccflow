@@ -179,13 +179,6 @@ export const getAllSessions = (
       __provider: 'codex' as const,
     }));
 
-  const opencodeSessions = (project.opencodeSessions || [])
-    .filter((session) => includeHidden || isVisibleByDefault(session))
-    .map((session) => ({
-      ...session,
-      __provider: 'opencode' as const,
-    }));
-
   const piSessions = (project.piSessions || [])
     .filter((session) => includeHidden || isVisibleByDefault(session))
     .map((session) => ({
@@ -193,7 +186,7 @@ export const getAllSessions = (
       __provider: 'pi' as const,
     }));
 
-  return [...codexSessions, ...opencodeSessions, ...piSessions].sort(compareSessionsByCreationNumber);
+  return [...codexSessions, ...piSessions].sort(compareSessionsByCreationNumber);
 };
 
 /**

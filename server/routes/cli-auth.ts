@@ -16,11 +16,6 @@ router.get('/claude/status', async (req: express.Request, res: express.Response)
   });
 });
 
-// OpenCode status is now handled by routes/opencode.ts, which runs the real
-// CLI to return provider details. This stub is intentionally removed so the
-// more specific /api/cli/opencode mount takes precedence.
-// router.get('/opencode/status', ...) — removed.
-
 /**
  * Pi CLI status check: only verifies the pi binary is visible to the service
  * process. Does NOT return API keys, tokens, or credentials.
